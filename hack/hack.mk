@@ -60,7 +60,7 @@ virsh-shutdown:
 	virsh --connect qemu:///system shutdown feos --mode acpi
 
 network:
-	sudo brctl addbr vm-br0
+	sudo ip link add name vm-br0 type bridge
 	sudo ip link set up dev vm-br0
 	sudo ip addr add fe80::1/64 dev vm-br0
 	sudo ip addr add 169.254.42.1/24 dev vm-br0
