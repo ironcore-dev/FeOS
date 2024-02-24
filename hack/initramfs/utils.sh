@@ -5,9 +5,10 @@ copy_lib() {
 }
 
 install_libs() {
-    echo "  installing libs for $1"
+    if ! ldd "$1" | grep "so"; then
+        return
+    fi
     
-    set +e
     libs=$(ldd $1 \
         | grep so \
         | sed -e '/^[^\t]/ d' \
@@ -21,9 +22,6 @@ install_libs() {
         | cut -d' ' -f2 \
         | grep "^/")
 
-    set -e
-    [[ $? -ne 0 ]] && return
-    
     for l in ${libs[@]}; do
         copy_lib $l
     done
