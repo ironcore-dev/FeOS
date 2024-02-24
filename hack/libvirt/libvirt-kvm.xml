@@ -10,7 +10,7 @@
   <os firmware="efi">
     <type arch="x86_64" machine="q35">hvm</type>
     <kernel>__PWD__/target/uki.efi</kernel>
-    <loader readonly="yes" type="pflash">/usr/share/edk2/x64/OVMF_CODE.fd</loader>
+    <loader readonly="yes" type="pflash">/usr/share/OVMF/OVMF_CODE_4M.fd</loader>
     <boot dev="hd"/>
   </os>
   <features>

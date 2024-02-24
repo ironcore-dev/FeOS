@@ -2,10 +2,10 @@ clippy:
 	cargo clippy
 
 all: clippy
-	cargo build
+	cargo build --target=x86_64-unknown-linux-musl --all
 
 release: clippy
-	cargo build --release
+	cargo build --release --target=x86_64-unknown-linux-musl --all
 
 run: all
 	./target/debug/feos
