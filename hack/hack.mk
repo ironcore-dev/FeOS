@@ -15,6 +15,7 @@ container-release:
 kernel:
 	mkdir -p target/rootfs/boot
 	docker run --rm -u $${UID} -v "`pwd`:/feos" feos-builder bash -c "cd hack/kernel && ./mk-kernel"
+	cp hack/kernel/cmdline.txt target/cmdline
 
 menuconfig:
 	docker run -it --rm -u $${UID} -v "`pwd`:/feos" feos-builder bash -c "cd hack/kernel && ./mk-menuconfig"
@@ -40,11 +41,10 @@ uki: keys
 	  --os-release @/feos/hack/uki/os-release.txt \
 	  --linux /feos/target/kernel/vmlinuz \
 	  --initrd /feos/target/initramfs.zst \
-	  --cmdline @/feos/hack/uki/cmdline.txt \
+	  --cmdline @/feos/hack/kernel/cmdline.txt \
 	  --secureboot-private-key /feos/keys/secureboot.key \
 	  --secureboot-certificate /feos/keys/secureboot.pem \
 	  --output /feos/target/uki.efi
-	cp hack/uki/cmdline.txt target/cmdline
 
 virsh-start:
 	./hack/libvirt/init.sh libvirt-kvm.xml
@@ -64,3 +64,6 @@ network:
 	sudo ip link set up dev vm-br0
 	sudo ip addr add fe80::1/64 dev vm-br0
 	sudo ip addr add 169.254.42.1/24 dev vm-br0
+
+run-vm:
+	sudo cloud-hypervisor --cpus boot=4 --memory size=1024M --net tap=tap0 --serial tty --kernel target/kernel/vmlinuz --initramfs target/initramfs.zst --cmdline "$(shell cat target/cmdline)"
