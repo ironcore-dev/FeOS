@@ -38,7 +38,7 @@ If you want to run FeOS within a [cloud-hypervisor](https://www.cloudhypervisor.
         --memory size=1024M \
         --net tap=tap0 \
         --serial tty \
-        --kernel target/kernel/vmlinux.bin \
+        --kernel target/kernel/vmlinuz \
         --initramfs target/initramfs.zst \
         --cmdline "`cat target/cmdline`"
 
