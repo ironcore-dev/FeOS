@@ -1,7 +1,0 @@
-#!/bin/bash
-
-docker rmi feos-builder
-
-set -e
-docker pull rust:1-bookworm
-docker build . -t feos-builder
