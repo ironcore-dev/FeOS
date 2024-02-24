@@ -37,8 +37,6 @@ make -j`nproc`
 mkdir -p ${TARGET_DIR}/kernel
 cp -v arch/x86/boot/bzImage ${TARGET_DIR}/kernel/vmlinuz-$KERNEL_VERSION
 ln -sf vmlinuz-$KERNEL_VERSION ${TARGET_DIR}/kernel/vmlinuz
-cp -v arch/x86/boot/compressed/vmlinux.bin ${TARGET_DIR}/kernel/vmlinux.bin-$KERNEL_VERSION
-ln -sf vmlinux.bin-$KERNEL_VERSION ${TARGET_DIR}/kernel/vmlinux.bin
 cp -v System.map ${TARGET_DIR}/kernel/System.map-$KERNEL_VERSION
 cp -v .config ${TARGET_DIR}/kernel/config-$KERNEL_VERSION
 
