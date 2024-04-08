@@ -51,6 +51,7 @@ async fn main() -> Result<(), String> {
             "fuck".to_string()
         })?;
     */
+
     info!("Configuring network devices...");
     configure_network_devices()
         .await

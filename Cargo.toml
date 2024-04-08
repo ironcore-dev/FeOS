@@ -13,15 +13,16 @@ enum_glob_use = "deny"
 
 [dependencies]
 futures = "0.3.29"
-netlink-packet-route = "0.19.0"
-rtnetlink = "0.14.0"
-
 nix = { version = "0.28.0", features = ["mount", "user"] }
 tokio = { version = "1.35.0", features = ["full", "macros", "rt-multi-thread"] }
 log = "0.4.20"
 simple_logger = "4.3.0"
 tonic = "0.11"
 prost = "0.12"
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+netlink-packet-route = "0.19.0"
+rtnetlink = "0.14.0"
 
 [build-dependencies]
 tonic-build = "0.11.0"

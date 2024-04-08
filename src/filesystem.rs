@@ -1,6 +1,13 @@
 use log::debug;
+#[cfg(target_os = "linux")]
 use nix::mount::{mount, MsFlags};
 
+#[cfg(not(target_os = "linux"))]
+pub fn mount_virtual_filesystems() {
+    debug!("Skip mount if other than linux");
+}
+
+#[cfg(target_os = "linux")]
 pub fn mount_virtual_filesystems() {
     const NONE: Option<&'static [u8]> = None;
 
