@@ -2,6 +2,7 @@ extern crate nix;
 mod daemon;
 mod filesystem;
 mod network;
+mod dhcpv6;
 
 use crate::daemon::daemon_start;
 use crate::filesystem::mount_virtual_filesystems;
