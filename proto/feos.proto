@@ -3,6 +3,44 @@ package feos_grpc;
 
 service FeosGrpc {
     rpc Ping (Empty) returns (Empty);
+    
+    rpc FetchImage (FetchImageRequest) returns (FetchImageResponse);
+
+    rpc CreateVM (CreateVMRequest) returns (CreateVMResponse);
+    rpc GetVM (GetVMRequest) returns (GetVMResponse);
+    rpc BootVM (BootVMRequest) returns (BootVMResponse);
 }
 
 message Empty {}
+
+
+message FetchImageRequest {
+  string image = 1;
+}
+
+message FetchImageResponse {
+  string uuid = 1;
+}
+
+
+message CreateVMRequest {
+  uint32 cpu = 1; 
+  uint64 memory_bytes = 2; 
+  string image_uuid = 3;
+}
+
+message CreateVMResponse {
+  string uuid = 1;
+}
+
+message GetVMRequest {
+    string uuid = 1;
+}
+message GetVMResponse {
+  string info = 1;
+}
+
+message BootVMRequest {
+    string uuid = 1;
+}
+message BootVMResponse {}

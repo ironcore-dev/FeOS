@@ -22,6 +22,13 @@ log = "0.4.20"
 simple_logger = "4.3.0"
 tonic = "0.11"
 prost = "0.12"
+bitflags = "2.5.0"
+uuid = { version = "1.8.0", features = ["v4"] }
+oci-distribution = "0.11.0"
+serde = "1.0.197"
+serde_json = "1.0.115"
+api_client = { version = "0.1.0", git = "https://github.com/cloud-hypervisor/cloud-hypervisor"  }
+openssl = { version = "0.10", features = ["vendored"] }
 
 [build-dependencies]
 tonic-build = "0.11.0"
