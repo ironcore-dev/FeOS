@@ -17,19 +17,19 @@ use pnet::{
     util::MacAddr,
 };
 
-pub fn mac_to_ipv6_link_local(mac: Vec<u8>) -> Option<Ipv6Addr> {
-    if mac.len() == 6 {
+pub fn mac_to_ipv6_link_local(mac_address: &[u8]) -> Option<Ipv6Addr> {
+    if mac_address.len() == 6 {
         let mut bytes = [0u8; 16];
         bytes[0] = 0xfe;
         bytes[1] = 0x80;
-        bytes[8] = mac[0] ^ 0b00000010;
-        bytes[9] = mac[1];
-        bytes[10] = mac[2];
+        bytes[8] = mac_address[0] ^ 0b00000010;
+        bytes[9] = mac_address[1];
+        bytes[10] = mac_address[2];
         bytes[11] = 0xff;
         bytes[12] = 0xfe;
-        bytes[13] = mac[3];
-        bytes[14] = mac[4];
-        bytes[15] = mac[5];
+        bytes[13] = mac_address[3];
+        bytes[14] = mac_address[4];
+        bytes[15] = mac_address[5];
         Some(Ipv6Addr::from(bytes))
     } else {
         None
@@ -72,7 +72,7 @@ fn send_router_solicitation(interface: &NetworkInterface, tx: &mut dyn datalink:
     }
 }
 
-pub fn is_dhcpv6_needed(interface_name: String) -> bool {
+pub fn is_dhcpv6_needed(interface_name: String, ignore_ra_flag:bool) -> bool {
     let interface_names_match = |iface: &datalink::NetworkInterface| iface.name == interface_name;
 	let mut sender_ipv6_address :Ipv6Addr;
 
@@ -90,37 +90,33 @@ pub fn is_dhcpv6_needed(interface_name: String) -> bool {
 	info!("Sending Router Solicitation ...");
     send_router_solicitation(&interface, &mut *tx);
 
-	loop {
-		match rx.next() {
-			Ok(raw_packet) => {
-				let ethernet_packet = EthernetPacket::new(raw_packet).unwrap();
-				if ethernet_packet.get_ethertype() == EtherTypes::Ipv6 {
-					info!("Router Advertisement processing starting ... ");
-					let payload = ethernet_packet.payload();
-					let ipv6_packet = Ipv6Packet::new(payload).unwrap();
-					sender_ipv6_address = ipv6_packet.get_source();
-					info!("Router Address received: {}", sender_ipv6_address);
-					if let Some(icmp_packet) = Icmpv6Packet::new(ipv6_packet.payload()) {
-						if icmp_packet.get_icmpv6_type() == Icmpv6Types::RouterAdvert {
-							if let Some(router_advert) = RouterAdvertPacket::new(ipv6_packet.payload()) {
-								info!("Router Flags: {}", router_advert.get_flags());
-								return (router_advert.get_flags() & 0xC0) == 0xC0;
-							} else {
-								warn!("Failed to parse Router Advertisement packet");
-							}
-						} else {
-							warn!("Received ICMPv6 type: {:?}", icmp_packet.get_icmpv6_type());
+	while let Ok(raw_packet) = rx.next() {
+		let ethernet_packet = EthernetPacket::new(raw_packet).unwrap();
+		if ethernet_packet.get_ethertype() == EtherTypes::Ipv6 {
+			info!("Router Advertisement processing starting ... ");
+			let payload = ethernet_packet.payload();
+			let ipv6_packet = Ipv6Packet::new(payload).unwrap();
+			sender_ipv6_address = ipv6_packet.get_source();
+			info!("Router Address received: {}", sender_ipv6_address);
+			if let Some(icmp_packet) = Icmpv6Packet::new(ipv6_packet.payload()) {
+				if icmp_packet.get_icmpv6_type() == Icmpv6Types::RouterAdvert {
+					if let Some(router_advert) = RouterAdvertPacket::new(ipv6_packet.payload()) {
+						info!("Router Flags: {}", router_advert.get_flags());
+						if (router_advert.get_flags() & 0xC0) == 0xC0 || ignore_ra_flag {
+							break;
 						}
 					} else {
-						warn!("Failed to parse as ICMPv6 Packet");
+						warn!("Failed to parse Router Advertisement packet");
 					}
+				} else {
+					warn!("Received ICMPv6 type: {:?}", icmp_packet.get_icmpv6_type());
 				}
-			},
-			Err(e) => {
-				error!("An error occurred while reading: {}", e);
+			} else {
+				warn!("Failed to parse as ICMPv6 Packet");
 			}
 		}
 	}
+	true
 }
 
 pub async fn run_dhcpv6_client(interface_name: String) -> Result<(), Box<dyn std::error::Error>> {

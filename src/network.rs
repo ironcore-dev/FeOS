@@ -31,7 +31,7 @@ pub async fn configure_network_devices() -> Result<(), String> {
         match attr {
             netlink_packet_route::link::LinkAttribute::Address(mac_bytes) => {
                 info!("  mac: {}", format_mac(mac_bytes.clone()));
-				match mac_to_ipv6_link_local(mac_bytes) {
+				match mac_to_ipv6_link_local(&mac_bytes) {
 					// Calculate and set mac based link local ipv6, otherwise linux kernel RA handling will not kick in
 					Some(ipv6_ll_addr) =>  {
 						set_ipv6_address(&handle, &interface_name, ipv6_ll_addr, 64)
@@ -72,7 +72,7 @@ pub async fn configure_network_devices() -> Result<(), String> {
         }
     }
 
-    if is_dhcpv6_needed(interface_name.clone()) || ignore_ra_flag {
+    if is_dhcpv6_needed(interface_name.clone(), ignore_ra_flag) {
         time::sleep(Duration::from_secs(4)).await;
         run_dhcpv6_client(interface_name).await.unwrap();
     }
