@@ -19,6 +19,13 @@ mkdir -pv {etc,var,lib64,lib,run,tmp} usr/{bin,lib,sbin} lib/x86_64-linux-gnu us
 
 mkdir -pv {proc,dev,sys}
 
+cat <<EOF >>etc/hosts
+127.0.0.1    localhost
+127.0.1.1    feos
+::1          localhost feos
+EOF
+
+echo "feos" > etc/hostname
 
 
 echo "Install libraries for FeOS (copy from host)"
