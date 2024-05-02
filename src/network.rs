@@ -1,12 +1,12 @@
+use crate::dhcpv6::*;
 use futures::stream::TryStreamExt;
 use log::{info, warn};
 use rtnetlink::new_connection;
 use tokio::time::{self, Duration};
-use crate::dhcpv6::*;
 
 pub async fn configure_network_devices() -> Result<(), String> {
     let ignore_ra_flag = true; // Till the RA has the correct flags (O or M), ignore the flag
-	let interface_name = String::from("eth0");
+    let interface_name = String::from("eth0");
     let (connection, handle, _) = new_connection().unwrap();
     tokio::spawn(connection);
 
@@ -22,24 +22,33 @@ pub async fn configure_network_devices() -> Result<(), String> {
         .map_err(|e| format!("{} not found: {}", interface_name, e))?
         .ok_or("option A empty".to_string())?;
 
-    handle.link().set(link.header.index).up().execute()
-					 .await
-					 .map_err(|e| format!("{} can not be set up: {}", interface_name, e))?;
+    handle
+        .link()
+        .set(link.header.index)
+        .up()
+        .execute()
+        .await
+        .map_err(|e| format!("{} can not be set up: {}", interface_name, e))?;
 
     info!("{}:", interface_name);
     for attr in link.attributes {
         match attr {
             netlink_packet_route::link::LinkAttribute::Address(mac_bytes) => {
                 info!("  mac: {}", format_mac(mac_bytes.clone()));
-				match mac_to_ipv6_link_local(&mac_bytes) {
-					// Calculate and set mac based link local ipv6, otherwise linux kernel RA handling will not kick in
-					Some(ipv6_ll_addr) =>  {
-						set_ipv6_address(&handle, &interface_name, ipv6_ll_addr, 64)
-										.await
-										.map_err(|e| format!("{} can not set link local ipv6 address: {}", interface_name, e))?;
-					},
-					None => warn!("Invalid MAC address length"),
-				}
+                match mac_to_ipv6_link_local(&mac_bytes) {
+                    // Calculate and set mac based link local ipv6, otherwise linux kernel RA handling will not kick in
+                    Some(ipv6_ll_addr) => {
+                        set_ipv6_address(&handle, &interface_name, ipv6_ll_addr, 64)
+                            .await
+                            .map_err(|e| {
+                                format!(
+                                    "{} can not set link local ipv6 address: {}",
+                                    interface_name, e
+                                )
+                            })?;
+                    }
+                    None => warn!("Invalid MAC address length"),
+                }
             }
             netlink_packet_route::link::LinkAttribute::Carrier(carrier) => {
                 info!("  carrier: {}", carrier);

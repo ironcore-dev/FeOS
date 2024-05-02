@@ -1,9 +1,9 @@
 extern crate nix;
 mod daemon;
+mod dhcpv6;
 mod filesystem;
 mod network;
 mod vm;
-mod dhcpv6;
 
 use crate::daemon::daemon_start;
 use crate::filesystem::mount_virtual_filesystems;
@@ -58,10 +58,7 @@ async fn main() -> Result<(), String> {
         .await
         .expect("could not configure network devices");
 
-
-    let vmm =  vm::Manager::new(
-        String::from("cloud-hypervisor"),
-    );
+    let vmm = vm::Manager::new(String::from("cloud-hypervisor"));
 
     info!("Starting FeOS daemon...");
     match daemon_start(vmm).await {
