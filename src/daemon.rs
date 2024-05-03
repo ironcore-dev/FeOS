@@ -1,13 +1,18 @@
 use log::info;
-use tonic::{transport::Server, Request, Response, Status};
 use std::path::PathBuf;
+use tonic::{transport::Server, Request, Response, Status};
 
+use crate::host;
 use feos_grpc::feos_grpc_server::{FeosGrpc, FeosGrpcServer};
 use feos_grpc::Empty;
-use tokio::time::Duration;
+use tokio::time::{sleep, Duration};
 use uuid::Uuid;
 
-use self::feos_grpc::{CreateVmRequest, CreateVmResponse, GetVmResponse, GetVmRequest, BootVmRequest, BootVmResponse, FetchImageRequest, FetchImageResponse};
+use self::feos_grpc::{
+    BootVmRequest, BootVmResponse, CreateVmRequest, CreateVmResponse, FetchImageRequest,
+    FetchImageResponse, GetVmRequest, GetVmResponse, RebootRequest, RebootResponse,
+    ShutdownRequest, ShutdownResponse,
+};
 use crate::vm::{self};
 
 pub mod feos_grpc {
@@ -33,8 +38,6 @@ impl FeosGrpc for FeOSAPI {
         Ok(Response::new(reply)) // Send back our formatted greeting
     }
 
-
-
     async fn fetch_image(
         &self,
         request: Request<FetchImageRequest>,
@@ -49,10 +52,38 @@ impl FeosGrpc for FeOSAPI {
                 Err(e) => info!("failed to pull image: {:?}", e),
             }
         });
-        
-        Ok(Response::new(feos_grpc::FetchImageResponse{uuid: id.to_string()}))
+
+        Ok(Response::new(feos_grpc::FetchImageResponse {
+            uuid: id.to_string(),
+        }))
     }
 
+    async fn reboot(&self, _: Request<RebootRequest>) -> Result<Response<RebootResponse>, Status> {
+        info!("Got reboot request");
+        tokio::spawn(async {
+            sleep(Duration::from_secs(1)).await;
+            match host::power::reboot() {
+                Ok(_) => info!("reboot"),
+                Err(e) => info!("failed to reboot: {:?}", e),
+            }
+        });
+        Ok(Response::new(feos_grpc::RebootResponse {}))
+    }
+
+    async fn shutdown(
+        &self,
+        _: Request<ShutdownRequest>,
+    ) -> Result<Response<ShutdownResponse>, Status> {
+        info!("Got shutdown request");
+        tokio::spawn(async {
+            sleep(Duration::from_secs(1)).await;
+            match host::power::shutdown() {
+                Ok(_) => info!("shutdown"),
+                Err(e) => info!("failed to shutdown: {:?}", e),
+            }
+        });
+        Ok(Response::new(feos_grpc::ShutdownResponse {}))
+    }
 
     async fn create_vm(
         &self,
@@ -66,32 +97,27 @@ impl FeosGrpc for FeOSAPI {
             Status::unknown("failed to init vvm")
         })?;
 
-        let root_fs = PathBuf::from(format!("./images/{}/application.vnd.ironcore.image.rootfs.v1alpha1.rootfs", request.get_ref().image_uuid));
-        self.vmm.create_vm(id, request.get_ref().cpu, request.get_ref().memory_bytes, root_fs).map_err(|e| {
-            info!("failed to create vm: {:?}", e);
-            Status::unknown("failed to create vm")
-        })?;
+        let root_fs = PathBuf::from(format!(
+            "./images/{}/application.vnd.ironcore.image.rootfs.v1alpha1.rootfs",
+            request.get_ref().image_uuid
+        ));
+        self.vmm
+            .create_vm(
+                id,
+                request.get_ref().cpu,
+                request.get_ref().memory_bytes,
+                root_fs,
+            )
+            .map_err(|e| {
+                info!("failed to create vm: {:?}", e);
+                Status::unknown("failed to create vm")
+            })?;
 
-        Ok(Response::new(feos_grpc::CreateVmResponse{uuid: id.to_string()}))
+        Ok(Response::new(feos_grpc::CreateVmResponse {
+            uuid: id.to_string(),
+        }))
     }
 
-    async fn boot_vm(
-        &self,
-        request: Request<BootVmRequest>,
-    ) -> Result<Response<BootVmResponse>, Status> {
-        info!("Got boot_vm request");
-
-        let id = request.get_ref().uuid.to_owned();
-        let id = Uuid::parse_str(&id).map_err(|_| Status::invalid_argument("failed to parse uuid"))?;
-        self.vmm.boot_vm(id).map_err(|e| {
-            info!("failed to boot vm: {:?}", e);
-            Status::unknown("failed to boot vm")
-        })?;
-    
-        Ok(Response::new(feos_grpc::BootVmResponse{}))
-    }
-
-    
     async fn get_vm(
         &self,
         request: Request<GetVmRequest>,
@@ -99,7 +125,8 @@ impl FeosGrpc for FeOSAPI {
         info!("Got get_vm request");
 
         let id = request.get_ref().uuid.to_owned();
-        let id = Uuid::parse_str(&id).map_err(|_| Status::invalid_argument("failed to parse uuid"))?;
+        let id =
+            Uuid::parse_str(&id).map_err(|_| Status::invalid_argument("failed to parse uuid"))?;
         self.vmm.ping_vmm(id).map_err(|e| {
             info!("failed to ping vvm: {:?}", e);
             Status::unknown("failed to ping vvm")
@@ -109,15 +136,31 @@ impl FeosGrpc for FeOSAPI {
             Status::unknown("failed to get vm")
         })?;
 
-        Ok(Response::new(feos_grpc::GetVmResponse{info: vm_status})) 
+        Ok(Response::new(feos_grpc::GetVmResponse { info: vm_status }))
+    }
+
+    async fn boot_vm(
+        &self,
+        request: Request<BootVmRequest>,
+    ) -> Result<Response<BootVmResponse>, Status> {
+        info!("Got boot_vm request");
+
+        let id = request.get_ref().uuid.to_owned();
+        let id =
+            Uuid::parse_str(&id).map_err(|_| Status::invalid_argument("failed to parse uuid"))?;
+        self.vmm.boot_vm(id).map_err(|e| {
+            info!("failed to boot vm: {:?}", e);
+            Status::unknown("failed to boot vm")
+        })?;
+
+        Ok(Response::new(feos_grpc::BootVmResponse {}))
     }
 }
 
-pub async fn daemon_start(vmm : vm::Manager) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn daemon_start(vmm: vm::Manager) -> Result<(), Box<dyn std::error::Error>> {
     let addr = "[::]:1337".parse()?;
 
-   
-    let api = FeOSAPI{vmm};
+    let api = FeOSAPI { vmm };
 
     Server::builder()
         .timeout(Duration::from_secs(30))

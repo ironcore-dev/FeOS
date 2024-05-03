@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct Config {
@@ -115,7 +115,7 @@ impl Default for ConsoleConfig {
         Self {
             file: None,
             mode: ConsoleOutputMode::Off,
-            iommu: false, 
+            iommu: false,
             socket: None,
         }
     }

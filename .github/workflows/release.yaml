@@ -12,11 +12,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
     - name: Install Protobuf Compiler
       run: sudo apt-get update && sudo apt-get install protobuf-compiler -y
-      
-    - name: Check Out Repo
-      uses: actions/checkout@v2
 
     - name: Run Tests
       run: make test

@@ -1,8 +1,10 @@
 use log::info;
-use std::{fs::{self, File}, io::Write, path};
 use oci_distribution::{errors::OciDistributionError, secrets, Client, ParseError, Reference};
-
-
+use std::{
+    fs::{self, File},
+    io::Write,
+    path,
+};
 
 const ROOTFS: &str = "application/vnd.ironcore.image.rootfs.v1alpha1.rootfs";
 const SQUASHFS: &str = "application/vnd.ironcore.image.squashfs.v1alpha1.squashfs";
@@ -23,21 +25,22 @@ pub async fn fetch_image(image: String, file_path: path::PathBuf) -> Result<(), 
 
     let c = Client::default();
 
-    let media_type = vec![ROOTFS, SQUASHFS, INITRAMFS,VMLINUZ];
-    let data = c.pull(&reference, &secrets::RegistryAuth::Anonymous, media_type).await.map_err(ImageError::PullError)?;
+    let media_type = vec![ROOTFS, SQUASHFS, INITRAMFS, VMLINUZ];
+    let data = c
+        .pull(&reference, &secrets::RegistryAuth::Anonymous, media_type)
+        .await
+        .map_err(ImageError::PullError)?;
     info!("image pulled");
 
-
     fs::create_dir_all(file_path.clone()).map_err(ImageError::IOError)?;
-
 
     let layers = vec![ROOTFS];
     for layer in layers {
         let kernel = match data.layers.iter().find(|x| x.media_type == layer) {
             Some(x) => x,
-            None => return Err(ImageError::MissingLayer(layer.to_string()))
+            None => return Err(ImageError::MissingLayer(layer.to_string())),
         };
-    
+
         let mut path = file_path.clone();
         path.push(str::replace(layer, "/", "."));
 
@@ -45,6 +48,6 @@ pub async fn fetch_image(image: String, file_path: path::PathBuf) -> Result<(), 
         let mut file = File::create(path).map_err(ImageError::IOError)?;
         file.write_all(&kernel.data).map_err(ImageError::IOError)?;
     }
-  
+
     Ok(())
 }
