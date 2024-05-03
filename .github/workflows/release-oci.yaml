@@ -1,0 +1,112 @@
+name: FeOS OCI Release
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+    - '*'
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+
+jobs:
+  oci_release:
+    permissions:
+      contents: read
+      packages: write
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - uses: docker/metadata-action@v5
+      id: meta
+      with:
+        images: |
+          ghcr.io/ironcore-dev/feos/feos
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=semver,pattern={{version}}
+          type=semver,pattern={{major}}.{{minor}}
+        flavor: |
+          latest=${{ github.ref == 'refs/heads/main' }}
+
+    - name: Install Protobuf Compiler
+      run: sudo apt-get update && sudo apt-get install protobuf-compiler -y
+
+    - name: Setup ORAS
+      uses: oras-project/setup-oras@v1
+
+    - name: Login to GitHub Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Set up cargo cache
+      uses: actions/cache@v4
+      continue-on-error: false
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: ${{ runner.os }}-cargo-
+
+    - name: Run Tests
+      run: make test
+
+    - name: Build build-container
+      run: make build-container
+
+    - name: Set up kernel cache
+      uses: actions/cache@v4
+      continue-on-error: false
+      with:
+        path: |
+          target/kernel/
+        key: ${{ runner.os }}-kernel-${{ hashFiles('/hack/kernel/**') }}
+        restore-keys: ${{ runner.os }}-kernel-
+
+    - name: Build Kernel
+      run: make kernel
+
+    - name: Build initramfs
+      run: make initramfs
+
+    - name: Create Config JSON
+      run: |
+        command_line=$(cat ./hack/kernel/cmdline.txt | tr -d '\n' | tr -d '\r')   
+        echo "{\"commandLine\": \"$command_line\", \"os-release\": \"$OS_VERSION\"}" > config.json
+
+    - name: Build rootfs img
+      run: |
+        ROOTFS_IMG="rootfs.img"
+        echo "ROOTFS_IMG=$ROOTFS_IMG" >> $GITHUB_ENV
+        dd if=/dev/zero of="$ROOTFS_IMG" bs=1M count=128
+        mkfs.ext4 "$ROOTFS_IMG"
+        LOOP_DEVICE=$(losetup -f)
+        sudo losetup "$LOOP_DEVICE" "$ROOTFS_IMG"
+        MOUNT_DIR=$(mktemp -d)
+        sudo mount "$LOOP_DEVICE" "$MOUNT_DIR"
+        sudo cp -a target/rootfs/. "$MOUNT_DIR/"
+        sudo umount "$MOUNT_DIR"
+        sudo losetup -d "$LOOP_DEVICE"
+        sudo rmdir "$MOUNT_DIR"
+
+    - name: Push Image with ORAS (Version Tag)
+      run: |
+        ROOTFS_IMG=${{ env.ROOTFS_IMG }}
+        oras push ${{ steps.meta.outputs.tags }} \
+        $ROOTFS_IMG:application/vnd.ironcore.image.rootfs.v1alpha1.rootfs \
+        target/initramfs.zst:application/vnd.ironcore.image.initramfs.v1alpha1.initramfs \
+        target/kernel/vmlinuz:application/vnd.ironcore.image.vmlinuz.v1alpha1.vmlinuz \
+        --config config.json:application/vnd.ironcore.image.config.v1alpha1+json
