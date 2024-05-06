@@ -11,7 +11,7 @@ uki: keys
 	  --os-release @/feos/hack/uki/os-release.txt \
 	  --linux /feos/target/kernel/vmlinuz \
 	  --initrd /feos/target/initramfs.zst \
-	  --cmdline @/feos/hack/kernel/cmdline.txt \
+	  --cmdline @/feos/target/cmdline \
 	  --secureboot-private-key /feos/keys/secureboot.key \
 	  --secureboot-certificate /feos/keys/secureboot.pem \
 	  --output /feos/target/uki.efi

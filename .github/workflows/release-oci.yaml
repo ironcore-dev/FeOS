@@ -82,9 +82,20 @@ jobs:
     - name: Build initramfs
       run: make initramfs
 
+    - name: Build UKI
+      run: |
+        CMDLINE="console=tty0 console=ttyS0,115200 earlyprintk=ttyS0,115200 consoleblank=0"
+        echo "CMDLINE=CMDLINE" >> $GITHUB_ENV
+        echo $CMDLINE >> target/cmdline
+        mkdir keys
+        echo "${{ secrets.SECUREBOOT_PRIVATEKEY }}" > keys/secureboot.key
+        echo "${{ secrets.SECUREBOOT_CERTIFICATE }}" > keys/secureboot.pem
+        openssl x509 -in keys/secureboot.pem -out keys/feos.crt -outform DER
+        make uki
+
     - name: Create Config JSON
       run: |
-        command_line=$(cat ./hack/kernel/cmdline.txt | tr -d '\n' | tr -d '\r')   
+        command_line=$(${{ env.CMDLINE }} | tr -d '\n' | tr -d '\r') 
         echo "{\"commandLine\": \"$command_line\", \"os-release\": \"$OS_VERSION\"}" > config.json
 
     - name: Build rootfs img
@@ -92,12 +103,14 @@ jobs:
         ROOTFS_IMG="rootfs.img"
         echo "ROOTFS_IMG=$ROOTFS_IMG" >> $GITHUB_ENV
         dd if=/dev/zero of="$ROOTFS_IMG" bs=1M count=128
-        mkfs.ext4 "$ROOTFS_IMG"
+        echo -e "label: gpt \nsize=50MiB, type=C12A7328-F81F-11D2-BA4B-00A0C93EC93B, name=\"EFI system partition\"" | sfdisk $ROOTFS_IMG
         LOOP_DEVICE=$(losetup -f)
-        sudo losetup "$LOOP_DEVICE" "$ROOTFS_IMG"
+        sudo losetup "$LOOP_DEVICE" "$ROOTFS_IMG" -P
+        sudo mkfs.vfat ${LOOP_DEVICE}p1
         MOUNT_DIR=$(mktemp -d)
-        sudo mount "$LOOP_DEVICE" "$MOUNT_DIR"
-        sudo cp -a target/rootfs/. "$MOUNT_DIR/"
+        sudo mount "$LOOP_DEVICE"p1 "$MOUNT_DIR"
+        sudo mkdir -p  "$MOUNT_DIR/EFI/BOOT"
+        sudo cp --no-preserve=ownership target/uki.efi "$MOUNT_DIR/EFI/BOOT/BOOTX64.EFI"
         sudo umount "$MOUNT_DIR"
         sudo losetup -d "$LOOP_DEVICE"
         sudo rmdir "$MOUNT_DIR"
