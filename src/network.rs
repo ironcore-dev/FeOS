@@ -8,6 +8,7 @@ pub async fn configure_network_devices() -> Result<(), String> {
     let ignore_ra_flag = true; // Till the RA has the correct flags (O or M), ignore the flag
     let interface_name = String::from("eth0");
     let (connection, handle, _) = new_connection().unwrap();
+	let mut mac_bytes_option: Option<Vec<u8>> = None;
     tokio::spawn(connection);
 
     let mut link_ts = handle
@@ -35,20 +36,7 @@ pub async fn configure_network_devices() -> Result<(), String> {
         match attr {
             netlink_packet_route::link::LinkAttribute::Address(mac_bytes) => {
                 info!("  mac: {}", format_mac(mac_bytes.clone()));
-                match mac_to_ipv6_link_local(&mac_bytes) {
-                    // Calculate and set mac based link local ipv6, otherwise linux kernel RA handling will not kick in
-                    Some(ipv6_ll_addr) => {
-                        set_ipv6_address(&handle, &interface_name, ipv6_ll_addr, 64)
-                            .await
-                            .map_err(|e| {
-                                format!(
-                                    "{} can not set link local ipv6 address: {}",
-                                    interface_name, e
-                                )
-                            })?;
-                    }
-                    None => warn!("Invalid MAC address length"),
-                }
+				mac_bytes_option = Some(mac_bytes);
             }
             netlink_packet_route::link::LinkAttribute::Carrier(carrier) => {
                 info!("  carrier: {}", carrier);
@@ -80,6 +68,20 @@ pub async fn configure_network_devices() -> Result<(), String> {
             _ => (),
         }
     }
+
+	if let Some(mac_bytes) = mac_bytes_option {
+		match mac_to_ipv6_link_local(&mac_bytes) {
+			Some(ipv6_ll_addr) => {
+				let result = set_ipv6_address(&handle, &interface_name, ipv6_ll_addr, 64).await;
+				if let Err(e) = result {
+					warn!("{} cannot set link local IPv6 address: {}", interface_name, e);
+				}
+			},
+			None => warn!("Invalid MAC address length"),
+		}
+	} else {
+		warn!("No MAC address found for IPv6 link-local address calculation");
+	}
 
     if is_dhcpv6_needed(interface_name.clone(), ignore_ra_flag) {
         time::sleep(Duration::from_secs(4)).await;

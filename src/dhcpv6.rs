@@ -271,25 +271,17 @@ pub async fn run_dhcpv6_client(interface_name: String) -> Result<(), Box<dyn std
     Ok(())
 }
 
-pub async fn set_ipv6_address(
-    handle: &Handle,
-    interface_name: &str,
-    ipv6_addr: Ipv6Addr,
-    pfx_len: u8,
-) -> Result<(), Error> {
-    let mut links = handle
-        .link()
-        .get()
-        .match_name(interface_name.to_string())
-        .execute();
-    let link = links.try_next().await?.ok_or(Error::RequestFailed)?;
+pub async fn set_ipv6_address(handle: &Handle, interface_name: &str, ipv6_addr: Ipv6Addr, pfx_len: u8) -> Result<(), Error> {
+    let mut links = handle.link().get().match_name(interface_name.to_string()).execute();
+    let link = match links.try_next().await {
+        Ok(Some(link)) => link,
+        Ok(None) => return Err(Error::RequestFailed),
+        Err(e) => return Err(e),
+    };
+
     let address = ipv6_addr;
 
-    handle
-        .address()
-        .add(link.header.index, address.into(), pfx_len)
+    handle.address().add(link.header.index, address.into(), pfx_len)
         .execute()
-        .await?;
-
-    Ok(())
+        .await
 }
