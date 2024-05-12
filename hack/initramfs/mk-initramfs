@@ -27,6 +27,9 @@ EOF
 
 echo "feos" > etc/hostname
 
+cat <<EOF >>etc/resolv.conf
+nameserver 2001:4860:4860::6464
+EOF
 
 echo "Install libraries for FeOS (copy from host)"
 install_libs $ROOTFS_DIR/bin/feos
