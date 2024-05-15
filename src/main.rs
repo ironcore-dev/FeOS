@@ -47,13 +47,7 @@ async fn main() -> Result<(), String> {
         info!("Mounting virtual filesystems...");
         mount_virtual_filesystems();
     }
-    /*
-        info!("Configuring network devices...");
-        configure_network_devices().await.map_err(|e| {
-            error!("could not configure network devices: {}", e);
-            "fuck".to_string()
-        })?;
-    */
+
     info!("Configuring network devices...");
     configure_network_devices()
         .await

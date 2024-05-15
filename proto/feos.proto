@@ -4,6 +4,7 @@ package feos_grpc;
 service FeosGrpc {
     rpc Reboot (RebootRequest) returns (RebootResponse);
     rpc Shutdown (ShutdownRequest) returns (ShutdownResponse);
+    rpc HostInfo (HostInfoRequest) returns (HostInfoResponse);
 
     rpc Ping (Empty) returns (Empty);
     
@@ -20,6 +21,14 @@ message RebootResponse {}
 
 message ShutdownRequest {}
 message ShutdownResponse {}
+
+message HostInfoRequest {}
+message HostInfoResponse {
+  uint64 uptime = 1;
+  uint64 ram_total = 2;
+  uint64 ram_unused = 3;
+  uint64 num_cores = 4;
+}
 
 message Empty {}
 

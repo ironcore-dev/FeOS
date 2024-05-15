@@ -10,8 +10,8 @@ use uuid::Uuid;
 
 use self::feos_grpc::{
     BootVmRequest, BootVmResponse, CreateVmRequest, CreateVmResponse, FetchImageRequest,
-    FetchImageResponse, GetVmRequest, GetVmResponse, RebootRequest, RebootResponse,
-    ShutdownRequest, ShutdownResponse,
+    FetchImageResponse, GetVmRequest, GetVmResponse, HostInfoRequest, HostInfoResponse,
+    RebootRequest, RebootResponse, ShutdownRequest, ShutdownResponse,
 };
 use crate::vm::{self};
 
@@ -83,6 +83,22 @@ impl FeosGrpc for FeOSAPI {
             }
         });
         Ok(Response::new(feos_grpc::ShutdownResponse {}))
+    }
+
+    async fn host_info(
+        &self,
+        _: Request<HostInfoRequest>,
+    ) -> Result<Response<HostInfoResponse>, Status> {
+        info!("Got host info request");
+
+        let host = host::info::check_info();
+
+        Ok(Response::new(feos_grpc::HostInfoResponse {
+            uptime: host.uptime,
+            ram_total: host.ram_total,
+            ram_unused: host.ram_unused,
+            num_cores: host.num_cores,
+        }))
     }
 
     async fn create_vm(
