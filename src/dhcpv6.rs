@@ -1,6 +1,10 @@
 use dhcproto::v6::*;
 use futures::stream::TryStreamExt;
 use log::{error, info, warn};
+use netlink_packet_route::route::{
+    RouteAddress, RouteAttribute, RouteProtocol, RouteScope, RouteType,
+};
+use netlink_packet_route::AddressFamily;
 use pnet::{
     datalink::{self, Channel::Ethernet, NetworkInterface},
     packet::{
@@ -76,9 +80,9 @@ fn send_router_solicitation(interface: &NetworkInterface, tx: &mut dyn datalink:
     }
 }
 
-pub fn is_dhcpv6_needed(interface_name: String, ignore_ra_flag: bool) -> bool {
+pub fn is_dhcpv6_needed(interface_name: String, ignore_ra_flag: bool) -> Option<Ipv6Addr> {
     let interface_names_match = |iface: &datalink::NetworkInterface| iface.name == interface_name;
-    let mut sender_ipv6_address: Ipv6Addr;
+    let mut sender_ipv6_address: Option<Ipv6Addr> = None;
 
     let interfaces = datalink::interfaces();
     let interface = interfaces
@@ -101,8 +105,8 @@ pub fn is_dhcpv6_needed(interface_name: String, ignore_ra_flag: bool) -> bool {
             info!("Router Advertisement processing starting ... ");
             let payload = ethernet_packet.payload();
             let ipv6_packet = Ipv6Packet::new(payload).unwrap();
-            sender_ipv6_address = ipv6_packet.get_source();
-            info!("Router Address received: {}", sender_ipv6_address);
+            sender_ipv6_address = Some(ipv6_packet.get_source());
+            info!("Router Address received: {}", sender_ipv6_address.unwrap());
             if let Some(icmp_packet) = Icmpv6Packet::new(ipv6_packet.payload()) {
                 if icmp_packet.get_icmpv6_type() == Icmpv6Types::RouterAdvert {
                     if let Some(router_advert) = RouterAdvertPacket::new(ipv6_packet.payload()) {
@@ -121,7 +125,7 @@ pub fn is_dhcpv6_needed(interface_name: String, ignore_ra_flag: bool) -> bool {
             }
         }
     }
-    true
+    sender_ipv6_address
 }
 
 pub async fn run_dhcpv6_client(interface_name: String) -> Result<(), Box<dyn std::error::Error>> {
@@ -271,8 +275,17 @@ pub async fn run_dhcpv6_client(interface_name: String) -> Result<(), Box<dyn std
     Ok(())
 }
 
-pub async fn set_ipv6_address(handle: &Handle, interface_name: &str, ipv6_addr: Ipv6Addr, pfx_len: u8) -> Result<(), Error> {
-    let mut links = handle.link().get().match_name(interface_name.to_string()).execute();
+pub async fn set_ipv6_address(
+    handle: &Handle,
+    interface_name: &str,
+    ipv6_addr: Ipv6Addr,
+    pfx_len: u8,
+) -> Result<(), Error> {
+    let mut links = handle
+        .link()
+        .get()
+        .match_name(interface_name.to_string())
+        .execute();
     let link = match links.try_next().await {
         Ok(Some(link)) => link,
         Ok(None) => return Err(Error::RequestFailed),
@@ -281,7 +294,43 @@ pub async fn set_ipv6_address(handle: &Handle, interface_name: &str, ipv6_addr: 
 
     let address = ipv6_addr;
 
-    handle.address().add(link.header.index, address.into(), pfx_len)
+    handle
+        .address()
+        .add(link.header.index, address.into(), pfx_len)
         .execute()
         .await
+}
+
+pub async fn set_ipv6_gateway(
+    handle: &Handle,
+    interface_name: &str,
+    ipv6_gateway: Ipv6Addr,
+) -> Result<(), Error> {
+    let mut links = handle
+        .link()
+        .get()
+        .match_name(interface_name.to_string())
+        .execute();
+    let link = match links.try_next().await {
+        Ok(Some(link)) => link,
+        Ok(None) => return Err(Error::RequestFailed),
+        Err(e) => return Err(e),
+    };
+
+    let mut route_add_request = handle.route().add();
+
+    let route_msg = route_add_request.message_mut();
+    route_msg.header.address_family = AddressFamily::Inet6;
+    route_msg.header.scope = RouteScope::Universe;
+    route_msg.header.protocol = RouteProtocol::Static;
+    route_msg.header.kind = RouteType::Unicast;
+    route_msg.header.destination_prefix_length = 0; // Default route
+    route_msg
+        .attributes
+        .push(RouteAttribute::Gateway(RouteAddress::Inet6(ipv6_gateway)));
+    route_msg
+        .attributes
+        .push(RouteAttribute::Oif(link.header.index));
+
+    route_add_request.execute().await
 }
