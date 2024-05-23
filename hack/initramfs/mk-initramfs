@@ -15,7 +15,7 @@ source ../kernel/config.sh
 
 pushd $ROOTFS_DIR 
 echo "Create initramfs folder structure"
-mkdir -pv {etc,var,lib64,lib,run,tmp} usr/{bin,lib,sbin} lib/x86_64-linux-gnu usr/lib/x86_64-linux-gnu
+mkdir -pv {etc,var,lib64,lib,run,tmp} usr/{bin,lib,sbin,local} lib/x86_64-linux-gnu usr/lib/x86_64-linux-gnu usr/local/ssl
 
 mkdir -pv {proc,dev,sys}
 
@@ -27,9 +27,13 @@ EOF
 
 echo "feos" > etc/hostname
 
+cat <<EOF >>etc/resolv.conf
+nameserver 2001:4860:4860::6464
+EOF
 
 echo "Install libraries for FeOS (copy from host)"
 install_libs $ROOTFS_DIR/bin/feos
+cp -ra /etc/ssl/certs usr/local/ssl/
 
 echo "Create initramfs.zst"
 find . -print0 | cpio --create --format=newc --null | zstd -3 > "${TARGET_DIR}/initramfs.zst"

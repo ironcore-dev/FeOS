@@ -4,6 +4,7 @@ include hack/build-container/make.mk
 include hack/kernel/make.mk
 include hack/initramfs/make.mk
 include hack/cloud-hypervisor/make.mk
+include hack/cloud-hypervisor-firmware/make.mk
 include hack/uki/make.mk
 
 container-release:

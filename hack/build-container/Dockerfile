@@ -8,7 +8,8 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y \
     protobuf-compiler \
     libprotobuf-dev \
     sbsigntool python3-pefile systemd-boot \
-    musl-tools
+    musl-tools \
+    ca-certificates
 
 RUN cargo new xyz; cd xyz; cargo fetch; cd ..; rm -rf xyz
 RUN rustup component add clippy

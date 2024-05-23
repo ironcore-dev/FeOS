@@ -1,5 +1,6 @@
 use log::info;
 use serde_json::json;
+use std::io::{BufRead, BufReader};
 use std::{
     collections::HashMap,
     num::TryFromIntError,
@@ -11,9 +12,16 @@ use std::{
     time,
 };
 use uuid::Uuid;
+use vmm::vm_config;
 
+use vmm::config::{
+    ConsoleConfig, ConsoleOutputMode, CpusConfig, DiskConfig, MemoryConfig, PayloadConfig,
+};
+
+use net_util::MacAddr;
+
+pub mod config;
 pub mod image;
-mod vm_config;
 
 #[derive(Debug)]
 pub enum Error {
@@ -23,6 +31,7 @@ pub enum Error {
     InvalidInput(TryFromIntError),
     CHCommandFailure(std::io::Error),
     CHApiFailure(api_client::Error),
+    Failed,
 }
 
 #[derive(Debug)]
@@ -102,39 +111,42 @@ impl Manager {
 
         let cpu = u8::try_from(cpu).map_err(Error::InvalidInput)?;
 
-        let cfg = json!(vm_config::Config {
-            cpus: vm_config::CpusConfig {
-                boot_vcpus: cpu,
-                max_vcpus: cpu,
-            },
-            memory: vm_config::MemoryConfig {
-                size: memory,
-                shared: true,
-                ..Default::default()
-            },
-            payload: vm_config::PayloadConfig {
-                firmware: Some(PathBuf::from("./hypervisor-fw")),
-                ..Default::default()
-            },
-            disks: Some(vec![vm_config::DiskConfig {
-                path: Some(root_fs),
-                readonly: false,
-                direct: false,
-            },]),
-            serial: vm_config::ConsoleConfig {
-                // mode: vm_config::ConsoleOutputMode::Tty,
-                ..Default::default()
-            },
-
+        let mut vm_config = config::default_vm_cfg();
+        vm_config.cpus = CpusConfig {
+            boot_vcpus: cpu,
+            max_vcpus: cpu,
             ..Default::default()
+        };
+        vm_config.memory = MemoryConfig {
+            size: memory,
+            shared: true,
+            ..Default::default()
+        };
+        vm_config.payload = Some(PayloadConfig {
+            kernel: None,
+            cmdline: None,
+            initramfs: None,
+            // TODO: fix hardcoded path
+            firmware: Some(PathBuf::from("/usr/share/cloud-hypervisor/hypervisor-fw")),
         });
+        vm_config.disks = Some(vec![DiskConfig {
+            path: Some(root_fs),
+            ..config::default_disk_cfg()
+        }]);
+        vm_config.serial = ConsoleConfig {
+            socket: Some(PathBuf::from(id.to_string() + ".console")),
+            mode: ConsoleOutputMode::Socket,
+            file: None,
+            iommu: false,
+        };
+        let vm_config = json!(vm_config);
 
         let mut socket = UnixStream::connect(id.to_string()).map_err(Error::SocketFailure)?;
         let response = api_client::simple_api_full_command_and_response(
             &mut socket,
             "PUT",
             "vm.create",
-            Some(&cfg.to_string()),
+            Some(&vm_config.to_string()),
         )
         .map_err(Error::CHApiFailure)?;
         if response.is_some() {
@@ -170,6 +182,120 @@ impl Manager {
 
         info!("booted vm with id: {}", id.to_string());
         Ok(())
+    }
+
+    pub fn console(&self, id: Uuid) -> Result<(), Error> {
+        let vms = self.vms.lock().unwrap();
+        if !vms.contains_key(&id) {
+            return Err(Error::NotFound);
+        }
+
+        let socket_path = id.to_string() + ".console";
+        if !Path::new(&socket_path).exists() {
+            return Err(Error::NotFound);
+        }
+
+        // TODO: stream over HTTP
+        std::thread::spawn(move || {
+            match UnixStream::connect(socket_path).map_err(Error::SocketFailure) {
+                Ok(stream) => {
+                    let mut buffer = Vec::new();
+
+                    let mut reader = BufReader::new(stream);
+                    loop {
+                        match reader.read_until(b'\n', &mut buffer) {
+                            Ok(0) => {
+                                // Connection was closed
+                                println!("Connection closed");
+                                break;
+                            }
+                            Ok(_) => {
+                                if let Ok(line) = String::from_utf8(buffer.clone()) {
+                                    println!("Received: {}", line);
+                                } else {
+                                    eprintln!("Received invalid UTF-8 data");
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!("Failed to read from stream: {}", e);
+                                break;
+                            }
+                        }
+                    }
+                }
+                Err(e) => eprintln!("Failed to accept connection: {:?}", e),
+            }
+        });
+
+        Ok(())
+    }
+
+    pub fn _add_net_device(
+        &self,
+        id: Uuid,
+        mac: Option<String>,
+        pci: Option<String>,
+    ) -> Result<(), Error> {
+        let vms = self.vms.lock().unwrap();
+        if !vms.contains_key(&id) {
+            return Err(Error::NotFound);
+        }
+
+        let mut socket = UnixStream::connect(id.to_string()).map_err(Error::SocketFailure)?;
+
+        if let Some(pci) = pci {
+            let device_config = json!(vm_config::DeviceConfig {
+                path: PathBuf::from(format!("/sys/bus/pci/devices/{}/", pci)),
+                iommu: false,
+                id: None,
+                pci_segment: 0,
+                x_nv_gpudirect_clique: None,
+            });
+
+            let response = api_client::simple_api_full_command_and_response(
+                &mut socket,
+                "PUT",
+                "vm.add-device",
+                Some(&device_config.to_string()),
+            )
+            .map_err(Error::CHApiFailure)?;
+            if response.is_some() {
+                info!(
+                    "add-device to vm: id {}, response: {}",
+                    id.to_string(),
+                    response.unwrap()
+                )
+            }
+
+            return Ok(());
+        }
+
+        if let Some(mac) = mac {
+            let mac = MacAddr::parse_str(&mac).map_err(Error::CHCommandFailure)?;
+
+            let mut net_config = config::_default_net_cfg();
+            net_config.host_mac = Some(mac);
+            let net_config = json!(net_config);
+
+            let response = api_client::simple_api_full_command_and_response(
+                &mut socket,
+                "PUT",
+                "vm.add-net",
+                Some(&net_config.to_string()),
+            )
+            .map_err(Error::CHApiFailure)?;
+            if response.is_some() {
+                info!(
+                    "add_net_device to vm: id {}, response: {}",
+                    id.to_string(),
+                    response.unwrap()
+                )
+            }
+
+            return Ok(());
+        }
+
+        Err(Error::Failed)
     }
 
     pub fn ping_vmm(&self, id: Uuid) -> Result<(), Error> {

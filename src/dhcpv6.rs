@@ -1,6 +1,11 @@
 use dhcproto::v6::*;
 use futures::stream::TryStreamExt;
 use log::{error, info, warn};
+use netlink_packet_route::route::{
+    RouteAddress, RouteAttribute, RouteProtocol, RouteScope, RouteType,
+};
+use netlink_packet_route::AddressFamily;
+use pnet::packet::icmpv6::Icmpv6Code;
 use pnet::{
     datalink::{self, Channel::Ethernet, NetworkInterface},
     packet::{
@@ -33,6 +38,109 @@ pub fn mac_to_ipv6_link_local(mac_address: &[u8]) -> Option<Ipv6Addr> {
         Some(Ipv6Addr::from(bytes))
     } else {
         None
+    }
+}
+
+pub fn send_neigh_solicitation(
+    interface_name: String,
+    target_address: &Ipv6Addr,
+    src_address: &Ipv6Addr,
+) {
+    let interface_names_match = |iface: &datalink::NetworkInterface| iface.name == interface_name;
+
+    let interfaces = datalink::interfaces();
+    let interface = match interfaces.into_iter().find(interface_names_match) {
+        Some(iface) => iface,
+        None => {
+            error!("Error getting interface");
+            return;
+        }
+    };
+
+    let (mut tx, mut _rx) = match datalink::channel(&interface, Default::default()) {
+        Ok(Ethernet(tx, rx)) => (tx, rx),
+        Ok(_) => {
+            error!("Unhandled channel type");
+            return;
+        }
+        Err(e) => {
+            error!("Error creating channel: {}", e);
+            return;
+        }
+    };
+
+    let mut packet_buffer = [0u8; 86];
+    let mut ethernet_packet = match MutableEthernetPacket::new(&mut packet_buffer) {
+        Some(packet) => packet,
+        None => {
+            error!("Failed to create Ethernet packet");
+            return;
+        }
+    };
+
+    ethernet_packet.set_destination(MacAddr::broadcast());
+    ethernet_packet.set_source(match interface.mac {
+        Some(mac) => mac,
+        None => {
+            error!("Interface MAC address not available");
+            return;
+        }
+    });
+    ethernet_packet.set_ethertype(EtherTypes::Ipv6);
+
+    let mut ipv6_and_icmp_buffer = [0u8; 72];
+
+    let mut ipv6_packet = match MutableIpv6Packet::new(&mut ipv6_and_icmp_buffer[..40]) {
+        Some(packet) => packet,
+        None => {
+            error!("Failed to create IPv6 packet");
+            return;
+        }
+    };
+    ipv6_packet.set_version(6);
+    ipv6_packet.set_next_header(IpNextHeaderProtocols::Icmpv6);
+    ipv6_packet.set_payload_length(32);
+    ipv6_packet.set_hop_limit(255);
+    ipv6_packet.set_source(*src_address);
+    ipv6_packet.set_destination(*target_address);
+
+    let mut icmp_packet = match MutableIcmpv6Packet::new(&mut ipv6_and_icmp_buffer[40..]) {
+        Some(packet) => packet,
+        None => {
+            error!("Failed to create ICMPv6 packet");
+            return;
+        }
+    };
+    icmp_packet.set_icmpv6_type(Icmpv6Types::NeighborSolicit);
+    icmp_packet.set_icmpv6_code(Icmpv6Code(0));
+    icmp_packet.set_checksum(0);
+
+    let mut icmp_payload = [0u8; 28];
+    icmp_payload[4..20].copy_from_slice(&target_address.octets());
+    icmp_payload[20] = 1;
+    icmp_payload[21] = 1;
+    icmp_payload[22..28].copy_from_slice(&match interface.mac {
+        Some(mac) => mac.octets(),
+        None => {
+            error!("Interface MAC address not available");
+            return;
+        }
+    });
+    icmp_packet.set_payload(&icmp_payload);
+
+    let checksum = checksum(
+        &Icmpv6Packet::new(icmp_packet.packet()).unwrap(),
+        src_address,
+        target_address,
+    );
+    icmp_packet.set_checksum(checksum);
+
+    ethernet_packet.set_payload(&ipv6_and_icmp_buffer);
+
+    match tx.send_to(ethernet_packet.packet(), Some(interface.clone())) {
+        Some(Ok(_)) => info!("Neighbor solicitation sent."),
+        Some(Err(e)) => error!("Failed to send neighbor solicitation: {}", e),
+        None => error!("Failed to send neighbor solicitation: send_to returned None"),
     }
 }
 
@@ -76,9 +184,9 @@ fn send_router_solicitation(interface: &NetworkInterface, tx: &mut dyn datalink:
     }
 }
 
-pub fn is_dhcpv6_needed(interface_name: String, ignore_ra_flag: bool) -> bool {
+pub fn is_dhcpv6_needed(interface_name: String, ignore_ra_flag: bool) -> Option<Ipv6Addr> {
     let interface_names_match = |iface: &datalink::NetworkInterface| iface.name == interface_name;
-    let mut sender_ipv6_address: Ipv6Addr;
+    let mut sender_ipv6_address: Option<Ipv6Addr> = None;
 
     let interfaces = datalink::interfaces();
     let interface = interfaces
@@ -101,8 +209,8 @@ pub fn is_dhcpv6_needed(interface_name: String, ignore_ra_flag: bool) -> bool {
             info!("Router Advertisement processing starting ... ");
             let payload = ethernet_packet.payload();
             let ipv6_packet = Ipv6Packet::new(payload).unwrap();
-            sender_ipv6_address = ipv6_packet.get_source();
-            info!("Router Address received: {}", sender_ipv6_address);
+            sender_ipv6_address = Some(ipv6_packet.get_source());
+            info!("Router Address received: {}", sender_ipv6_address.unwrap());
             if let Some(icmp_packet) = Icmpv6Packet::new(ipv6_packet.payload()) {
                 if icmp_packet.get_icmpv6_type() == Icmpv6Types::RouterAdvert {
                     if let Some(router_advert) = RouterAdvertPacket::new(ipv6_packet.payload()) {
@@ -121,10 +229,12 @@ pub fn is_dhcpv6_needed(interface_name: String, ignore_ra_flag: bool) -> bool {
             }
         }
     }
-    true
+    sender_ipv6_address
 }
 
-pub async fn run_dhcpv6_client(interface_name: String) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn run_dhcpv6_client(
+    interface_name: String,
+) -> Result<Ipv6Addr, Box<dyn std::error::Error>> {
     let chaddr = vec![
         29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44,
     ];
@@ -266,9 +376,10 @@ pub async fn run_dhcpv6_client(interface_name: String) -> Result<(), Box<dyn std
             "DHCPv6 processing finished, setting ipv6 address {}",
             ia_a.addr
         );
+        return Ok(ia_a.addr);
     }
 
-    Ok(())
+    Err("No valid address received".into())
 }
 
 pub async fn set_ipv6_address(
@@ -282,14 +393,51 @@ pub async fn set_ipv6_address(
         .get()
         .match_name(interface_name.to_string())
         .execute();
-    let link = links.try_next().await?.ok_or(Error::RequestFailed)?;
+    let link = match links.try_next().await {
+        Ok(Some(link)) => link,
+        Ok(None) => return Err(Error::RequestFailed),
+        Err(e) => return Err(e),
+    };
+
     let address = ipv6_addr;
 
     handle
         .address()
         .add(link.header.index, address.into(), pfx_len)
         .execute()
-        .await?;
+        .await
+}
 
-    Ok(())
+async fn _set_ipv6_gateway(
+    handle: &Handle,
+    interface_name: &str,
+    ipv6_gateway: Ipv6Addr,
+) -> Result<(), Error> {
+    let mut links = handle
+        .link()
+        .get()
+        .match_name(interface_name.to_string())
+        .execute();
+    let link = match links.try_next().await {
+        Ok(Some(link)) => link,
+        Ok(None) => return Err(Error::RequestFailed),
+        Err(e) => return Err(e),
+    };
+
+    let mut route_add_request = handle.route().add();
+
+    let route_msg = route_add_request.message_mut();
+    route_msg.header.address_family = AddressFamily::Inet6;
+    route_msg.header.scope = RouteScope::Universe;
+    route_msg.header.protocol = RouteProtocol::Static;
+    route_msg.header.kind = RouteType::Unicast;
+    route_msg.header.destination_prefix_length = 0; // Default route
+    route_msg
+        .attributes
+        .push(RouteAttribute::Gateway(RouteAddress::Inet6(ipv6_gateway)));
+    route_msg
+        .attributes
+        .push(RouteAttribute::Oif(link.header.index));
+
+    route_add_request.execute().await
 }

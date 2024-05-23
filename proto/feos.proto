@@ -13,7 +13,16 @@ service FeosGrpc {
     rpc CreateVM (CreateVMRequest) returns (CreateVMResponse);
     rpc GetVM (GetVMRequest) returns (GetVMResponse);
     rpc BootVM (BootVMRequest) returns (BootVMResponse);
+    rpc ConsoleVM (ConsoleVMRequest) returns (ConsoleVMResponse);
+    rpc AttachNicVM (AttachNicVMRequest) returns (AttachNicVMResponse);
 }
+
+message AttachNicVMRequest {
+        string uuid = 1;
+        string mac_address = 2;
+        string pci_address = 3;
+}
+message AttachNicVMResponse {}
 
 
 message RebootRequest {}
@@ -22,12 +31,24 @@ message RebootResponse {}
 message ShutdownRequest {}
 message ShutdownResponse {}
 
+message ConsoleVMRequest {
+      string uuid = 1;
+}
+message ConsoleVMResponse {}
+
 message HostInfoRequest {}
 message HostInfoResponse {
   uint64 uptime = 1;
   uint64 ram_total = 2;
   uint64 ram_unused = 3;
   uint64 num_cores = 4;
+  repeated NetInterface net_interfaces = 5;
+}
+
+message NetInterface {
+    string name = 1;
+    string pci_address = 2;
+    string mac_address = 3;
 }
 
 message Empty {}
