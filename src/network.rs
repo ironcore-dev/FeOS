@@ -4,6 +4,16 @@ use log::{info, warn};
 use rtnetlink::new_connection;
 use tokio::time::{self, Duration};
 
+use pnet::datalink::{self, Channel::Ethernet, Config};
+use pnet::packet::ethernet::EthernetPacket;
+use pnet::packet::icmp::IcmpPacket;
+use pnet::packet::icmpv6::Icmpv6Packet;
+use pnet::packet::ipv4::Ipv4Packet;
+use pnet::packet::ipv6::Ipv6Packet;
+use pnet::packet::tcp::TcpPacket;
+use pnet::packet::udp::UdpPacket;
+use pnet::packet::Packet;
+
 pub async fn configure_network_devices() -> Result<(), String> {
     let ignore_ra_flag = true; // Till the RA has the correct flags (O or M), ignore the flag
     let interface_name = String::from("eth0");
@@ -95,8 +105,10 @@ pub async fn configure_network_devices() -> Result<(), String> {
                 interface_name, e
             );
         }
-        run_dhcpv6_client(interface_name).await.unwrap();
+        run_dhcpv6_client(interface_name.clone()).await.unwrap();
     }
+
+    tokio::spawn(capture_packets(interface_name));
 
     let mut addr_ts = handle
         .address()
@@ -207,7 +219,10 @@ async fn capture_packets(interface_name: String) {
                     _ => info!("Unknown packet type"),
                 }
             }
-            Err(e) => info!("An error occurred while reading packet capture: {}", e),
+            Err(e) => {
+                println!("An error occurred while reading: {}", e);
+                tokio::task::yield_now().await;
+            }
         }
     }
 }
