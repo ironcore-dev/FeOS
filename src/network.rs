@@ -126,3 +126,88 @@ fn format_mac(bytes: Vec<u8>) -> String {
         .collect::<Vec<String>>()
         .join(":")
 }
+
+// Print all packets to the console for debugging purposes
+async fn capture_packets(interface_name: String) {
+    let interfaces = datalink::interfaces();
+    let interface = interfaces
+        .into_iter()
+        .find(|iface| iface.name == interface_name)
+        .expect("Network interface not found");
+
+    let config = Config {
+        promiscuous: true,
+        ..Default::default()
+    };
+
+    let (_, mut rx) = match datalink::channel(&interface, config) {
+        Ok(Ethernet(tx, rx)) => (tx, rx),
+        Ok(_) => panic!("Unhandled channel type"),
+        Err(e) => panic!(
+            "An error occurred when creating the datalink channel: {}",
+            e
+        ),
+    };
+
+    info!("Capturing packets on interface: {}", interface_name);
+
+    loop {
+        match rx.next() {
+            Ok(packet) => {
+                let ethernet = EthernetPacket::new(packet).unwrap();
+                info!("Ethernet packet: {:?}", ethernet);
+
+                match ethernet.get_ethertype() {
+                    pnet::packet::ethernet::EtherTypes::Ipv4 => {
+                        if let Some(ipv4) = Ipv4Packet::new(ethernet.payload()) {
+                            info!("IPv4 packet: {:?}", ipv4);
+                            match ipv4.get_next_level_protocol() {
+                                pnet::packet::ip::IpNextHeaderProtocols::Tcp => {
+                                    if let Some(tcp) = TcpPacket::new(ipv4.payload()) {
+                                        info!("TCP packet: {:?}", tcp);
+                                    }
+                                }
+                                pnet::packet::ip::IpNextHeaderProtocols::Udp => {
+                                    if let Some(udp) = UdpPacket::new(ipv4.payload()) {
+                                        info!("UDP packet: {:?}", udp);
+                                    }
+                                }
+                                pnet::packet::ip::IpNextHeaderProtocols::Icmp => {
+                                    if let Some(icmp) = IcmpPacket::new(ipv4.payload()) {
+                                        info!("ICMP packet: {:?}", icmp);
+                                    }
+                                }
+                                _ => info!("Unknown IPv4 L4 protocol"),
+                            }
+                        }
+                    }
+                    pnet::packet::ethernet::EtherTypes::Ipv6 => {
+                        if let Some(ipv6) = Ipv6Packet::new(ethernet.payload()) {
+                            info!("IPv6 packet: {:?}", ipv6);
+                            match ipv6.get_next_header() {
+                                pnet::packet::ip::IpNextHeaderProtocols::Tcp => {
+                                    if let Some(tcp) = TcpPacket::new(ipv6.payload()) {
+                                        info!("TCP packet: {:?}", tcp);
+                                    }
+                                }
+                                pnet::packet::ip::IpNextHeaderProtocols::Udp => {
+                                    if let Some(udp) = UdpPacket::new(ipv6.payload()) {
+                                        info!("UDP packet: {:?}", udp);
+                                    }
+                                }
+                                pnet::packet::ip::IpNextHeaderProtocols::Icmpv6 => {
+                                    if let Some(icmpv6) = Icmpv6Packet::new(ipv6.payload()) {
+                                        info!("ICMPv6 packet: {:?}", icmpv6);
+                                    }
+                                }
+                                _ => info!("Unknown IPv6 L4 protocol"),
+                            }
+                        }
+                    }
+                    _ => info!("Unknown packet type"),
+                }
+            }
+            Err(e) => info!("An error occurred while reading packet capture: {}", e),
+        }
+    }
+}
