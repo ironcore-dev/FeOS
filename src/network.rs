@@ -7,7 +7,7 @@ use tokio::time::{self, Duration};
 use pnet::datalink::{self, Channel::Ethernet, Config};
 use pnet::packet::ethernet::EthernetPacket;
 use pnet::packet::icmp::IcmpPacket;
-use pnet::packet::icmpv6::Icmpv6Packet;
+use pnet::packet::icmpv6::{Icmpv6Packet, Icmpv6Types};
 use pnet::packet::ipv4::Ipv4Packet;
 use pnet::packet::ipv6::Ipv6Packet;
 use pnet::packet::tcp::TcpPacket;
@@ -98,17 +98,20 @@ pub async fn configure_network_devices() -> Result<(), String> {
 
     if let Some(ipv6_gateway) = is_dhcpv6_needed(interface_name.clone(), ignore_ra_flag) {
         time::sleep(Duration::from_secs(4)).await;
-        let result = set_ipv6_gateway(&handle, &interface_name, ipv6_gateway).await;
+        let result = set_ipv6_gateway(&handle, &interface_name.clone(), ipv6_gateway).await;
         if let Err(e) = result {
             warn!(
                 "{} cannot set IPv6 Gateway (already set ?): {}",
                 interface_name, e
             );
         }
-        run_dhcpv6_client(interface_name.clone()).await.unwrap();
+        match run_dhcpv6_client(interface_name.clone()).await {
+            Ok(addr) => send_neigh_solicitation(interface_name.clone(), &ipv6_gateway, &addr),
+            Err(e) => warn!("Error: {}", e),
+        }
     }
 
-    tokio::spawn(capture_packets(interface_name));
+    //tokio::spawn(capture_packets(interface_name));
 
     let mut addr_ts = handle
         .address()
@@ -140,7 +143,7 @@ fn format_mac(bytes: Vec<u8>) -> String {
 }
 
 // Print all packets to the console for debugging purposes
-async fn capture_packets(interface_name: String) {
+async fn _capture_packets(interface_name: String) {
     let interfaces = datalink::interfaces();
     let interface = interfaces
         .into_iter()
@@ -210,9 +213,31 @@ async fn capture_packets(interface_name: String) {
                                 pnet::packet::ip::IpNextHeaderProtocols::Icmpv6 => {
                                     if let Some(icmpv6) = Icmpv6Packet::new(ipv6.payload()) {
                                         info!("ICMPv6 packet: {:?}", icmpv6);
+                                        match icmpv6.get_icmpv6_type() {
+                                            Icmpv6Types::RouterSolicit => {
+                                                info!("Router Solicitation")
+                                            }
+                                            Icmpv6Types::RouterAdvert => {
+                                                info!("Router Advertisement")
+                                            }
+                                            Icmpv6Types::NeighborSolicit => {
+                                                info!("Neighbor Solicitation")
+                                            }
+                                            Icmpv6Types::NeighborAdvert => {
+                                                info!("Neighbor Advertisement")
+                                            }
+                                            Icmpv6Types::Redirect => info!("Redirect"),
+                                            _ => info!("Other ICMPv6 type"),
+                                        }
                                     }
                                 }
-                                _ => info!("Unknown IPv6 L4 protocol"),
+                                pnet::packet::ip::IpNextHeaderProtocols::Hopopt => {
+                                    info!("IPv6 Hop-by-Hop Options header");
+                                }
+                                _ => info!(
+                                    "Unknown or unsupported next header: {:?}",
+                                    ipv6.get_next_header()
+                                ),
                             }
                         }
                     }
@@ -220,7 +245,7 @@ async fn capture_packets(interface_name: String) {
                 }
             }
             Err(e) => {
-                println!("An error occurred while reading: {}", e);
+                info!("An error occurred while reading: {}", e);
                 tokio::task::yield_now().await;
             }
         }
