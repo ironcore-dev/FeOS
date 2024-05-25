@@ -60,19 +60,19 @@ pub fn send_neigh_solicitation(
         Err(e) => panic!("Error creating channel: {}", e),
     };
 
-    let mut packet_buffer = [0u8; 128];
+    let mut packet_buffer = [0u8; 86];
     let mut ethernet_packet = MutableEthernetPacket::new(&mut packet_buffer).unwrap();
 
     ethernet_packet.set_destination(MacAddr::broadcast());
     ethernet_packet.set_source(interface.mac.unwrap());
     ethernet_packet.set_ethertype(EtherTypes::Ipv6);
 
-    let mut ipv6_and_icmp_buffer = [0u8; 64];
+    let mut ipv6_and_icmp_buffer = [0u8; 72];
 
     let mut ipv6_packet = MutableIpv6Packet::new(&mut ipv6_and_icmp_buffer[..40]).unwrap();
     ipv6_packet.set_version(6);
     ipv6_packet.set_next_header(IpNextHeaderProtocols::Icmpv6);
-    ipv6_packet.set_payload_length(24);
+    ipv6_packet.set_payload_length(32);
     ipv6_packet.set_hop_limit(255);
     ipv6_packet.set_source(*src_address);
     ipv6_packet.set_destination(*target_address);
@@ -82,8 +82,11 @@ pub fn send_neigh_solicitation(
     icmp_packet.set_icmpv6_code(Icmpv6Code(0));
     icmp_packet.set_checksum(0);
 
-    let mut icmp_payload = [0u8; 20];
-    icmp_payload[4..].copy_from_slice(&target_address.octets());
+    let mut icmp_payload = [0u8; 28];
+    icmp_payload[4..20].copy_from_slice(&target_address.octets());
+    icmp_payload[20] = 1; // Option type: Source Link-Layer Address
+    icmp_payload[21] = 1; // Option length (in units of 8 octets)
+    icmp_payload[22..28].copy_from_slice(&interface.mac.unwrap().octets());
     icmp_packet.set_payload(&icmp_payload);
 
     let checksum = checksum(

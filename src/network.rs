@@ -14,6 +14,8 @@ use pnet::packet::tcp::TcpPacket;
 use pnet::packet::udp::UdpPacket;
 use pnet::packet::Packet;
 
+use netlink_packet_route::neighbour::*;
+
 pub async fn configure_network_devices() -> Result<(), String> {
     let ignore_ra_flag = true; // Till the RA has the correct flags (O or M), ignore the flag
     let interface_name = String::from("eth0");
@@ -112,7 +114,16 @@ pub async fn configure_network_devices() -> Result<(), String> {
     }
 
     //tokio::spawn(capture_packets(interface_name));
-
+    /*     let mut interval = time::interval(Duration::from_secs(3));
+        tokio::spawn(async move {
+            loop {
+                interval.tick().await;
+                if let Err(e) = get_nd_cache().await {
+                    warn!("Error: {:?}", e);
+                }
+            }
+        });
+    */
     let mut addr_ts = handle
         .address()
         .get()
@@ -250,4 +261,39 @@ async fn _capture_packets(interface_name: String) {
             }
         }
     }
+}
+
+async fn _get_nd_cache() -> Result<(), Box<dyn std::error::Error>> {
+    let (connection, handle, _) = new_connection().unwrap();
+    tokio::spawn(connection);
+
+    let mut neighbors = handle.neighbours().get().execute();
+
+    while let Ok(Some(neigh)) = neighbors.try_next().await {
+        for attr in &neigh.attributes {
+            match attr {
+                NeighbourAttribute::Destination(addr) => {
+                    info!("IP Address: {:?}", addr);
+                }
+                NeighbourAttribute::LinkLocalAddress(lladdr) => {
+                    let hex_address: String = lladdr
+                        .iter()
+                        .map(|byte| format!("{:02x}", byte))
+                        .collect::<Vec<String>>()
+                        .join(":");
+                    info!("Link-layer Address: {:?}", hex_address);
+                }
+                NeighbourAttribute::CacheInfo(info) => {
+                    info!("Cache Info: {:?}", info);
+                }
+                _ => {
+                    info!("Other attribute: {:?}", attr);
+                }
+            }
+        }
+        info!("------------------------");
+    }
+    info!("");
+    info!("");
+    Ok(())
 }
