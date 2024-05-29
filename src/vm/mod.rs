@@ -113,7 +113,8 @@ impl Manager {
                 ..Default::default()
             },
             payload: vm_config::PayloadConfig {
-                firmware: Some(PathBuf::from("./hypervisor-fw")),
+                // TODO: fix hardcoded path
+                firmware: Some(PathBuf::from("/usr/share/cloud-hypervisor/hypervisor-fw")),
                 ..Default::default()
             },
             disks: Some(vec![vm_config::DiskConfig {
