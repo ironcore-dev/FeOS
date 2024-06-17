@@ -186,10 +186,7 @@ impl FeosGrpc for FeOSAPI {
         info!("Got create_vm request");
 
         let id = Uuid::new_v4();
-        self.vmm.init_vmm(id, true).map_err(|e| {
-            info!("failed to init vvm: {:?}", e);
-            Status::unknown("failed to init vvm")
-        })?;
+        self.vmm.init_vmm(id, true).map_err(handle_error)?;
 
         let root_fs = PathBuf::from(format!(
             "./images/{}/application.vnd.ironcore.image.rootfs.v1alpha1.rootfs",
@@ -218,10 +215,7 @@ impl FeosGrpc for FeOSAPI {
         let id = request.get_ref().uuid.to_owned();
         let id =
             Uuid::parse_str(&id).map_err(|_| Status::invalid_argument("failed to parse uuid"))?;
-        self.vmm.ping_vmm(id).map_err(|e| {
-            info!("failed to ping vvm: {:?}", e);
-            Status::unknown("failed to ping vvm")
-        })?;
+        self.vmm.ping_vmm(id).map_err(handle_error)?;
         let vm_status = self.vmm.get_vm(id).map_err(handle_error)?;
 
         Ok(Response::new(feos_grpc::GetVmResponse { info: vm_status }))
