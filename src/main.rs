@@ -11,6 +11,7 @@ use crate::filesystem::mount_virtual_filesystems;
 use crate::network::configure_network_devices;
 
 use log::{error, info, warn, LevelFilter};
+use network::configure_sriov;
 use nix::unistd::Uid;
 use simple_logger::SimpleLogger;
 
@@ -52,6 +53,12 @@ async fn main() -> Result<(), String> {
     configure_network_devices()
         .await
         .expect("could not configure network devices");
+
+    info!("Configuring sriov...");
+    let num_of_vfs: u32 = 6;
+    configure_sriov(num_of_vfs)
+        .await
+        .expect("could not configure sriov");
 
     let vmm = vm::Manager::new(String::from("cloud-hypervisor"));
 

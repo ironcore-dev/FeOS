@@ -1,6 +1,6 @@
 use log::info;
 use serde_json::json;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Write};
 use std::{
     collections::HashMap,
     num::TryFromIntError,
@@ -11,6 +11,7 @@ use std::{
     thread::sleep,
     time,
 };
+use std::{fs, io};
 use uuid::Uuid;
 use vmm::vm_config;
 
@@ -244,6 +245,12 @@ impl Manager {
         let mut socket = UnixStream::connect(id.to_string()).map_err(Error::SocketFailure)?;
 
         if let Some(pci) = pci {
+            let vendor = self.get_vendor(&pci).unwrap_or_default();
+            let device = self.get_device(&pci).unwrap_or_default();
+            info!("{} - {}", vendor, device);
+
+            self.bind(&vendor, &device).map_err(Error::SocketFailure)?;
+
             let device_config = json!(vm_config::DeviceConfig {
                 path: PathBuf::from(format!("/sys/bus/pci/devices/{}/", pci)),
                 iommu: false,
@@ -315,6 +322,37 @@ impl Manager {
                 response.unwrap()
             );
         }
+
+        Ok(())
+    }
+
+    fn get_vendor(&self, mac: &str) -> Option<String> {
+        let path = format!("/sys/bus/pci/devices/{}/vendor", mac);
+        if let Ok(vendor) = fs::read_to_string(path) {
+            return Some(vendor[2..].trim().to_string());
+        } else {
+            None
+        }
+    }
+
+    fn get_device(&self, mac: &str) -> Option<String> {
+        let path: String = format!("/sys/bus/pci/devices/{}/device", mac);
+        if let Ok(device) = fs::read_to_string(path) {
+            return Some(device[2..].trim().to_string());
+        } else {
+            None
+        }
+    }
+
+    fn bind(&self, vendor: &str, device: &str) -> Result<(), io::Error> {
+        let path = Path::new("/sys/bus/pci/drivers/vfio-pci/new_id");
+
+        let content = format!("{} {}", vendor, device);
+
+        let mut file = fs::OpenOptions::new().write(true).open(path)?;
+
+        // Write the content to the file
+        file.write_all(content.as_bytes())?;
 
         Ok(())
     }

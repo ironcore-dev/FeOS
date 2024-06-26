@@ -2,6 +2,8 @@ use crate::dhcpv6::*;
 use futures::stream::TryStreamExt;
 use log::{info, warn};
 use rtnetlink::new_connection;
+use tokio::fs::OpenOptions;
+use tokio::io::AsyncWriteExt;
 use tokio::time::{self, Duration};
 
 use pnet::datalink::{self, Channel::Ethernet, Config};
@@ -16,9 +18,11 @@ use pnet::packet::Packet;
 
 use netlink_packet_route::neighbour::*;
 
+const INTERFACE_NAME: &str = "eth0";
+
 pub async fn configure_network_devices() -> Result<(), String> {
     let ignore_ra_flag = true; // Till the RA has the correct flags (O or M), ignore the flag
-    let interface_name = String::from("eth0");
+    let interface_name = String::from(INTERFACE_NAME);
     let (connection, handle, _) = new_connection().unwrap();
     let mut mac_bytes_option: Option<Vec<u8>> = None;
     tokio::spawn(connection);
@@ -133,6 +137,25 @@ fn format_mac(bytes: Vec<u8>) -> String {
         .map(|byte| format!("{:02x}", byte))
         .collect::<Vec<String>>()
         .join(":")
+}
+
+pub async fn configure_sriov(num_vfs: u32) -> Result<(), String> {
+    let file_path = format!("/sys/class/net/{}/device/sriov_numvfs", INTERFACE_NAME);
+
+    let result = OpenOptions::new().write(true).open(&file_path).await;
+
+    let mut file = match result {
+        Ok(file) => file,
+        Err(e) => return Err(format!("Failed to open the file: {}", e)),
+    };
+
+    let value = format!("{}\n", num_vfs);
+    if let Err(e) = file.write_all(value.as_bytes()).await {
+        return Err(format!("Failed to write to the file: {}", e));
+    }
+
+    println!("Successfully wrote to the file.");
+    Ok(())
 }
 
 // Print all packets to the console for debugging purposes
