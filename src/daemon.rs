@@ -73,7 +73,7 @@ impl FeosGrpc for FeOSAPI {
         &self,
         request: Request<FetchImageRequest>,
     ) -> Result<Response<FetchImageResponse>, Status> {
-        info!("Got create_vm request");
+        info!("Got fetch_image request");
 
         let id = Uuid::new_v4();
         let path: PathBuf = PathBuf::from(format!("./images/{}", id.clone()));

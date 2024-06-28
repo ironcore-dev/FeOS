@@ -1,6 +1,7 @@
 use log::info;
 use serde_json::json;
 use std::io::{BufRead, BufReader, Write};
+use std::time::Duration;
 use std::{
     collections::HashMap,
     num::TryFromIntError,
@@ -245,14 +246,22 @@ impl Manager {
         let mut socket = UnixStream::connect(id.to_string()).map_err(Error::SocketFailure)?;
 
         if let Some(pci) = pci {
-            let vendor = self.get_vendor(&pci).unwrap_or_default();
-            let device = self.get_device(&pci).unwrap_or_default();
-            info!("{} - {}", vendor, device);
+            self.prepare_device(&pci).map_err(Error::SocketFailure)?;
 
-            self.bind(&vendor, &device).map_err(Error::SocketFailure)?;
+            // Check if the path exists
+            let path = PathBuf::from(format!("/sys/bus/pci/devices/{}/", pci));
+            info!("check if path exists {}", path.display());
+            if !path.exists() {
+                info!("The path {} does not exist.", path.display());
+                return Err(Error::NotFound);
+            }
 
+            info!("wait");
+            sleep(Duration::from_secs(2));
+
+            info!("add device");
             let device_config = json!(vm_config::DeviceConfig {
-                path: PathBuf::from(format!("/sys/bus/pci/devices/{}/", pci)),
+                path,
                 iommu: false,
                 id: None,
                 pci_segment: 0,
@@ -344,15 +353,45 @@ impl Manager {
         }
     }
 
-    fn bind(&self, vendor: &str, device: &str) -> Result<(), io::Error> {
+    // TODO: move to prepare sriov
+    fn prepare_device(&self, pci: &str) -> Result<(), io::Error> {
+        // unbind
+        // Check if the path exists
+        let path = format!("/sys/bus/pci/devices/{}/driver/unbind", pci);
+        let path = Path::new(&path);
+        if !path.exists() {
+            eprintln!("UNBIND: The path {} does not exist.", path.display());
+        } else {
+            let content = pci.to_string();
+            info!("try to unbind {}", pci);
+            let mut file = fs::OpenOptions::new().write(true).open(path)?;
+
+            // Write the content to the file
+            file.write_all(content.as_bytes())?;
+            info!("unbound");
+        }
+
+        // bind
+        // Check if the path exists
         let path = Path::new("/sys/bus/pci/drivers/vfio-pci/new_id");
+        if !path.exists() {
+            eprintln!("BIND:The path {} does not exist.", path.display());
+        } else {
+            let vendor = self.get_vendor(pci).unwrap_or_default();
+            let device = self.get_device(pci).unwrap_or_default();
+            info!("{} - {}", vendor, device);
 
-        let content = format!("{} {}", vendor, device);
+            let content = format!("{} {}", vendor, device);
 
-        let mut file = fs::OpenOptions::new().write(true).open(path)?;
+            let mut file = fs::OpenOptions::new().write(true).open(path)?;
 
-        // Write the content to the file
-        file.write_all(content.as_bytes())?;
+            // Write the content to the file
+            if let Err(e) = file.write_all(content.as_bytes()) {
+                info!("error {:?}", e);
+            } else {
+                info!("bound vfio-pci");
+            }
+        }
 
         Ok(())
     }
