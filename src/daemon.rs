@@ -62,7 +62,7 @@ impl FeosGrpc for FeOSAPI {
         request: Request<Empty>, // Accept request of type HelloRequest
     ) -> Result<Response<Empty>, Status> {
         // Return an instance of type HelloReply
-        println!("Got a request: {:?}", request);
+        info!("Got a request: {:?}", request);
 
         let reply = feos_grpc::Empty {};
 

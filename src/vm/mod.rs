@@ -208,24 +208,24 @@ impl Manager {
                         match reader.read_until(b'\n', &mut buffer) {
                             Ok(0) => {
                                 // Connection was closed
-                                println!("Connection closed");
+                                info!("Connection closed");
                                 break;
                             }
                             Ok(_) => {
                                 if let Ok(line) = String::from_utf8(buffer.clone()) {
-                                    println!("Received: {}", line);
+                                    info!("Received: {}", line);
                                 } else {
-                                    eprintln!("Received invalid UTF-8 data");
+                                    info!("Received invalid UTF-8 data");
                                 }
                             }
                             Err(e) => {
-                                eprintln!("Failed to read from stream: {}", e);
+                                info!("Failed to read from stream: {}", e);
                                 break;
                             }
                         }
                     }
                 }
-                Err(e) => eprintln!("Failed to accept connection: {:?}", e),
+                Err(e) => info!("Failed to accept connection: {:?}", e),
             }
         });
 
@@ -360,7 +360,7 @@ impl Manager {
         let path = format!("/sys/bus/pci/devices/{}/driver/unbind", pci);
         let path = Path::new(&path);
         if !path.exists() {
-            eprintln!("UNBIND: The path {} does not exist.", path.display());
+            info!("UNBIND: The path {} does not exist.", path.display());
         } else {
             let content = pci.to_string();
             info!("try to unbind {}", pci);
@@ -375,7 +375,7 @@ impl Manager {
         // Check if the path exists
         let path = Path::new("/sys/bus/pci/drivers/vfio-pci/new_id");
         if !path.exists() {
-            eprintln!("BIND:The path {} does not exist.", path.display());
+            info!("BIND:The path {} does not exist.", path.display());
         } else {
             let vendor = self.get_vendor(pci).unwrap_or_default();
             let device = self.get_device(pci).unwrap_or_default();

@@ -154,7 +154,7 @@ pub async fn configure_sriov(num_vfs: u32) -> Result<(), String> {
         return Err(format!("Failed to write to the file: {}", e));
     }
 
-    println!("Successfully wrote to the file.");
+    info!("Successfully wrote to the file.");
     Ok(())
 }
 
