@@ -7,12 +7,16 @@ use crate::vm::image;
 use feos_grpc::feos_grpc_server::{FeosGrpc, FeosGrpcServer};
 use tokio::time::{sleep, Duration};
 use uuid::Uuid;
+use tokio::sync::mpsc;
+use tokio::fs::File;
+use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio_stream::wrappers::ReceiverStream;
 
 use self::feos_grpc::{
     AttachNicVmRequest, AttachNicVmResponse, BootVmRequest, BootVmResponse, CreateVmRequest,
     CreateVmResponse, Empty, FetchImageRequest, FetchImageResponse, GetVmRequest, GetVmResponse,
     HostInfoRequest, HostInfoResponse, NetInterface, RebootRequest, RebootResponse,
-    ShutdownRequest, ShutdownResponse,
+    ShutdownRequest, ShutdownResponse,GetFeOsKernelLogRequest, GetFeOsKernelLogResponse,
 };
 use crate::vm::{self};
 
@@ -57,6 +61,32 @@ fn handle_error(e: vm::Error) -> tonic::Status {
 
 #[tonic::async_trait]
 impl FeosGrpc for FeOSAPI {
+    type GetFeOSKernelLogsStream = ReceiverStream<Result<GetFeOsKernelLogResponse, Status>>;
+
+    async fn get_fe_os_kernel_logs(
+        &self,
+        _: Request<GetFeOsKernelLogRequest>,
+    ) -> Result<Response<Self::GetFeOSKernelLogsStream>, Status> {
+        let (tx, rx) = mpsc::channel(4);
+        let tx = tx.clone();
+
+        tokio::spawn(async move {
+            let file = File::open("/dev/kmsg").await.expect("Failed to open /dev/kmsg");
+            let reader = BufReader::new(file);
+            let mut lines = reader.lines();
+
+            while let Some(line) = lines.next_line().await.unwrap() {
+                let response = GetFeOsKernelLogResponse { message: line };
+                if tx.send(Ok(response)).await.is_err() {
+                    break;
+                }
+            }
+        });
+
+        Ok(Response::new(ReceiverStream::new(rx)))
+    }
+
+
     async fn ping(
         &self,
         request: Request<Empty>, // Accept request of type HelloRequest

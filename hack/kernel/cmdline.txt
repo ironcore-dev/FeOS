@@ -1,1 +1,1 @@
-console=tty0 intel_iommu=on iommu=pt
+console=tty0 console=ttyS0,115200 intel_iommu=on iommu=pt

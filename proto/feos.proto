@@ -15,6 +15,14 @@ service FeosGrpc {
     rpc BootVM (BootVMRequest) returns (BootVMResponse);
     rpc ConsoleVM (ConsoleVMRequest) returns (ConsoleVMResponse);
     rpc AttachNicVM (AttachNicVMRequest) returns (AttachNicVMResponse);
+
+    rpc GetFeOSKernelLogs (GetFeOSKernelLogRequest) returns (stream GetFeOSKernelLogResponse);
+}
+
+message GetFeOSKernelLogRequest {}
+
+message GetFeOSKernelLogResponse {
+  string message = 1;
 }
 
 message AttachNicVMRequest {
