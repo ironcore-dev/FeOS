@@ -168,7 +168,6 @@ pub async fn configure_sriov(num_vfs: u32) -> Result<(), String> {
     let sriov_offset = get_device_information(pci_address, "sriov_offset")
         .await
         .map_err(|e| e.to_string())?;
-    info!("offset: {}", sriov_offset);
 
     let sriov_offset = match sriov_offset.parse::<u32>() {
         Ok(n) => n,

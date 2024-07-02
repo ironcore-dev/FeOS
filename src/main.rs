@@ -55,10 +55,10 @@ async fn main() -> Result<(), String> {
         .expect("could not configure network devices");
 
     info!("Configuring sriov...");
-    let num_of_vfs: u32 = 6;
-    configure_sriov(num_of_vfs)
-        .await
-        .expect("could not configure sriov");
+    const VFS_NUM: u32 = 6;
+    if let Err(e) = configure_sriov(VFS_NUM).await {
+        warn!("failed to configure sriov: {}", e.to_string())
+    }
 
     let vmm = vm::Manager::new(String::from("cloud-hypervisor"));
 
