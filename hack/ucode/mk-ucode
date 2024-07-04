@@ -2,6 +2,7 @@
 
 set -exuo pipefail
 
+mkdir -p target
 target_dir="$(realpath target)"
 
 on_exit() {
