@@ -67,6 +67,7 @@ message CreateVMRequest {
   uint32 cpu = 1; 
   uint64 memory_bytes = 2; 
   string image_uuid = 3;
+  optional string ignition = 4; 
 }
 
 message CreateVMResponse {

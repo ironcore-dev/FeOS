@@ -12,28 +12,27 @@ unsafe_code = "forbid"
 enum_glob_use = "deny"
 
 [dependencies]
-futures = "0.3.29"
+futures = "0.3.30"
 netlink-packet-route = "0.19.0"
 rtnetlink = "0.14.0"
-
-nix = { version = "0.28.0", features = ["mount", "user", "reboot", "feature", "net"] }
-tokio = { version = "1.35.0", features = ["full", "macros", "rt-multi-thread"] }
-log = "0.4.20"
+nix = { version = "0.29.0", features = ["mount", "user", "reboot", "feature", "net"] }
+tokio = { version = "1.38.0", features = ["full", "macros", "rt-multi-thread"] }
+log = "0.4.22"
 simple_logger = "5.0.0"
-tonic = "0.11"
-prost = "0.12"
-bitflags = "2.5.0"
-uuid = { version = "1.8.0", features = ["v4"] }
+tonic = "0.11.0"
+prost = "0.12.6"
+bitflags = "2.6.0"
+uuid = { version = "1.9.1", features = ["v4"] }
 oci-distribution = "0.11.0"
-serde = "1.0.197"
-serde_json = "1.0.115"
+serde = "1.0.203"
+serde_json = "1.0.120"
 api_client = {branch = "main",  git = "https://github.com/cloud-hypervisor/cloud-hypervisor"  }
 net_util = {branch = "main",  git = "https://github.com/cloud-hypervisor/cloud-hypervisor"  }
 vmm = { branch = "main",  git = "https://github.com/cloud-hypervisor/cloud-hypervisor", features = ["kvm"] }
-openssl = { version = "0.10", features = ["vendored"] }
+openssl = { version = "0.10.64", features = ["vendored"] }
 dhcproto = "0.11"
-rand = "0.8"
-pnet = "0.34.0"
+rand = "0.8.5"
+pnet = "0.35.0"
 
 [build-dependencies]
 tonic-build = "0.11.0"

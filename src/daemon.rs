@@ -198,6 +198,7 @@ impl FeosGrpc for FeOSAPI {
                 request.get_ref().cpu,
                 request.get_ref().memory_bytes,
                 root_fs,
+                request.get_ref().ignition.clone(),
             )
             .map_err(handle_error)?;
 

@@ -1,4 +1,6 @@
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    tonic_build::compile_protos("proto/feos.proto")?;
+    tonic_build::configure()
+        .protoc_arg("--experimental_allow_proto3_optional")
+        .compile(&["proto/feos.proto"], &["proto"])?;
     Ok(())
 }

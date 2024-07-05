@@ -16,6 +16,7 @@ use vmm::vm_config;
 
 use vmm::config::{
     ConsoleConfig, ConsoleOutputMode, CpusConfig, DiskConfig, MemoryConfig, PayloadConfig,
+    PlatformConfig,
 };
 
 use net_util::MacAddr;
@@ -103,6 +104,7 @@ impl Manager {
         cpu: u32,
         memory: u64,
         root_fs: PathBuf,
+        ignition: Option<String>,
     ) -> Result<(), Error> {
         let vms = self.vms.lock().unwrap();
         if !vms.contains_key(&id) {
@@ -139,6 +141,18 @@ impl Manager {
             file: None,
             iommu: false,
         };
+
+        if let Some(ignition) = ignition {
+            info!("configured ignition for vm {}", id.to_string());
+            vm_config.platform = Some(PlatformConfig {
+                num_pci_segments: vm_config::default_platformconfig_num_pci_segments(),
+                iommu_segments: None,
+                serial_number: None,
+                uuid: None,
+                oem_strings: Some(vec![ignition]),
+            })
+        }
+
         let vm_config = json!(vm_config);
 
         let mut socket = UnixStream::connect(id.to_string()).map_err(Error::SocketFailure)?;
