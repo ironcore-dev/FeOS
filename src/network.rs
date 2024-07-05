@@ -174,17 +174,14 @@ pub async fn configure_sriov(num_vfs: u32) -> Result<(), String> {
         Err(e) => return Err(e.to_string()),
     };
 
-    let pci_address_parts: Vec<&str> = pci_address.split(&[':', '.'][..]).collect();
-    if pci_address_parts.len() != 4 {
-        return Err(format!("invalid pci address format: {}", pci_address));
-    }
+    let base_pci_address = parse_pci_address(pci_address)?;
 
     let virtual_funcs: Vec<String> = (0..num_vfs)
-        .map(|x| x + sriov_offset)
-        .map(|x| format!("{}.{}", pci_address_parts[0..3].join(":"), x))
+        .map(|x| nth_next_pci_address(base_pci_address, x + sriov_offset))
+        .map(format_pci_address)
         .collect();
 
-    const RETRIES: i32 = 3;
+    const RETRIES: i32 = 5;
     for (index, vf) in virtual_funcs.iter().enumerate() {
         for i in 1..RETRIES {
             info!("try to unbind device {}: {:?}/{}", vf, i, RETRIES);
@@ -203,6 +200,43 @@ pub async fn configure_sriov(num_vfs: u32) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+fn parse_pci_address(address: &str) -> Result<(u16, u8, u8, u8), String> {
+    let parts: Vec<&str> = address.split(&[':', '.', ' '][..]).collect();
+    if parts.len() != 4 {
+        return Err("Invalid PCI address format".to_string());
+    }
+
+    let domain = u16::from_str_radix(parts[0], 16).map_err(|_| "Invalid domain".to_string())?;
+    let bus = u8::from_str_radix(parts[1], 16).map_err(|_| "Invalid bus".to_string())?;
+    let slot = u8::from_str_radix(parts[2], 16).map_err(|_| "Invalid slot".to_string())?;
+    let function = u8::from_str_radix(parts[3], 16).map_err(|_| "Invalid function".to_string())?;
+
+    Ok((domain, bus, slot, function))
+}
+
+fn nth_next_pci_address(address: (u16, u8, u8, u8), n: u32) -> (u16, u8, u8, u8) {
+    let (domain, bus, slot, function) = address;
+    let total_functions = (domain as u32) * 256 * 32 * 8
+        + (bus as u32) * 32 * 8
+        + (slot as u32) * 8
+        + function as u32
+        + n;
+
+    let new_domain = (total_functions / (256 * 32 * 8)) as u16;
+    let remaining = total_functions % (256 * 32 * 8);
+    let new_bus = (remaining / (32 * 8)) as u8;
+    let remaining = remaining % (32 * 8);
+    let new_slot = (remaining / 8) as u8;
+    let new_function = (remaining % 8) as u8;
+
+    (new_domain, new_bus, new_slot, new_function)
+}
+
+fn format_pci_address(address: (u16, u8, u8, u8)) -> String {
+    let (domain, bus, slot, function) = address;
+    format!("{:04x}:{:02x}:{:02x}.{}", domain, bus, slot, function)
 }
 
 async fn unbind_device(pci: &str) -> Result<(), io::Error> {

@@ -55,7 +55,7 @@ async fn main() -> Result<(), String> {
         .expect("could not configure network devices");
 
     info!("Configuring sriov...");
-    const VFS_NUM: u32 = 6;
+    const VFS_NUM: u32 = 125;
     if let Err(e) = configure_sriov(VFS_NUM).await {
         warn!("failed to configure sriov: {}", e.to_string())
     }
