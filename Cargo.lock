@@ -623,9 +623,13 @@ name = "feos"
 version = "0.1.0"
 dependencies = [
  "api_client",
+ "async-stream",
  "bitflags 2.6.0",
+ "chrono",
  "dhcproto",
  "futures",
+ "futures-core",
+ "futures-util",
  "log",
  "net_util",
  "netlink-packet-route",

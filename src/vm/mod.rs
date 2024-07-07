@@ -13,11 +13,15 @@ use std::{
 };
 use uuid::Uuid;
 use vmm::vm_config;
+use tokio::sync::mpsc;
+use tonic::Status;
 
 use vmm::config::{
     ConsoleConfig, ConsoleOutputMode, CpusConfig, DiskConfig, MemoryConfig, PayloadConfig,
     PlatformConfig,
 };
+
+use crate::daemon::feos_grpc::ConsoleVmResponse;
 
 use net_util::MacAddr;
 
@@ -198,7 +202,7 @@ impl Manager {
         Ok(())
     }
 
-    pub fn console(&self, id: Uuid) -> Result<(), Error> {
+    pub fn console_with_sender(&self, id: Uuid, tx: mpsc::Sender<Result<ConsoleVmResponse, Status>>) -> Result<(), Error> {
         let vms = self.vms.lock().unwrap();
         if !vms.contains_key(&id) {
             return Err(Error::NotFound);
@@ -209,13 +213,14 @@ impl Manager {
             return Err(Error::NotFound);
         }
 
-        // TODO: stream over HTTP
+        let tx = tx.clone();  // Ensure the sender is properly moved into the thread
+
         std::thread::spawn(move || {
             match UnixStream::connect(socket_path).map_err(Error::SocketFailure) {
                 Ok(stream) => {
+                    let mut reader = BufReader::new(stream);
                     let mut buffer = Vec::new();
 
-                    let mut reader = BufReader::new(stream);
                     loop {
                         match reader.read_until(b'\n', &mut buffer) {
                             Ok(0) => {
@@ -225,10 +230,14 @@ impl Manager {
                             }
                             Ok(_) => {
                                 if let Ok(line) = String::from_utf8(buffer.clone()) {
-                                    info!("Received: {}", line);
+                                    let response = ConsoleVmResponse { message: line };
+                                    if tx.blocking_send(Ok(response)).is_err() {
+                                        break;
+                                    }
                                 } else {
                                     info!("Received invalid UTF-8 data");
                                 }
+                                buffer.clear();
                             }
                             Err(e) => {
                                 info!("Failed to read from stream: {}", e);

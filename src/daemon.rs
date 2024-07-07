@@ -4,19 +4,22 @@ use tonic::{transport::Server, Request, Response, Status};
 
 use crate::host;
 use crate::vm::image;
+use crate::ringbuffer::*;
 use feos_grpc::feos_grpc_server::{FeosGrpc, FeosGrpcServer};
 use tokio::time::{sleep, Duration};
 use uuid::Uuid;
-use tokio::sync::mpsc;
+use tokio::sync::{Mutex, mpsc};
 use tokio::fs::File;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio_stream::wrappers::ReceiverStream;
+use std::sync::Arc;
 
 use self::feos_grpc::{
     AttachNicVmRequest, AttachNicVmResponse, BootVmRequest, BootVmResponse, CreateVmRequest,
     CreateVmResponse, Empty, FetchImageRequest, FetchImageResponse, GetVmRequest, GetVmResponse,
     HostInfoRequest, HostInfoResponse, NetInterface, RebootRequest, RebootResponse,
-    ShutdownRequest, ShutdownResponse,GetFeOsKernelLogRequest, GetFeOsKernelLogResponse,
+    ShutdownRequest, ShutdownResponse,GetFeOsKernelLogRequest, GetFeOsKernelLogResponse, GetFeOsLogRequest,
+    GetFeOsLogResponse, ConsoleVmRequest
 };
 use crate::vm::{self};
 
@@ -24,9 +27,21 @@ pub mod feos_grpc {
     tonic::include_proto!("feos_grpc"); // The string specified here must match the proto package name
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct FeOSAPI {
-    vmm: vm::Manager,
+    vmm: Arc<vm::Manager>,
+    buffer: Arc<RingBuffer>,
+    log_receiver: Arc<Mutex<mpsc::Receiver<String>>>,
+}
+
+impl FeOSAPI {
+    pub fn new(vmm: vm::Manager, buffer: Arc<RingBuffer>, log_receiver: Arc<Mutex<mpsc::Receiver<String>>>) -> Self {
+        FeOSAPI {
+            vmm: Arc::new(vmm),
+            buffer,
+            log_receiver,
+        }
+    }
 }
 
 fn handle_error(e: vm::Error) -> tonic::Status {
@@ -62,6 +77,8 @@ fn handle_error(e: vm::Error) -> tonic::Status {
 #[tonic::async_trait]
 impl FeosGrpc for FeOSAPI {
     type GetFeOSKernelLogsStream = ReceiverStream<Result<GetFeOsKernelLogResponse, Status>>;
+    type GetFeOSLogsStream = ReceiverStream<Result<GetFeOsLogResponse, Status>>;
+    type ConsoleVMStream = ReceiverStream<Result<feos_grpc::ConsoleVmResponse, Status>>;
 
     async fn get_fe_os_kernel_logs(
         &self,
@@ -86,6 +103,34 @@ impl FeosGrpc for FeOSAPI {
         Ok(Response::new(ReceiverStream::new(rx)))
     }
 
+    async fn get_fe_os_logs(
+        &self,
+        _: Request<GetFeOsLogRequest>,
+    ) -> Result<Response<ReceiverStream<Result<GetFeOsLogResponse, Status>>>, Status> {
+        let (tx, rx) = mpsc::channel(4);
+        let buffer = self.buffer.clone();
+        let log_receiver = self.log_receiver.clone();
+
+        tokio::spawn(async move {
+            let logs = buffer.get_lines().await;
+            for log in logs {
+                let response = GetFeOsLogResponse { message: log };
+                if tx.send(Ok(response)).await.is_err() {
+                    break;
+                }
+            }
+
+            let mut log_receiver = log_receiver.lock().await;
+            while let Some(log_entry) = log_receiver.recv().await {
+                let response = GetFeOsLogResponse { message: log_entry };
+                if tx.send(Ok(response)).await.is_err() {
+                    break;
+                }
+            }
+        });
+
+        Ok(Response::new(ReceiverStream::new(rx)))
+    }
 
     async fn ping(
         &self,
@@ -268,23 +313,30 @@ impl FeosGrpc for FeOSAPI {
 
     async fn console_vm(
         &self,
-        request: Request<feos_grpc::ConsoleVmRequest>,
-    ) -> Result<Response<feos_grpc::ConsoleVmResponse>, Status> {
+        request: Request<ConsoleVmRequest>,
+    ) -> Result<Response<Self::ConsoleVMStream>, Status> {
         info!("Got console_vm request");
 
         let id = request.get_ref().uuid.to_owned();
-        let id =
-            Uuid::parse_str(&id).map_err(|_| Status::invalid_argument("failed to parse uuid"))?;
-        self.vmm.console(id).map_err(handle_error)?;
+        let id = Uuid::parse_str(&id).map_err(|_| Status::invalid_argument("failed to parse uuid"))?;
 
-        Ok(Response::new(feos_grpc::ConsoleVmResponse {}))
+        let (tx, rx) = mpsc::channel(4);
+
+        let manager = Arc::clone(&self.vmm);
+        std::thread::spawn(move || {
+            if let Err(e) = manager.console_with_sender(id, tx) {
+                info!("Failed to stream console output: {:?}", e);
+            }
+        });
+
+        Ok(Response::new(ReceiverStream::new(rx)))
     }
 }
 
-pub async fn daemon_start(vmm: vm::Manager) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn daemon_start(vmm: vm::Manager, buffer: Arc<RingBuffer>, log_receiver: Arc<Mutex<mpsc::Receiver<String>>>) -> Result<(), Box<dyn std::error::Error>> {
     let addr = "[::]:1337".parse()?;
 
-    let api = FeOSAPI { vmm };
+    let api = FeOSAPI::new(vmm, buffer, log_receiver);
 
     Server::builder()
         .timeout(Duration::from_secs(30))
