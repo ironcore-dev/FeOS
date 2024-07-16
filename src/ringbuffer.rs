@@ -1,8 +1,8 @@
+use chrono::{DateTime, Utc};
+use log::{Level, LevelFilter, Metadata, Record};
 use std::collections::VecDeque;
 use std::sync::Arc;
-use tokio::sync::{RwLock, mpsc, Mutex};
-use log::{Record, Level, Metadata, LevelFilter};
-use chrono::{Utc, DateTime};
+use tokio::sync::{mpsc, Mutex, RwLock};
 
 #[derive(Debug)]
 pub struct RingBuffer {
@@ -35,7 +35,7 @@ impl RingBuffer {
 impl Default for RingBuffer {
     fn default() -> Self {
         RingBuffer {
-            buffer: RwLock::new(VecDeque::with_capacity(10)), // Default capacity of 10
+            buffer: RwLock::new(VecDeque::with_capacity(10)),
             capacity: 10,
         }
     }
@@ -60,7 +60,13 @@ impl log::Log for SimpleLogger {
     fn log(&self, record: &Record) {
         if self.enabled(record.metadata()) {
             let now: DateTime<Utc> = Utc::now();
-            let log_message = format!("{} {} [{}] - {}", now.to_rfc3339(), record.level(), record.target(), record.args());
+            let log_message = format!(
+                "{} {} [{}] - {}",
+                now.to_rfc3339(),
+                record.level(),
+                record.target(),
+                record.args()
+            );
             let buffer = self.buffer.clone();
             let sender = self.sender.clone();
             tokio::spawn(async move {

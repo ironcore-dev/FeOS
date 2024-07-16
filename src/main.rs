@@ -4,8 +4,8 @@ mod dhcpv6;
 mod filesystem;
 mod host;
 mod network;
-mod vm;
 mod ringbuffer;
+mod vm;
 
 use crate::daemon::daemon_start;
 use crate::filesystem::mount_virtual_filesystems;
@@ -13,8 +13,8 @@ use crate::network::configure_network_devices;
 
 use log::{error, info, warn};
 use network::configure_sriov;
-use ringbuffer::*;
 use nix::unistd::Uid;
+use ringbuffer::*;
 
 #[tokio::main]
 async fn main() -> Result<(), String> {
@@ -32,15 +32,8 @@ async fn main() -> Result<(), String> {
         env!("CARGO_PKG_VERSION")
     );
 
-/*     SimpleLogger::new()
-        .with_level(LevelFilter::Info)
-        .with_module_level("feos::filesystem", LevelFilter::Debug)
-        .with_utc_timestamps()
-        .init()
-        .unwrap();
-*/
-
-    let buffer = RingBuffer::new(100);
+    const FEOS_RINGBUFFER_CAP: usize = 100;
+    let buffer = RingBuffer::new(FEOS_RINGBUFFER_CAP);
     let log_receiver = init_logger(buffer.clone());
 
     // if not run as root, print warning.
@@ -74,4 +67,3 @@ async fn main() -> Result<(), String> {
     }
     Err("FeOS exited".to_string())
 }
-

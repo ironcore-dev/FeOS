@@ -3,23 +3,24 @@ use std::path::PathBuf;
 use tonic::{transport::Server, Request, Response, Status};
 
 use crate::host;
-use crate::vm::image;
 use crate::ringbuffer::*;
+use crate::vm::image;
 use feos_grpc::feos_grpc_server::{FeosGrpc, FeosGrpcServer};
-use tokio::time::{sleep, Duration};
-use uuid::Uuid;
-use tokio::sync::{Mutex, mpsc};
-use tokio::fs::File;
-use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio_stream::wrappers::ReceiverStream;
 use std::sync::Arc;
+use tokio::fs::File;
+use tokio::io::AsyncReadExt;
+use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::sync::{mpsc, Mutex};
+use tokio::time::{sleep, Duration};
+use tokio_stream::wrappers::ReceiverStream;
+use uuid::Uuid;
 
 use self::feos_grpc::{
-    AttachNicVmRequest, AttachNicVmResponse, BootVmRequest, BootVmResponse, CreateVmRequest,
-    CreateVmResponse, Empty, FetchImageRequest, FetchImageResponse, GetVmRequest, GetVmResponse,
-    HostInfoRequest, HostInfoResponse, NetInterface, RebootRequest, RebootResponse,
-    ShutdownRequest, ShutdownResponse,GetFeOsKernelLogRequest, GetFeOsKernelLogResponse, GetFeOsLogRequest,
-    GetFeOsLogResponse, ConsoleVmRequest
+    AttachNicVmRequest, AttachNicVmResponse, BootVmRequest, BootVmResponse,
+    ConsoleVmInteractiveResponse, CreateVmRequest, CreateVmResponse, Empty, FetchImageRequest,
+    FetchImageResponse, GetFeOsKernelLogRequest, GetFeOsKernelLogResponse, GetFeOsLogRequest,
+    GetFeOsLogResponse, GetVmRequest, GetVmResponse, HostInfoRequest, HostInfoResponse,
+    NetInterface, RebootRequest, RebootResponse, ShutdownRequest, ShutdownResponse,
 };
 use crate::vm::{self};
 
@@ -35,7 +36,11 @@ pub struct FeOSAPI {
 }
 
 impl FeOSAPI {
-    pub fn new(vmm: vm::Manager, buffer: Arc<RingBuffer>, log_receiver: Arc<Mutex<mpsc::Receiver<String>>>) -> Self {
+    pub fn new(
+        vmm: vm::Manager,
+        buffer: Arc<RingBuffer>,
+        log_receiver: Arc<Mutex<mpsc::Receiver<String>>>,
+    ) -> Self {
         FeOSAPI {
             vmm: Arc::new(vmm),
             buffer,
@@ -70,6 +75,10 @@ fn handle_error(e: vm::Error) -> tonic::Status {
                 "failed to connect to cloud hypervisor api",
             )
         }
+        vm::Error::Io(e) => {
+            info!("I/O error: {:?}", e);
+            Status::new(tonic::Code::Internal, "I/O error")
+        }
         vm::Error::Failed => Status::new(tonic::Code::AlreadyExists, "vm already exists"),
     }
 }
@@ -78,7 +87,8 @@ fn handle_error(e: vm::Error) -> tonic::Status {
 impl FeosGrpc for FeOSAPI {
     type GetFeOSKernelLogsStream = ReceiverStream<Result<GetFeOsKernelLogResponse, Status>>;
     type GetFeOSLogsStream = ReceiverStream<Result<GetFeOsLogResponse, Status>>;
-    type ConsoleVMStream = ReceiverStream<Result<feos_grpc::ConsoleVmResponse, Status>>;
+    type ConsoleVMInteractiveStream =
+        ReceiverStream<Result<feos_grpc::ConsoleVmInteractiveResponse, Status>>;
 
     async fn get_fe_os_kernel_logs(
         &self,
@@ -88,7 +98,9 @@ impl FeosGrpc for FeOSAPI {
         let tx = tx.clone();
 
         tokio::spawn(async move {
-            let file = File::open("/dev/kmsg").await.expect("Failed to open /dev/kmsg");
+            let file = File::open("/dev/kmsg")
+                .await
+                .expect("Failed to open /dev/kmsg");
             let reader = BufReader::new(file);
             let mut lines = reader.lines();
 
@@ -96,6 +108,95 @@ impl FeosGrpc for FeOSAPI {
                 let response = GetFeOsKernelLogResponse { message: line };
                 if tx.send(Ok(response)).await.is_err() {
                     break;
+                }
+            }
+        });
+
+        Ok(Response::new(ReceiverStream::new(rx)))
+    }
+
+    async fn console_vm_interactive(
+        &self,
+        request: Request<tonic::Streaming<feos_grpc::ConsoleVmInteractiveRequest>>,
+    ) -> Result<Response<Self::ConsoleVMInteractiveStream>, Status> {
+        info!("Got console_vm_interactive request");
+
+        let mut stream = request.into_inner();
+        let (tx, rx) = mpsc::channel(4);
+
+        let mut initial_id: Option<Uuid> = None;
+        let manager = Arc::clone(&self.vmm);
+
+        tokio::spawn(async move {
+            while let Some(req) = {
+                match stream.message().await {
+                    Ok(message) => message,
+                    Err(e) => {
+                        info!("Stream error: {:?}", e);
+                        None
+                    }
+                }
+            } {
+                let id = match initial_id {
+                    Some(id) => id,
+                    None => match Uuid::parse_str(&req.uuid) {
+                        Ok(parsed_id) => {
+                            initial_id = Some(parsed_id);
+                            parsed_id
+                        }
+                        Err(_) => {
+                            info!("Failed to parse UUID");
+                            break;
+                        }
+                    },
+                };
+
+                let input = req.input.clone();
+                let socket_path = format!("{}.console", id);
+
+                match tokio::net::UnixStream::connect(&socket_path).await {
+                    Ok(stream) => {
+                        let stream = Arc::new(Mutex::new(stream));
+
+                        let manager_clone = Arc::clone(&manager);
+                        let input_clone = input.clone();
+                        let stream_write = Arc::clone(&stream);
+                        let tx_clone = tx.clone();
+
+                        tokio::spawn(async move {
+                            let mut stream_lock = stream_write.lock().await;
+                            if let Err(e) = manager_clone
+                                .console_write(id, input_clone, &mut stream_lock)
+                                .await
+                            {
+                                info!("Failed to write to console: {:?}", e);
+                            }
+                        });
+
+                        let stream_read = Arc::clone(&stream);
+                        tokio::spawn(async move {
+                            let mut buffer = vec![0; 1024];
+                            loop {
+                                let mut stream_lock = stream_read.lock().await;
+                                match stream_lock.read(&mut buffer).await {
+                                    Ok(n) if n > 0 => {
+                                        let message =
+                                            String::from_utf8_lossy(&buffer[..n]).to_string();
+                                        let response = ConsoleVmInteractiveResponse { message };
+                                        if tx_clone.send(Ok(response)).await.is_err() {
+                                            break;
+                                        }
+                                    }
+                                    Ok(_) => break,
+                                    Err(e) => {
+                                        info!("Failed to read from stream: {:?}", e);
+                                        break;
+                                    }
+                                }
+                            }
+                        });
+                    }
+                    Err(e) => info!("Failed to connect to Unix socket: {:?}", e),
                 }
             }
         });
@@ -310,30 +411,13 @@ impl FeosGrpc for FeOSAPI {
 
         Ok(Response::new(feos_grpc::BootVmResponse {}))
     }
-
-    async fn console_vm(
-        &self,
-        request: Request<ConsoleVmRequest>,
-    ) -> Result<Response<Self::ConsoleVMStream>, Status> {
-        info!("Got console_vm request");
-
-        let id = request.get_ref().uuid.to_owned();
-        let id = Uuid::parse_str(&id).map_err(|_| Status::invalid_argument("failed to parse uuid"))?;
-
-        let (tx, rx) = mpsc::channel(4);
-
-        let manager = Arc::clone(&self.vmm);
-        std::thread::spawn(move || {
-            if let Err(e) = manager.console_with_sender(id, tx) {
-                info!("Failed to stream console output: {:?}", e);
-            }
-        });
-
-        Ok(Response::new(ReceiverStream::new(rx)))
-    }
 }
 
-pub async fn daemon_start(vmm: vm::Manager, buffer: Arc<RingBuffer>, log_receiver: Arc<Mutex<mpsc::Receiver<String>>>) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn daemon_start(
+    vmm: vm::Manager,
+    buffer: Arc<RingBuffer>,
+    log_receiver: Arc<Mutex<mpsc::Receiver<String>>>,
+) -> Result<(), Box<dyn std::error::Error>> {
     let addr = "[::]:1337".parse()?;
 
     let api = FeOSAPI::new(vmm, buffer, log_receiver);
