@@ -33,4 +33,14 @@ pub fn mount_virtual_filesystems() {
         NONE,
     )
     .unwrap_or_else(|e| panic!("/dev mount failed: {e}"));
+
+    debug!("Mounting /var/lib/feos");
+    mount(
+        Some(b"tmpfs".as_ref()),
+        "/var/lib/feos",
+        Some(b"tmpfs".as_ref()),
+        MsFlags::empty(),
+        NONE,
+    )
+    .unwrap_or_else(|e| panic!("/var/lib/feos mount failed: {e}"));
 }
