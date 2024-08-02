@@ -22,6 +22,9 @@ use network::configure_sriov;
 use nix::unistd::{execv, Uid};
 use ringbuffer::*;
 
+use tokio::fs::File;
+use tokio::io::AsyncReadExt;
+
 #[tokio::main]
 async fn main() -> Result<(), String> {
     if std::process::id() == 1 {
@@ -76,12 +79,42 @@ async fn main() -> Result<(), String> {
         }
     }
 
-    let vmm = vm::Manager::new(String::from("cloud-hypervisor"));
+    let is_nested = match is_running_on_vm().await {
+        Ok(result) => result,
+        Err(e) => {
+            error!("Error checking VM status: {}", e);
+            false // Default to false in case of error
+        }
+    };
+
+    let vmm = vm::Manager::new(String::from("cloud-hypervisor"), is_nested);
 
     info!("Starting FeOS daemon...");
-    match daemon_start(vmm, buffer, log_receiver).await {
+    match daemon_start(vmm, buffer, log_receiver, is_nested).await {
         Err(e) => error!("FeOS daemon crashed: {}", e),
         _ => error!("FeOS daemon exited."),
     }
     Err("FeOS exited".to_string())
+}
+
+async fn is_running_on_vm() -> Result<bool, Box<dyn std::error::Error>> {
+    let files = [
+        "/sys/class/dmi/id/product_name",
+        "/sys/class/dmi/id/sys_vendor",
+    ];
+
+    let mut match_count = 0;
+
+    for file_path in files.iter() {
+        let mut file = File::open(file_path).await?;
+        let mut contents = String::new();
+        file.read_to_string(&mut contents).await?;
+
+        let lowercase_contents = contents.to_lowercase();
+        if lowercase_contents.contains("cloud") && lowercase_contents.contains("hypervisor") {
+            match_count += 1;
+        }
+    }
+
+    Ok(match_count == 2)
 }
