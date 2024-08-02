@@ -7,6 +7,8 @@ use crate::host;
 use crate::ringbuffer::*;
 use crate::vm::image;
 use feos_grpc::feos_grpc_server::{FeosGrpc, FeosGrpcServer};
+use hyper_util::rt::TokioIo;
+use nix::libc::VMADDR_CID_ANY;
 use std::sync::Arc;
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
@@ -15,6 +17,9 @@ use tokio::net::UnixStream;
 use tokio::sync::{mpsc, Mutex};
 use tokio::time::{sleep, Duration};
 use tokio_stream::wrappers::ReceiverStream;
+use tokio_vsock::{VsockAddr, VsockListener};
+use tonic::transport::{Endpoint, Uri};
+use tower::service_fn;
 use uuid::Uuid;
 
 use self::feos_grpc::{
@@ -216,6 +221,38 @@ impl FeosGrpc for FeOSAPI {
         // Return an instance of type HelloReply
         info!("Got a request: {:?}", request);
 
+        if !self.vmm.is_nested {
+            let channel = Endpoint::try_from("http://[::]:50051")
+                .map_err(|e| Status::internal(format!("Failed to create endpoint: {}", e)))?
+                .connect_with_connector(service_fn(|_: Uri| async {
+                    let path = "vsock.sock";
+
+                    let mut stream = UnixStream::connect(path).await?;
+                    let connect_cmd = format!("CONNECT {}\n", 1337);
+                    stream.write_all(connect_cmd.as_bytes()).await?;
+
+                    let mut buffer = [0u8; 128];
+                    let n = stream.read(&mut buffer).await?;
+                    let response = String::from_utf8_lossy(&buffer[..n]);
+                    // Parse the response
+                    if !response.starts_with("OK") {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            format!("Failed to connect to vsock: {}", response.trim()),
+                        ));
+                    }
+                    info!("Connected to vsock: {}", response.trim());
+                    // Connect to an Uds socket
+                    Ok::<_, std::io::Error>(TokioIo::new(stream))
+                }))
+                .await
+                .map_err(|e| Status::internal(format!("Failed to connect: {}", e)))?;
+
+            let mut client = feos_grpc::feos_grpc_client::FeosGrpcClient::new(channel);
+            let request = tonic::Request::new(Empty {});
+            let _response = client.ping(request).await?;
+        }
+
         let reply = feos_grpc::Empty {};
 
         Ok(Response::new(reply)) // Send back our formatted greeting
@@ -393,21 +430,35 @@ pub async fn daemon_start(
     vmm: vm::Manager,
     buffer: Arc<RingBuffer>,
     log_receiver: Arc<Mutex<mpsc::Receiver<String>>>,
+    is_nested: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let addr = "[::]:1337".parse()?;
-
     let api = FeOSAPI::new(vmm, buffer, log_receiver);
 
-    Server::builder()
-        .timeout(Duration::from_secs(30))
-        .add_service(FeosGrpcServer::new(api))
-        .add_service(
-            container::container_service::container_service_server::ContainerServiceServer::new(
-                container::ContainerAPI {},
-            ),
-        )
-        .serve(addr)
-        .await?;
+    if is_nested {
+        let sockaddr = VsockAddr::new(VMADDR_CID_ANY, 1337);
+        let vsock_listener = VsockListener::bind(sockaddr)?;
+        Server::builder()
+            .add_service(FeosGrpcServer::new(api))
+            .add_service(
+                container::container_service::container_service_server::ContainerServiceServer::new(
+                    container::ContainerAPI {},
+                ),
+            )
+            .serve_with_incoming(vsock_listener.incoming())
+            .await?;
+    } else {
+        let addr = "[::]:1337".parse()?;
+        Server::builder()
+            .timeout(Duration::from_secs(30))
+            .add_service(FeosGrpcServer::new(api))
+            .add_service(
+                container::container_service::container_service_server::ContainerServiceServer::new(
+                    container::ContainerAPI {},
+                ),
+            )
+            .serve(addr)
+            .await?;
+    }
 
     Ok(())
 }

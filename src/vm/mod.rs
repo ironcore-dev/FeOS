@@ -15,7 +15,7 @@ use vmm::vm_config;
 
 use vmm::config::{
     ConsoleConfig, ConsoleOutputMode, CpusConfig, DiskConfig, MemoryConfig, PayloadConfig,
-    PlatformConfig,
+    PlatformConfig, VsockConfig,
 };
 
 use net_util::MacAddr;
@@ -38,6 +38,7 @@ pub enum Error {
 pub struct Manager {
     pub ch_bin: String,
     vms: Mutex<HashMap<Uuid, Child>>,
+    pub is_nested: bool,
 }
 
 impl Default for Manager {
@@ -45,15 +46,17 @@ impl Default for Manager {
         Self {
             ch_bin: String::default(),
             vms: Mutex::new(HashMap::new()),
+            is_nested: false,
         }
     }
 }
 
 impl Manager {
-    pub fn new(ch_bin: String) -> Self {
+    pub fn new(ch_bin: String, is_nested: bool) -> Self {
         Self {
             ch_bin,
             vms: Mutex::new(HashMap::new()),
+            is_nested,
         }
     }
 
@@ -129,6 +132,13 @@ impl Manager {
             initramfs: None,
             // TODO: fix hardcoded path
             firmware: Some(PathBuf::from("/usr/share/cloud-hypervisor/hypervisor-fw")),
+        });
+        vm_config.vsock = Some(VsockConfig {
+            cid: 33,
+            socket: PathBuf::from("vsock.sock"),
+            id: None,
+            iommu: false,
+            pci_segment: 0,
         });
         vm_config.disks = Some(vec![DiskConfig {
             path: Some(root_fs),

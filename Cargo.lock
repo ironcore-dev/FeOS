@@ -745,6 +745,7 @@ dependencies = [
  "futures",
  "futures-core",
  "futures-util",
+ "hyper-util",
  "libcgroups",
  "libcontainer",
  "log",
@@ -764,8 +765,10 @@ dependencies = [
  "thiserror",
  "tokio",
  "tokio-stream",
+ "tokio-vsock",
  "tonic 0.12.1",
  "tonic-build 0.12.1",
+ "tower",
  "uuid",
  "vmm",
 ]
@@ -816,9 +819,9 @@ checksum = "1d674e81391d1e1ab681a28d99df07927c6d4aa5b027d7da16ba32d1d21ecd99"
 
 [[package]]
 name = "flate2"
-version = "1.0.30"
+version = "1.0.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5f54427cfd1c7829e2a139fcefea601bf088ebca651d2bf53ebc600eac295dae"
+checksum = "7f211bbe8e69bbd0cfdea405084f128ae8b4aaa6b0b522fc8f2b009084797920"
 dependencies = [
  "crc32fast",
  "miniz_oxide",
@@ -1503,7 +1506,7 @@ checksum = "97b3888a4aecf77e811145cadf6eef5901f4782c53886191b2f693f24761847c"
 [[package]]
 name = "libcgroups"
 version = "0.3.3"
-source = "git+https://github.com/containers/youki?branch=main#8bda6932affd2f68a2516a175df3fffab140232b"
+source = "git+https://github.com/containers/youki?branch=main#3f8fdd3cf50a9969d3254c4d0d5dfaf3d98d5c8d"
 dependencies = [
  "fixedbitset 0.5.7",
  "nix 0.28.0",
@@ -1517,7 +1520,7 @@ dependencies = [
 [[package]]
 name = "libcontainer"
 version = "0.3.3"
-source = "git+https://github.com/containers/youki?branch=main#8bda6932affd2f68a2516a175df3fffab140232b"
+source = "git+https://github.com/containers/youki?branch=main#3f8fdd3cf50a9969d3254c4d0d5dfaf3d98d5c8d"
 dependencies = [
  "bitflags 2.6.0",
  "caps",
@@ -1676,9 +1679,9 @@ dependencies = [
 
 [[package]]
 name = "nc"
-version = "0.8.21"
+version = "0.8.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "388827c54cacb7f6604751c05dc9adf9ec9c1b35a6f50948e3d11049502481f3"
+checksum = "44b24115ea9683b6fd45d99c7e83002a739601faea67908edb02737497fabdd3"
 dependencies = [
  "cc",
 ]
@@ -1890,12 +1893,14 @@ dependencies = [
 
 [[package]]
 name = "oci-spec"
-version = "0.6.7"
+version = "0.6.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bdf88ddc01cc6bccbe1044adb6a29057333f523deadcb4953c011a73158cfa5e"
+checksum = "3f5a3fe998d50101ae009351fec56d88a69f4ed182e11000e711068c2f5abf72"
 dependencies = [
  "derive_builder",
  "getset",
+ "once_cell",
+ "regex",
  "serde",
  "serde_json",
  "strum",
@@ -2502,9 +2507,9 @@ dependencies = [
 
 [[package]]
 name = "regex"
-version = "1.10.5"
+version = "1.10.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b91213439dad192326a0d7c6ee3955910425f441d7038e0d6933b0aec5c4517f"
+checksum = "4219d74c6b67a3654a9fbebc4b419e22126d13d2f3c4a07ee0cb61ff79a79619"
 dependencies = [
  "aho-corasick",
  "memchr",
@@ -2736,11 +2741,12 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.120"
+version = "1.0.121"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4e0d21c9a8cae1235ad58a00c11cb40d4b1e5c784f1ef2c537876ed6ffd8b7c5"
+checksum = "4ab380d7d9f22ef3f21ad3e6c1ebe8e4fc7a2000ccba2e4d71fc96f15b2cb609"
 dependencies = [
  "itoa",
+ "memchr",
  "ryu",
  "serde",
 ]
@@ -3141,6 +3147,19 @@ dependencies = [
  "futures-sink",
  "pin-project-lite",
  "tokio",
+]
+
+[[package]]
+name = "tokio-vsock"
+version = "0.5.0"
+source = "git+https://github.com/rust-vsock/tokio-vsock?rev=3a41323#3a413237c67cbad699e9a5bd80598d5278fc1720"
+dependencies = [
+ "bytes",
+ "futures",
+ "libc",
+ "tokio",
+ "tonic 0.12.1",
+ "vsock",
 ]
 
 [[package]]
@@ -3678,6 +3697,16 @@ dependencies = [
  "libc",
  "serde",
  "serde_derive",
+]
+
+[[package]]
+name = "vsock"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f82e291049535877d607cd861b6820eb622538c88853c1c01df72b1dbed4e32d"
+dependencies = [
+ "libc",
+ "nix 0.28.0",
 ]
 
 [[package]]
