@@ -1,9 +1,10 @@
-use log::info;
+use log::{error, info};
 use std::path::PathBuf;
 use tonic::{transport::Server, Request, Response, Status};
 
 use crate::container;
 use crate::host;
+use crate::ringbuffer::*;
 use crate::vm::image;
 use feos_grpc::feos_grpc_server::{FeosGrpc, FeosGrpcServer};
 use std::sync::Arc;

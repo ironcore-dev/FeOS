@@ -1,5 +1,4 @@
 use container_service::container_service_server::ContainerService;
-use libcontainer;
 use libcontainer::container::builder::ContainerBuilder;
 use libcontainer::container::Container;
 use libcontainer::signal::Signal;
@@ -39,7 +38,7 @@ fn create(
         .with_root_path("/run/containers/youki")?
         .with_console_socket(socket)
         .validate_id()?
-        .as_init(&bundle)
+        .as_init(bundle)
         .with_systemd(false)
         .with_detach(true)
         .build()?;
@@ -59,8 +58,11 @@ impl ContainerService for ContainerAPI {
 
         let digest = fetch_image(request.get_ref().image.to_owned())
             .await
-            .map_err(|_: oci::ImageError| {
-                Status::new(tonic::Code::Internal, "failed to fetch image")
+            .map_err(|e| {
+                Status::new(
+                    tonic::Code::Internal,
+                    format!("failed to fetch image: {}", e),
+                )
             })?;
 
         let mut bundle_path = PathBuf::from(DEFAULT_CONTAINER_PATH);
