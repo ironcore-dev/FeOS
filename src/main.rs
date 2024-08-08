@@ -45,18 +45,19 @@ async fn main() -> Result<(), String> {
     if std::process::id() == 1 {
         info!("Mounting virtual filesystems...");
         mount_virtual_filesystems();
+
+        info!("Configuring network devices...");
+        configure_network_devices()
+            .await
+            .expect("could not configure network devices");
+
+        info!("Configuring sriov...");
+        const VFS_NUM: u32 = 125;
+        if let Err(e) = configure_sriov(VFS_NUM).await {
+            warn!("failed to configure sriov: {}", e.to_string())
+        }
     }
 
-    info!("Configuring network devices...");
-    configure_network_devices()
-        .await
-        .expect("could not configure network devices");
-
-    info!("Configuring sriov...");
-    const VFS_NUM: u32 = 125;
-    if let Err(e) = configure_sriov(VFS_NUM).await {
-        warn!("failed to configure sriov: {}", e.to_string())
-    }
     let vmm = vm::Manager::new(String::from("cloud-hypervisor"));
 
     info!("Starting FeOS daemon...");
