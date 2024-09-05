@@ -3,22 +3,39 @@ mod container;
 mod daemon;
 mod dhcpv6;
 mod filesystem;
+mod fsmount;
 mod host;
+mod move_root;
 mod network;
 mod ringbuffer;
 mod vm;
+
+use std::{env::args, ffi::CString};
 
 use crate::daemon::daemon_start;
 use crate::filesystem::mount_virtual_filesystems;
 use crate::network::configure_network_devices;
 
 use log::{error, info, warn};
+use move_root::{get_root_fstype, move_root};
 use network::configure_sriov;
-use nix::unistd::Uid;
+use nix::unistd::{execv, Uid};
 use ringbuffer::*;
 
 #[tokio::main]
 async fn main() -> Result<(), String> {
+    if std::process::id() == 1 {
+        let root_fstype = get_root_fstype().unwrap_or_default();
+        if root_fstype == "rootfs" {
+            move_root().map_err(|e| format!("move_root: {}", e))?;
+
+            let argv: Vec<CString> = args()
+                .map(|arg| CString::new(arg).unwrap_or_default())
+                .collect();
+            execv(&argv[0], &argv).map_err(|e| format!("execv: {}", e))?;
+        }
+    }
+
     println!(
         "
 

@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [lints.rust]
-unsafe_code = "forbid"
+unsafe_code = "deny"
 
 [lints.clippy]
 enum_glob_use = "deny"
@@ -15,7 +15,7 @@ enum_glob_use = "deny"
 futures = "0.3.30"
 netlink-packet-route = "~0.19.0"
 rtnetlink = "0.14.0"
-nix = { version = "0.29.0", features = ["mount", "user", "reboot", "feature", "net", "aio", "signal", "process"] }
+nix = { version = "0.29.0", features = ["mount", "user", "reboot", "feature", "net", "aio", "signal", "process", "fs"] }
 tokio = { version = "1.38.0", features = ["full", "macros", "rt-multi-thread"] }
 log = "0.4.22"
 simple_logger = "5.0.0"
@@ -44,6 +44,7 @@ chrono = "0.4"
 futures-util = "0.3"
 futures-core = "0.3"
 async-stream = "0.3"
+libc = "0.2"
 
 [build-dependencies]
 tonic-build = "0.12.1"
