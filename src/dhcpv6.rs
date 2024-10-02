@@ -1,10 +1,12 @@
+use dhcproto::v6::Status::{NoAddrsAvail, NoBinding};
 use dhcproto::v6::*;
 use futures::stream::TryStreamExt;
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 use netlink_packet_route::route::{
-    RouteAddress, RouteAttribute, RouteProtocol, RouteScope, RouteType,
+    RouteAddress, RouteAttribute, RouteHeader, RouteProtocol, RouteScope, RouteType,
 };
 use netlink_packet_route::AddressFamily;
+use nix::net::if_::if_nametoindex;
 use pnet::packet::icmpv6::Icmpv6Code;
 use pnet::{
     datalink::{self, Channel::Ethernet, NetworkInterface},
@@ -17,10 +19,27 @@ use pnet::{
     },
     util::MacAddr,
 };
-use rand::{thread_rng, Rng};
 use rtnetlink::{new_connection, Error, Handle};
-use std::net::{Ipv6Addr, SocketAddr};
+use socket2::{Domain, Protocol, SockAddr, Socket, Type};
+use std::collections::HashMap;
+use std::io;
+use std::net::{Ipv6Addr, SocketAddr, SocketAddrV6};
+use std::thread::sleep;
+use std::time::Duration;
 use tokio::net::UdpSocket;
+use tokio::task;
+
+#[derive(Clone)]
+pub struct IpRange {
+    pub start: Ipv6Addr,
+    pub end: Ipv6Addr,
+}
+
+#[derive(Debug, Clone)]
+struct ClientInfo {
+    duid: Vec<u8>,
+    mac: Vec<u8>,
+}
 
 pub fn mac_to_ipv6_link_local(mac_address: &[u8]) -> Option<Ipv6Addr> {
     if mac_address.len() == 6 {
@@ -201,6 +220,7 @@ pub fn is_dhcpv6_needed(interface_name: String, ignore_ra_flag: bool) -> Option<
     };
 
     info!("Sending Router Solicitation ...");
+    sleep(Duration::from_secs(5));
     send_router_solicitation(&interface, &mut *tx);
 
     while let Ok(raw_packet) = rx.next() {
@@ -238,26 +258,26 @@ pub async fn run_dhcpv6_client(
     let chaddr = vec![
         29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44,
     ];
-    let mut rng = thread_rng();
-    let random_xid: [u8; 3] = rng.gen();
-    let local_address = format!("[{}]:546", Ipv6Addr::UNSPECIFIED)
-        .parse::<SocketAddr>()
-        .unwrap();
+    let random_xid: [u8; 3] = [0x12, 0x34, 0x56];
     let multicast_address = "[FF02::1:2]:547".parse::<SocketAddr>().unwrap();
     let mut ia_addr_confirm: Option<DhcpOption> = None;
 
-    let socket = UdpSocket::bind(local_address).await?;
+    let interface_index = get_interface_index(interface_name.clone()).await?;
+    let socket = create_multicast_socket(interface_name.clone(), interface_index, 546)?;
 
     let mut msg = Message::new(MessageType::Solicit);
     msg.opts_mut().insert(DhcpOption::ClientId(chaddr.clone()));
     msg.opts_mut().insert(DhcpOption::ElapsedTime(0));
     msg.set_xid(random_xid);
 
+    msg.opts_mut().insert(DhcpOption::RapidCommit);
+
     let mut oro = ORO { opts: Vec::new() };
     oro.opts.push(OptionCode::DomainNameServers);
     oro.opts.push(OptionCode::DomainSearchList);
     oro.opts.push(OptionCode::ClientFqdn);
     oro.opts.push(OptionCode::SntpServers);
+    oro.opts.push(OptionCode::RapidCommit);
 
     msg.opts_mut().insert(DhcpOption::ORO(oro));
 
@@ -338,7 +358,7 @@ pub async fn run_dhcpv6_client(
                         .opts_mut()
                         .insert(DhcpOption::IANA(iana_instance));
                 } else {
-                    warn!("No ip was not found in Advertise message");
+                    warn!("No IP was found in Advertise message");
                 }
 
                 buf.clear();
@@ -373,7 +393,7 @@ pub async fn run_dhcpv6_client(
 
         set_ipv6_address(&handle, &interface_name, ia_a.addr, 128).await?;
         info!(
-            "DHCPv6 processing finished, setting ipv6 address {}",
+            "DHCPv6 processing finished, setting IPv6 address {}",
             ia_a.addr
         );
         return Ok(ia_a.addr);
@@ -408,6 +428,504 @@ pub async fn set_ipv6_address(
         .await
 }
 
+pub async fn get_interface_index(interface_name: String) -> io::Result<u32> {
+    task::spawn_blocking(move || {
+        if_nametoindex(interface_name.as_str()).map_err(|e| {
+            io::Error::new(io::ErrorKind::Other, format!("Error getting index: {}", e))
+        })
+    })
+    .await?
+}
+
+fn create_multicast_socket(
+    interface_name: String,
+    interface_index: u32,
+    lport: u16,
+) -> Result<UdpSocket, Box<dyn std::error::Error>> {
+    let multicast_addr: Ipv6Addr = "ff02::1:2".parse().unwrap();
+
+    let socket = Socket::new(Domain::IPV6, Type::DGRAM, Some(Protocol::UDP))?;
+    socket.set_reuse_address(true)?;
+    socket.set_reuse_port(true)?;
+    socket.set_multicast_if_v6(interface_index)?;
+    socket.join_multicast_v6(&multicast_addr, interface_index)?;
+
+    socket.bind(&SockAddr::from(SocketAddr::V6(SocketAddrV6::new(
+        Ipv6Addr::UNSPECIFIED,
+        lport,
+        0,
+        0,
+    ))))?;
+
+    socket.bind_device(Some(interface_name.as_bytes()))?;
+
+    socket.set_nonblocking(true)?;
+
+    let udp_socket = UdpSocket::from_std(socket.into())?;
+
+    Ok(udp_socket)
+}
+
+pub async fn run_dhcpv6_server(
+    interface_name: String,
+    ip_range: IpRange,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let interface_index = get_interface_index(interface_name.clone()).await?;
+    let socket = create_multicast_socket(interface_name.clone(), interface_index, 547)?;
+
+    info!(
+        "DHCPv6 server listening on interface {} [::]:547 and joined multicast group ff02::1:2",
+        interface_name
+    );
+
+    let mut allocations: HashMap<Vec<u8>, Ipv6Addr> = HashMap::new();
+    let mut available_addresses: Vec<Ipv6Addr> = generate_ip_pool(ip_range);
+    let server_duid = vec![0x00, 0x01, 0x00, 0x01, 0x00, 0x0c, 0x29, 0x3e, 0x5c, 0x3d];
+    let mut buf = [0u8; 1500];
+
+    loop {
+        let (size, client_addr) = socket.recv_from(&mut buf).await?;
+
+        let message = match Message::decode(&mut Decoder::new(&buf[..size])) {
+            Ok(msg) => msg,
+            Err(e) => {
+                info!("Failed to decode message: {}", e);
+                continue;
+            }
+        };
+
+        debug!("Received DHCPv6 message: {:?}", message.msg_type());
+
+        let client_duid_option = message.opts().get(OptionCode::ClientId);
+        let client_info = match client_duid_option {
+            Some(DhcpOption::ClientId(duid)) => {
+                let duid = duid.clone();
+                let mac = extract_mac_from_duid(&duid).unwrap_or_else(|| duid.clone());
+                ClientInfo { duid, mac }
+            }
+            _ => {
+                debug!("Solicit/Request message without valid Client ID");
+                continue;
+            }
+        };
+
+        match message.msg_type() {
+            MessageType::Solicit => {
+                handle_solicit(
+                    &socket,
+                    &message,
+                    &client_info,
+                    &mut allocations,
+                    &mut available_addresses,
+                    &server_duid,
+                    client_addr,
+                )
+                .await?;
+            }
+            MessageType::Request => {
+                handle_request(
+                    &socket,
+                    &message,
+                    &client_info,
+                    &mut allocations,
+                    &server_duid,
+                    client_addr,
+                )
+                .await?;
+            }
+            _ => {
+                info!("Unhandled DHCPv6 message type: {:?}", message.msg_type());
+                continue;
+            }
+        }
+    }
+}
+
+async fn handle_solicit(
+    socket: &UdpSocket,
+    message: &Message,
+    client_info: &ClientInfo,
+    allocations: &mut HashMap<Vec<u8>, Ipv6Addr>,
+    available_addresses: &mut Vec<Ipv6Addr>,
+    server_duid: &[u8],
+    client_addr: SocketAddr,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let iana_option = message.opts().get(OptionCode::IANA);
+    let iana = match iana_option {
+        Some(DhcpOption::IANA(iana)) => iana,
+        _ => {
+            info!("Solicit message without IA_NA option");
+            return Ok(());
+        }
+    };
+
+    let iaid = iana.id;
+
+    let rapid_commit_requested = message.opts().get(OptionCode::RapidCommit).is_some();
+
+    let option_request = message.opts().get(OptionCode::ORO);
+
+    let rapid_commit_in_oro = if let Some(DhcpOption::ORO(option_codes)) = option_request {
+        option_codes.opts.contains(&OptionCode::RapidCommit)
+    } else {
+        false
+    };
+
+    let rapid_commit = rapid_commit_requested && rapid_commit_in_oro;
+
+    if rapid_commit {
+        debug!(
+            "Rapid Commit option detected in Solicit message from client DUID {:?}",
+            client_info.duid
+        );
+
+        let allocated_ip = if let Some(ip) = allocations.get(&client_info.mac) {
+            *ip
+        } else if let Some(ip) = available_addresses.pop() {
+            allocations.insert(client_info.mac.clone(), ip);
+            ip
+        } else {
+            let reply_msg = create_reply_message(
+                message.xid(),
+                server_duid,
+                &client_info.duid,
+                None,
+                Some(StatusCode {
+                    status: NoAddrsAvail,
+                    msg: "No addresses available".into(),
+                }),
+            );
+
+            let mut send_buf = Vec::new();
+            reply_msg.encode(&mut Encoder::new(&mut send_buf))?;
+            socket.send_to(&send_buf, &client_addr).await?;
+
+            debug!(
+                "No available IPs. Sent Reply with NoAddrsAvail to client DUID {:?}",
+                client_info.duid
+            );
+            return Ok(());
+        };
+
+        info!(
+            "Assigning IP {} to client DUID {:?} via Rapid Commit",
+            allocated_ip, client_info.duid
+        );
+
+        let ia_addr = IAAddr {
+            addr: allocated_ip,
+            preferred_life: 0xFFFFFFFF,
+            valid_life: 0xFFFFFFFF,
+            opts: DhcpOptions::default(),
+        };
+
+        let mut iana_opts = DhcpOptions::default();
+        iana_opts.insert(DhcpOption::IAAddr(ia_addr));
+
+        let iana = IANA {
+            id: iaid,
+            t1: 0xFFFFFFFF,
+            t2: 0xFFFFFFFF,
+            opts: iana_opts,
+        };
+
+        let mut reply_msg = create_reply_message(
+            message.xid(),
+            server_duid,
+            &client_info.duid,
+            Some(iana),
+            Some(StatusCode {
+                status: dhcproto::v6::Status::Success,
+                msg: "Success".into(),
+            }),
+        );
+
+        reply_msg.opts_mut().insert(DhcpOption::RapidCommit);
+
+        let mut send_buf = Vec::new();
+        reply_msg.encode(&mut Encoder::new(&mut send_buf))?;
+        socket.send_to(&send_buf, &client_addr).await?;
+
+        debug!(
+            "Sent Reply message to client DUID {:?} with IP {} via Rapid Commit",
+            client_info.duid, allocated_ip
+        );
+
+        return Ok(());
+    }
+
+    debug!(
+        "Handling Solicit without Rapid Commit for client DUID (Not implemented yet) {:?}",
+        client_info.duid
+    );
+    //TODO Advertise handling
+
+    Ok(())
+}
+
+async fn handle_request(
+    socket: &UdpSocket,
+    message: &Message,
+    client_info: &ClientInfo,
+    allocations: &mut HashMap<Vec<u8>, Ipv6Addr>,
+    server_duid: &[u8],
+    client_addr: SocketAddr,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let iana_option = message.opts().get(OptionCode::IANA);
+    let iana = match iana_option {
+        Some(DhcpOption::IANA(iana)) => iana,
+        _ => {
+            info!("Request message without IA_NA option");
+            return Ok(());
+        }
+    };
+
+    let iaid = iana.id;
+
+    let ia_addr_option = iana.opts.get(OptionCode::IAAddr);
+    let requested_ip = match ia_addr_option {
+        Some(DhcpOption::IAAddr(ia_addr)) => ia_addr.addr,
+        _ => {
+            info!("IA_NA option without IAAddr");
+            return Ok(());
+        }
+    };
+
+    if let Some(allocated_ip) = allocations.get(&client_info.mac) {
+        if *allocated_ip == requested_ip {
+            let ia_addr = IAAddr {
+                addr: requested_ip,
+                preferred_life: 0xFFFFFFFF,
+                valid_life: 0xFFFFFFFF,
+                opts: DhcpOptions::default(),
+            };
+
+            let mut iana_opts = DhcpOptions::default();
+            iana_opts.insert(DhcpOption::IAAddr(ia_addr));
+
+            let iana = IANA {
+                id: iaid,
+                t1: 0xFFFFFFFF,
+                t2: 0xFFFFFFFF,
+                opts: iana_opts,
+            };
+
+            let reply_msg = create_reply_message(
+                message.xid(),
+                server_duid,
+                &client_info.duid,
+                Some(iana),
+                Some(StatusCode {
+                    status: dhcproto::v6::Status::Success,
+                    msg: "Success".into(),
+                }),
+            );
+
+            let mut send_buf = Vec::new();
+            reply_msg.encode(&mut Encoder::new(&mut send_buf))?;
+            socket.send_to(&send_buf, &client_addr).await?;
+
+            info!(
+                "Confirmed IP {} for client DUID {:?}",
+                requested_ip, client_info.duid
+            );
+        } else {
+            let reply_msg = create_reply_message(
+                message.xid(),
+                server_duid,
+                &client_info.duid,
+                None,
+                Some(StatusCode {
+                    status: NoBinding,
+                    msg: "No binding for requested IP".into(),
+                }),
+            );
+
+            let mut send_buf = Vec::new();
+            reply_msg.encode(&mut Encoder::new(&mut send_buf))?;
+            socket.send_to(&send_buf, &client_addr).await?;
+
+            info!(
+                "No binding for requested IP {} from client DUID {:?}",
+                requested_ip, client_info.duid
+            );
+        }
+    } else {
+        let reply_msg = create_reply_message(
+            message.xid(),
+            server_duid,
+            &client_info.duid,
+            None,
+            Some(StatusCode {
+                status: NoBinding,
+                msg: "No binding for requested IP".into(),
+            }),
+        );
+
+        let mut send_buf = Vec::new();
+        reply_msg.encode(&mut Encoder::new(&mut send_buf))?;
+        socket.send_to(&send_buf, &client_addr).await?;
+
+        info!(
+            "No binding for requested IP {} from client DUID {:?}",
+            requested_ip, client_info.duid
+        );
+    }
+
+    Ok(())
+}
+
+fn create_reply_message(
+    xid: [u8; 3],
+    server_duid: &[u8],
+    client_duid: &[u8],
+    iana: Option<IANA>,
+    status_code: Option<StatusCode>,
+) -> Message {
+    let mut reply_msg = Message::new(MessageType::Reply);
+    reply_msg.set_xid(xid);
+
+    reply_msg
+        .opts_mut()
+        .insert(DhcpOption::ServerId(server_duid.to_vec()));
+
+    reply_msg
+        .opts_mut()
+        .insert(DhcpOption::ClientId(client_duid.to_vec()));
+
+    if let Some(iana) = iana {
+        reply_msg.opts_mut().insert(DhcpOption::IANA(iana));
+    }
+
+    if let Some(status) = status_code {
+        reply_msg.opts_mut().insert(DhcpOption::StatusCode(status));
+    }
+
+    reply_msg
+}
+
+fn generate_ip_pool(ip_range: IpRange) -> Vec<Ipv6Addr> {
+    let start_u128 = u128::from(ip_range.start);
+    let end_u128 = u128::from(ip_range.end);
+
+    let range_size = end_u128 - start_u128 + 1;
+    if range_size > 1000 {
+        error!("IP range too large");
+    }
+
+    let mut ips = Vec::new();
+    for addr_u128 in start_u128..=end_u128 {
+        let ip = Ipv6Addr::from(addr_u128);
+        ips.push(ip);
+    }
+    ips
+}
+
+fn extract_mac_from_duid(duid: &[u8]) -> Option<Vec<u8>> {
+    if duid.len() < 2 {
+        return None;
+    }
+    let duid_type = u16::from_be_bytes([duid[0], duid[1]]);
+    match duid_type {
+        1 => {
+            if duid.len() < 8 {
+                return None;
+            }
+            let mac = duid[8..].to_vec();
+            Some(mac)
+        }
+        3 => {
+            if duid.len() < 4 {
+                return None;
+            }
+            let mac = duid[4..].to_vec();
+            Some(mac)
+        }
+        _ => {
+            // Other DUID types
+            None
+        }
+    }
+}
+
+pub async fn add_ipv6_route(
+    handle: &Handle,
+    interface_name: &str,
+    destination: Ipv6Addr,
+    prefix_length: u8,
+    gateway: Option<Ipv6Addr>,
+    metric: u32,
+) -> Result<(), Error> {
+    let mut links = handle
+        .link()
+        .get()
+        .match_name(interface_name.to_string())
+        .execute();
+
+    let link = match links.try_next().await {
+        Ok(Some(link)) => link,
+        Ok(None) => return Err(Error::RequestFailed),
+        Err(e) => return Err(e),
+    };
+
+    let mut route_add_request = handle.route().add();
+
+    let route_msg = route_add_request.message_mut();
+
+    route_msg.header.address_family = AddressFamily::Inet6;
+    route_msg.header.scope = RouteScope::Universe;
+    route_msg.header.protocol = RouteProtocol::Static;
+    route_msg.header.kind = RouteType::Unicast;
+    route_msg.header.destination_prefix_length = prefix_length;
+    route_msg.header.table = RouteHeader::RT_TABLE_MAIN;
+
+    route_msg
+        .attributes
+        .push(RouteAttribute::Destination(RouteAddress::from(destination)));
+
+    if let Some(gw) = gateway {
+        route_msg
+            .attributes
+            .push(RouteAttribute::Gateway(RouteAddress::from(gw)));
+    }
+
+    route_msg
+        .attributes
+        .push(RouteAttribute::Oif(link.header.index));
+
+    route_msg.attributes.push(RouteAttribute::Priority(metric));
+
+    route_add_request.execute().await
+}
+
+pub fn adjust_base_ip(base_ip: Ipv6Addr, prefix_length: u8, prefix_count: u16) -> Ipv6Addr {
+    let base_ip_u128: u128 = base_ip.into();
+    let subnet_shift = 128 - (prefix_length as u32 + 16);
+    let subnet_mask: u128 = !(0xFFFFu128 << subnet_shift);
+    let adjusted_base_ip_u128 =
+        (base_ip_u128 & subnet_mask) | ((prefix_count as u128) << subnet_shift);
+    Ipv6Addr::from(adjusted_base_ip_u128)
+}
+
+pub fn add_to_ipv6(addr: Ipv6Addr, prefix_length: u8, increment: u128) -> Ipv6Addr {
+    let addr_u128: u128 = addr.into();
+    let host_bits = 128 - prefix_length as usize;
+    let host_mask: u128 = if host_bits == 0 {
+        0
+    } else {
+        (1u128 << host_bits) - 1
+    };
+    let host_part = addr_u128 & host_mask;
+    let new_host = host_part.wrapping_add(increment);
+
+    if new_host > host_mask {
+        error!("Host address overflow");
+    }
+
+    let new_addr = (addr_u128 & !host_mask) | (new_host & host_mask);
+    Ipv6Addr::from(new_addr)
+}
+
 async fn _set_ipv6_gateway(
     handle: &Handle,
     interface_name: &str,
@@ -431,7 +949,7 @@ async fn _set_ipv6_gateway(
     route_msg.header.scope = RouteScope::Universe;
     route_msg.header.protocol = RouteProtocol::Static;
     route_msg.header.kind = RouteType::Unicast;
-    route_msg.header.destination_prefix_length = 0; // Default route
+    route_msg.header.destination_prefix_length = 0;
     route_msg
         .attributes
         .push(RouteAttribute::Gateway(RouteAddress::Inet6(ipv6_gateway)));

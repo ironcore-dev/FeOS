@@ -1,19 +1,36 @@
-use log::{error, info};
+use log::{debug, error, info, warn};
+use std::net::Ipv6Addr;
 use std::path::PathBuf;
+use std::{env, io};
 use tonic::{transport::Server, Request, Response, Status};
 
 use crate::container;
+use crate::dhcpv6::{add_ipv6_route, add_to_ipv6, adjust_base_ip, run_dhcpv6_server, IpRange};
+use crate::feos_grpc;
+use crate::feos_grpc::feos_grpc_server::*;
+use crate::feos_grpc::{
+    AttachNicVmRequest, AttachNicVmResponse, BootVmRequest, BootVmResponse, ConsoleVmResponse,
+    CreateVmRequest, CreateVmResponse, Empty, FetchImageRequest, FetchImageResponse,
+    GetFeOsKernelLogRequest, GetFeOsKernelLogResponse, GetFeOsLogRequest, GetFeOsLogResponse,
+    GetVmRequest, GetVmResponse, HostInfoRequest, HostInfoResponse, NetInterface, PingVmRequest,
+    PingVmResponse, RebootRequest, RebootResponse, ShutdownRequest, ShutdownResponse,
+    ShutdownVmRequest, ShutdownVmResponse,
+};
 use crate::host;
+use crate::radv::start_radv_server;
 use crate::ringbuffer::*;
-use crate::vm::image;
-use feos_grpc::feos_grpc_server::{FeosGrpc, FeosGrpcServer};
+use crate::vm::{self};
+use crate::vm::{image, Manager};
 use hyper_util::rt::TokioIo;
 use nix::libc::VMADDR_CID_ANY;
+use nix::unistd::Uid;
+use rtnetlink::new_connection;
 use std::sync::Arc;
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
+use tokio::spawn;
 use tokio::sync::{mpsc, Mutex};
 use tokio::time::{sleep, Duration};
 use tokio_stream::wrappers::ReceiverStream;
@@ -22,18 +39,8 @@ use tonic::transport::{Endpoint, Uri};
 use tower::service_fn;
 use uuid::Uuid;
 
-use self::feos_grpc::{
-    AttachNicVmRequest, AttachNicVmResponse, BootVmRequest, BootVmResponse, ConsoleVmResponse,
-    CreateVmRequest, CreateVmResponse, Empty, FetchImageRequest, FetchImageResponse,
-    GetFeOsKernelLogRequest, GetFeOsKernelLogResponse, GetFeOsLogRequest, GetFeOsLogResponse,
-    GetVmRequest, GetVmResponse, HostInfoRequest, HostInfoResponse, NetInterface, RebootRequest,
-    RebootResponse, ShutdownRequest, ShutdownResponse,
-};
-use crate::vm::{self};
-
-pub mod feos_grpc {
-    tonic::include_proto!("feos_grpc"); // The string specified here must match the proto package name
-}
+use crate::filesystem::mount_virtual_filesystems;
+use crate::network::{configure_network_devices, configure_sriov};
 
 #[derive(Debug)]
 pub struct FeOSAPI {
@@ -81,6 +88,10 @@ fn handle_error(e: vm::Error) -> tonic::Status {
                 tonic::Code::Internal,
                 "failed to connect to cloud hypervisor api",
             )
+        }
+        vm::Error::ExtractionFailure(e) => {
+            info!("extraction error: {:?}", e);
+            Status::new(tonic::Code::Internal, "failed to extract UKI image")
         }
         vm::Error::Failed => Status::new(tonic::Code::AlreadyExists, "vm already exists"),
     }
@@ -220,38 +231,6 @@ impl FeosGrpc for FeOSAPI {
     ) -> Result<Response<Empty>, Status> {
         // Return an instance of type HelloReply
         info!("Got a request: {:?}", request);
-
-        if !self.vmm.is_nested {
-            let channel = Endpoint::try_from("http://[::]:50051")
-                .map_err(|e| Status::internal(format!("Failed to create endpoint: {}", e)))?
-                .connect_with_connector(service_fn(|_: Uri| async {
-                    let path = "vsock.sock";
-
-                    let mut stream = UnixStream::connect(path).await?;
-                    let connect_cmd = format!("CONNECT {}\n", 1337);
-                    stream.write_all(connect_cmd.as_bytes()).await?;
-
-                    let mut buffer = [0u8; 128];
-                    let n = stream.read(&mut buffer).await?;
-                    let response = String::from_utf8_lossy(&buffer[..n]);
-                    // Parse the response
-                    if !response.starts_with("OK") {
-                        return Err(std::io::Error::new(
-                            std::io::ErrorKind::Other,
-                            format!("Failed to connect to vsock: {}", response.trim()),
-                        ));
-                    }
-                    info!("Connected to vsock: {}", response.trim());
-                    // Connect to an Uds socket
-                    Ok::<_, std::io::Error>(TokioIo::new(stream))
-                }))
-                .await
-                .map_err(|e| Status::internal(format!("Failed to connect: {}", e)))?;
-
-            let mut client = feos_grpc::feos_grpc_client::FeosGrpcClient::new(channel);
-            let request = tonic::Request::new(Empty {});
-            let _response = client.ping(request).await?;
-        }
 
         let reply = feos_grpc::Empty {};
 
@@ -411,16 +390,144 @@ impl FeosGrpc for FeOSAPI {
         Ok(Response::new(feos_grpc::GetVmResponse { info: vm_status }))
     }
 
+    async fn shutdown_vm(
+        &self,
+        request: Request<ShutdownVmRequest>,
+    ) -> Result<Response<ShutdownVmResponse>, Status> {
+        info!("Received shutdown_vm request");
+
+        let id = Uuid::parse_str(&request.get_ref().uuid)
+            .map_err(|_| Status::invalid_argument("Failed to parse UUID"))?;
+
+        self.vmm.shutdown_vm(id).map_err(handle_error)?;
+
+        Ok(Response::new(feos_grpc::ShutdownVmResponse {}))
+    }
+
+    async fn ping_vm(
+        &self,
+        request: Request<PingVmRequest>,
+    ) -> Result<Response<PingVmResponse>, Status> {
+        info!("Received ping_vm request");
+
+        let id = Uuid::parse_str(&request.get_ref().uuid)
+            .map_err(|_| Status::invalid_argument("Failed to parse UUID"))?;
+        let path = format!("vsock{}.sock", Manager::vm_tap_name(&id));
+        let path_clone = path.clone();
+
+        let channel = Endpoint::try_from("http://[::]:50051")
+            .map_err(|e| Status::internal(format!("Failed to create endpoint: {}", e)))?
+            .connect_with_connector(service_fn(move |_: Uri| {
+                let path = path_clone.clone();
+                async move {
+                    let mut stream = UnixStream::connect(&path).await.map_err(|e| {
+                        io::Error::new(
+                            io::ErrorKind::Other,
+                            format!("UnixStream connect error: {}", e),
+                        )
+                    })?;
+                    let connect_cmd = format!("CONNECT {}\n", 1337);
+                    stream
+                        .write_all(connect_cmd.as_bytes())
+                        .await
+                        .map_err(|e| {
+                            io::Error::new(io::ErrorKind::Other, format!("Write error: {}", e))
+                        })?;
+
+                    let mut buffer = [0u8; 128];
+                    let n = stream.read(&mut buffer).await.map_err(|e| {
+                        io::Error::new(io::ErrorKind::Other, format!("Read error: {}", e))
+                    })?;
+                    let response = String::from_utf8_lossy(&buffer[..n]);
+                    // Parse the response
+                    if !response.starts_with("OK") {
+                        return Err(io::Error::new(
+                            io::ErrorKind::Other,
+                            format!("Failed to connect to vsock: {}", response.trim()),
+                        ));
+                    }
+                    info!("Connected to vsock: {}", response.trim());
+                    // Connect to an Uds socket
+                    Ok::<_, io::Error>(TokioIo::new(stream))
+                }
+            }))
+            .await
+            .map_err(|e| Status::internal(format!("Failed to connect: {}", e)))?;
+
+        let mut client = feos_grpc::feos_grpc_client::FeosGrpcClient::new(channel);
+        let request = tonic::Request::new(Empty {});
+        let _response = client.ping(request).await?;
+
+        Ok(Response::new(feos_grpc::PingVmResponse {}))
+    }
+
     async fn boot_vm(
         &self,
         request: Request<BootVmRequest>,
     ) -> Result<Response<BootVmResponse>, Status> {
-        info!("Got boot_vm request");
+        info!("Received boot_vm request");
 
-        let id = request.get_ref().uuid.to_owned();
-        let id =
-            Uuid::parse_str(&id).map_err(|_| Status::invalid_argument("failed to parse uuid"))?;
+        let id = Uuid::parse_str(&request.get_ref().uuid)
+            .map_err(|_| Status::invalid_argument("Failed to parse UUID"))?;
+
         self.vmm.boot_vm(id).map_err(handle_error)?;
+
+        let interface_name = Manager::vm_tap_name(&id);
+        let (base_ip, prefix_length, prefix_count) = self.vmm.get_ipv6_info();
+        let adjusted_base_ip = adjust_base_ip(base_ip, prefix_length, prefix_count);
+        let new_prefix_length = prefix_length + 16;
+
+        let ip_start = add_to_ipv6(adjusted_base_ip, new_prefix_length, 100);
+        let ip_end = add_to_ipv6(adjusted_base_ip, new_prefix_length, 200);
+        debug!("IP Range: {} - {}", ip_start, ip_end);
+
+        let ip_range = IpRange {
+            start: ip_start,
+            end: ip_end,
+        };
+
+        let radv_handle = {
+            let interface_name = interface_name.clone();
+            spawn(async move {
+                if let Err(e) =
+                    start_radv_server(interface_name, adjusted_base_ip, new_prefix_length).await
+                {
+                    error!("Failed to start RADV server: {}", e);
+                }
+            })
+        };
+
+        self.vmm
+            .set_radv_handle(id, radv_handle)
+            .map_err(|_| Status::internal("Failed to set RADV handle"))?;
+
+        let dhcpv6_handle = {
+            let interface_name = interface_name.clone();
+            spawn(async move {
+                if let Err(e) = run_dhcpv6_server(interface_name, ip_range).await {
+                    error!("Failed to run DHCPv6 server: {}", e);
+                }
+            })
+        };
+
+        self.vmm
+            .set_dhcpv6_handle(id, dhcpv6_handle)
+            .map_err(|_| Status::internal("Failed to set DHCPv6 handle"))?;
+
+        let (connection, handle, _) =
+            new_connection().map_err(|_| Status::internal("Failed to establish new connection"))?;
+        spawn(connection);
+
+        add_ipv6_route(
+            &handle,
+            &interface_name,
+            adjusted_base_ip,
+            new_prefix_length,
+            None,
+            1024,
+        )
+        .await
+        .map_err(|_| Status::internal("Failed to add IPv6 route"))?;
 
         Ok(Response::new(feos_grpc::BootVmResponse {}))
     }
@@ -461,4 +568,109 @@ pub async fn daemon_start(
     }
 
     Ok(())
+}
+
+pub async fn start_feos(
+    ipv6_address: Ipv6Addr,
+    prefix_length: u8,
+    test_mode: bool,
+) -> Result<(), String> {
+    println!(
+        "
+
+    ███████╗███████╗ ██████╗ ███████╗
+    ██╔════╝██╔════╝██╔═══██╗██╔════╝
+    █████╗  █████╗  ██║   ██║███████╗
+    ██╔══╝  ██╔══╝  ██║   ██║╚════██║
+    ██║     ███████╗╚██████╔╝███████║
+    ╚═╝     ╚══════╝ ╚═════╝ ╚══════╝
+                 v{}
+    ",
+        env!("CARGO_PKG_VERSION")
+    );
+
+    const FEOS_RINGBUFFER_CAP: usize = 100;
+    let buffer = RingBuffer::new(FEOS_RINGBUFFER_CAP);
+    let log_receiver = init_logger(buffer.clone());
+
+    // If not run as root, print warning.
+    if !Uid::current().is_root() {
+        warn!("Not running as root! (uid: {})", Uid::current());
+    }
+
+    if std::process::id() == 1 {
+        info!("Mounting virtual filesystems...");
+        mount_virtual_filesystems();
+    } else {
+        info!(
+            "IPv6 Address: {}, Prefix Length: {}",
+            ipv6_address, prefix_length
+        );
+    }
+
+    let is_nested = match is_running_on_vm().await {
+        Ok(result) => result,
+        Err(e) => {
+            error!("Error checking VM status: {}", e);
+            false // Default to false in case of error
+        }
+    };
+
+    if std::process::id() == 1 {
+        info!("Configuring network devices...");
+        configure_network_devices(is_nested)
+            .await
+            .expect("could not configure network devices");
+    }
+
+    // Special stuff for pid 1
+    if std::process::id() == 1 && !is_nested {
+        info!("Configuring sriov...");
+        const VFS_NUM: u32 = 125;
+        if let Err(e) = configure_sriov(VFS_NUM).await {
+            warn!("failed to configure sriov: {}", e.to_string())
+        }
+    }
+
+    let vmm = Manager::new(
+        String::from("cloud-hypervisor"),
+        is_nested,
+        test_mode,
+        ipv6_address,
+        prefix_length,
+    );
+
+    info!("Starting FeOS daemon...");
+    match daemon_start(vmm, buffer, log_receiver, is_nested).await {
+        Err(e) => {
+            error!("FeOS daemon crashed: {}", e);
+            Err(format!("FeOS daemon crashed: {}", e))
+        }
+        Ok(_) => {
+            error!("FeOS daemon exited.");
+            Err("FeOS exited".to_string())
+        }
+    }
+}
+
+async fn is_running_on_vm() -> Result<bool, Box<dyn std::error::Error>> {
+    let files = [
+        "/sys/class/dmi/id/product_name",
+        "/sys/class/dmi/id/sys_vendor",
+    ];
+
+    let mut match_count = 0;
+
+    for file_path in files.iter() {
+        let mut file = File::open(file_path).await?;
+        let mut contents = String::new();
+        file.read_to_string(&mut contents).await?;
+
+        let lowercase_contents = contents.to_lowercase();
+        if lowercase_contents.contains("cloud") && lowercase_contents.contains("hypervisor") {
+            match_count += 1;
+        }
+    }
+
+    Ok(match_count == 2)
 }

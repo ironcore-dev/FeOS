@@ -1,4 +1,4 @@
-use log::info;
+use log::{error, info};
 use serde_json::json;
 use std::{
     collections::HashMap,
@@ -14,14 +14,34 @@ use uuid::Uuid;
 use vmm::vm_config;
 
 use vmm::config::{
-    ConsoleConfig, ConsoleOutputMode, CpusConfig, DiskConfig, MemoryConfig, PayloadConfig,
-    PlatformConfig, VsockConfig,
+    ConsoleConfig, ConsoleOutputMode, CpusConfig, DiskConfig, MemoryConfig, NetConfig,
+    PayloadConfig, PlatformConfig, VsockConfig,
 };
 
 use net_util::MacAddr;
 
+use pelite::pe64::{Pe, PeFile};
+use std::fs;
+use std::fs::{create_dir_all, File};
+use std::io::{self, Write};
+use std::net::Ipv6Addr;
+use std::sync::atomic::{AtomicU16, Ordering};
+use std::sync::Arc;
+use thiserror::Error;
+use tokio::task::JoinHandle;
+
 pub mod config;
 pub mod image;
+
+#[derive(Error, Debug)]
+pub enum ExtractionError {
+    #[error("failed to read PE/COFF image")]
+    ReadImage(#[from] pelite::Error),
+    #[error("failed to write file")]
+    WriteFile(#[from] io::Error),
+    #[error("section not found in PE/COFF image")]
+    SectionNotFound,
+}
 
 #[derive(Debug)]
 pub enum Error {
@@ -31,14 +51,31 @@ pub enum Error {
     InvalidInput(TryFromIntError),
     CHCommandFailure(std::io::Error),
     CHApiFailure(api_client::Error),
+    ExtractionFailure(ExtractionError),
     Failed,
+}
+
+impl From<ExtractionError> for Error {
+    fn from(err: ExtractionError) -> Self {
+        Error::ExtractionFailure(err)
+    }
+}
+#[derive(Debug)]
+pub struct VmInfo {
+    pub child: Child,
+    pub radv_handle: Option<Arc<JoinHandle<()>>>,
+    pub dhcpv6_handle: Option<Arc<JoinHandle<()>>>,
 }
 
 #[derive(Debug)]
 pub struct Manager {
     pub ch_bin: String,
-    vms: Mutex<HashMap<Uuid, Child>>,
+    vms: Mutex<HashMap<Uuid, VmInfo>>,
     pub is_nested: bool,
+    pub test_mode: bool,
+    ipv6_address: Ipv6Addr,
+    prefix_length: u8,
+    prefix_count: AtomicU16,
 }
 
 impl Default for Manager {
@@ -47,17 +84,35 @@ impl Default for Manager {
             ch_bin: String::default(),
             vms: Mutex::new(HashMap::new()),
             is_nested: false,
+            test_mode: false,
+            ipv6_address: Ipv6Addr::UNSPECIFIED,
+            prefix_length: 64,
+            prefix_count: AtomicU16::new(1),
         }
     }
 }
 
 impl Manager {
-    pub fn new(ch_bin: String, is_nested: bool) -> Self {
+    pub fn new(
+        ch_bin: String,
+        is_nested: bool,
+        test_mode: bool,
+        ipv6_address: Ipv6Addr,
+        prefix_length: u8,
+    ) -> Self {
         Self {
             ch_bin,
             vms: Mutex::new(HashMap::new()),
             is_nested,
+            test_mode,
+            ipv6_address,
+            prefix_length,
+            prefix_count: AtomicU16::new(1),
         }
+    }
+
+    pub fn vm_tap_name(id: &Uuid) -> String {
+        format!("vmtap{}", &id.to_string()[..8])
     }
 
     pub fn init_vmm(&self, id: Uuid, wait: bool) -> Result<(), Error> {
@@ -72,7 +127,14 @@ impl Manager {
             .spawn()
             .map_err(Error::CHCommandFailure)?;
 
-        vms.insert(id, vm);
+        vms.insert(
+            id,
+            VmInfo {
+                child: vm,
+                radv_handle: None,
+                dhcpv6_handle: None,
+            },
+        );
 
         info!("created vmm with id: {}", id.to_string());
 
@@ -126,20 +188,43 @@ impl Manager {
             shared: true,
             ..Default::default()
         };
-        vm_config.payload = Some(PayloadConfig {
-            kernel: None,
-            cmdline: None,
-            initramfs: None,
-            // TODO: fix hardcoded path
-            firmware: Some(PathBuf::from("/usr/share/cloud-hypervisor/hypervisor-fw")),
-        });
+
+        if self.test_mode {
+            // Fetched OCI image for FeOS doesnt boot with hypervisor-fw
+            // For local development and integration tests, use the extracted UKI image
+            let (kernel_path, cmdline_path, initramfs_path) = extract_uki_image(&root_fs)?;
+            let mut cmdline_contents =
+                fs::read_to_string(&cmdline_path).map_err(Error::SocketFailure)?;
+            cmdline_contents = cmdline_contents
+                .chars()
+                .filter(|c| c.is_ascii_graphic() || c.is_whitespace())
+                .collect();
+            vm_config.payload = Some(PayloadConfig {
+                kernel: Some(kernel_path),
+                cmdline: Some(cmdline_contents.clone()),
+                initramfs: Some(initramfs_path),
+                firmware: None,
+            });
+        } else {
+            vm_config.payload = Some(PayloadConfig {
+                kernel: None,
+                cmdline: None,
+                initramfs: None,
+                firmware: Some(PathBuf::from("/usr/share/cloud-hypervisor/hypervisor-fw")),
+            });
+        }
+
         vm_config.vsock = Some(VsockConfig {
             cid: 33,
-            socket: PathBuf::from("vsock.sock"),
+            socket: PathBuf::from(format!("vsock{}.sock", Manager::vm_tap_name(&id))),
             id: None,
             iommu: false,
             pci_segment: 0,
         });
+        vm_config.net = Some(vec![NetConfig {
+            tap: Some(Manager::vm_tap_name(&id)),
+            ..config::_default_net_cfg()
+        }]);
         vm_config.disks = Some(vec![DiskConfig {
             path: Some(root_fs),
             ..config::default_disk_cfg()
@@ -214,6 +299,50 @@ impl Manager {
         }
 
         Ok(socket_path)
+    }
+
+    pub fn get_radv_handle(&self, id: Uuid) -> Result<Option<Arc<JoinHandle<()>>>, Error> {
+        let vms = self.vms.lock().unwrap();
+        if let Some(vm_info) = vms.get(&id) {
+            Ok(vm_info.radv_handle.clone())
+        } else {
+            Err(Error::NotFound)
+        }
+    }
+
+    pub fn set_radv_handle(&self, id: Uuid, handle: JoinHandle<()>) -> Result<(), Error> {
+        let mut vms = self.vms.lock().unwrap();
+        if let Some(vm_info) = vms.get_mut(&id) {
+            vm_info.radv_handle = Some(Arc::new(handle));
+            Ok(())
+        } else {
+            Err(Error::NotFound)
+        }
+    }
+
+    pub fn get_dhcpv6_handle(&self, id: Uuid) -> Result<Option<Arc<JoinHandle<()>>>, Error> {
+        let vms = self.vms.lock().unwrap();
+        if let Some(vm_info) = vms.get(&id) {
+            Ok(vm_info.dhcpv6_handle.clone())
+        } else {
+            Err(Error::NotFound)
+        }
+    }
+
+    pub fn set_dhcpv6_handle(&self, id: Uuid, handle: JoinHandle<()>) -> Result<(), Error> {
+        let mut vms = self.vms.lock().unwrap();
+        if let Some(vm_info) = vms.get_mut(&id) {
+            vm_info.dhcpv6_handle = Some(Arc::new(handle));
+            Ok(())
+        } else {
+            Err(Error::NotFound)
+        }
+    }
+
+    pub fn get_ipv6_info(&self) -> (Ipv6Addr, u8, u16) {
+        let new_count = self.prefix_count.fetch_add(1, Ordering::SeqCst) + 1;
+
+        (self.ipv6_address, self.prefix_length, new_count)
     }
 
     pub fn _add_net_device(
@@ -329,7 +458,81 @@ impl Manager {
             info!("get vm: id {}, response: {}", id.to_string(), x);
             return Ok(x);
         }
+        Ok(String::new())
+    }
+
+    pub fn shutdown_vm(&self, id: Uuid) -> Result<String, Error> {
+        let mut vms = self.vms.lock().unwrap();
+        let vm_info = match vms.get_mut(&id) {
+            Some(info) => info,
+            None => return Err(Error::NotFound),
+        };
+
+        let mut socket = UnixStream::connect(id.to_string()).map_err(Error::SocketFailure)?;
+        let response = api_client::simple_api_full_command_and_response(
+            &mut socket,
+            "PUT",
+            "vm.shutdown",
+            None,
+        )
+        .map_err(Error::CHApiFailure)?;
+
+        if let Some(x) = &response {
+            info!("shutdown vm: id {}, response: {}", id, x);
+        }
+
+        if let Err(e) = vm_info.child.kill() {
+            error!("Failed to kill child process for VM {}: {}", id, e);
+        } else {
+            info!("Sent kill signal to VM {}", id);
+        }
+
+        match vm_info.child.wait() {
+            Ok(status) => info!("VM {} exited with status {}", id, status),
+            Err(e) => error!("Failed to wait for VM {}: {}", id, e),
+        }
+
+        vms.remove(&id);
 
         Ok(String::new())
     }
+}
+
+fn extract_section(
+    pe: &PeFile,
+    section_name: &str,
+    output_path: &Path,
+) -> Result<(), ExtractionError> {
+    let section = pe
+        .section_headers()
+        .iter()
+        .find(|header| header.Name.starts_with(section_name.as_bytes()))
+        .ok_or(ExtractionError::SectionNotFound)?;
+
+    let rva: u32 = section.VirtualAddress;
+    let data = pe
+        .slice(rva, section.VirtualSize as usize, 1)
+        .map_err(|_| ExtractionError::SectionNotFound)?;
+
+    let mut file = File::create(output_path)?;
+    file.write_all(data)?;
+    Ok(())
+}
+
+fn extract_uki_image(uki_path: &Path) -> Result<(PathBuf, PathBuf, PathBuf), ExtractionError> {
+    let buffer = std::fs::read(uki_path)?;
+    let pe = PeFile::from_bytes(&buffer)?;
+
+    let extract_dir = std::path::PathBuf::from("extracted");
+    create_dir_all(&extract_dir)?;
+
+    let kernel_path = extract_dir.join("kernel");
+    let cmdline_path = extract_dir.join("cmdline");
+    let initramfs_path = extract_dir.join("initramfs");
+
+    extract_section(&pe, ".linux", &kernel_path)?;
+    extract_section(&pe, ".cmdline", &cmdline_path)?;
+    extract_section(&pe, ".initrd", &initramfs_path)?;
+
+    Ok((kernel_path, cmdline_path, initramfs_path))
 }

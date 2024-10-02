@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use log::{Level, LevelFilter, Metadata, Record};
+use log::{LevelFilter, Metadata, Record};
 use std::collections::VecDeque;
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex, RwLock};
@@ -54,7 +54,7 @@ impl SimpleLogger {
 
 impl log::Log for SimpleLogger {
     fn enabled(&self, metadata: &Metadata) -> bool {
-        metadata.level() <= Level::Info
+        metadata.level() <= log::max_level()
     }
 
     fn log(&self, record: &Record) {
@@ -67,9 +67,9 @@ impl log::Log for SimpleLogger {
                 record.target(),
                 record.args()
             );
-            println!("{}", log_message);
             let buffer = self.buffer.clone();
             let sender = self.sender.clone();
+            println!("{}", log_message);
             tokio::spawn(async move {
                 buffer.push(log_message.clone()).await;
                 let _ = sender.send(log_message).await;

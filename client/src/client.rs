@@ -46,6 +46,12 @@ pub enum Command {
     BootVM {
         uuid: String,
     },
+    ShutdownVM {
+        uuid: String,
+    },
+    PingVM {
+        uuid: String,
+    },
     AttachNicVM {
         uuid: String,
         mac_address: String,
@@ -132,6 +138,16 @@ pub async fn run_client(opt: Opt) -> Result<(), Box<dyn std::error::Error>> {
             let request = Request::new(BootVmRequest { uuid });
             let response = client.boot_vm(request).await?;
             println!("BOOT VM RESPONSE={:?}", response);
+        }
+        Command::PingVM { uuid } => {
+            let request = Request::new(PingVmRequest { uuid });
+            let response = client.ping_vm(request).await?;
+            println!("BOOT VM RESPONSE={:?}", response);
+        }
+        Command::ShutdownVM { uuid } => {
+            let request = Request::new(ShutdownVmRequest { uuid });
+            let response = client.shutdown_vm(request).await?;
+            println!("SHUTDOWN VM RESPONSE={:?}", response);
         }
         Command::AttachNicVM {
             uuid,

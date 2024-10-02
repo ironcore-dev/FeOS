@@ -1,8 +1,8 @@
+use std::time::Duration;
 use structopt::StructOpt;
+use tokio::time::timeout;
 use tonic::transport::Endpoint;
 use tonic::Request;
-use tokio::time::timeout;
-use std::time::Duration;
 
 use container_grpc::container_service_client::ContainerServiceClient;
 use container_grpc::*;
@@ -13,21 +13,21 @@ pub mod container_grpc {
 
 #[derive(StructOpt, Debug)]
 pub enum ContainerCommand {
-    CreateContainer {
+    Create {
         image: String,
         #[structopt(name = "COMMAND", required = true, min_values = 1)]
         command: Vec<String>,
     },
-    RunContainer {
+    Run {
         uuid: String,
     },
-    KillContainer {
+    Kill {
         uuid: String,
     },
-    StateContainer {
+    State {
         uuid: String,
     },
-    DeleteContainer {
+    Delete {
         uuid: String,
     },
 }
@@ -42,46 +42,44 @@ pub async fn run_container_client(
     let mut client = ContainerServiceClient::new(channel);
 
     match cmd {
-        ContainerCommand::CreateContainer { image, command } => {
+        ContainerCommand::Create { image, command } => {
             let request = Request::new(CreateContainerRequest { image, command });
             match timeout(Duration::from_secs(30), client.create_container(request)).await {
-                Ok(response) => {
-                    match response {
-                        Ok(response) => println!("CREATE CONTAINER RESPONSE={:?}", response),
-                        Err(e) => eprintln!("Error creating container: {:?}", e),
-                    }
+                Ok(response) => match response {
+                    Ok(response) => println!("CREATE CONTAINER RESPONSE={:?}", response),
+                    Err(e) => eprintln!("Error creating container: {:?}", e),
                 },
                 Err(_) => eprintln!("Request timed out after 30 seconds"),
             }
-        },
-        ContainerCommand::RunContainer { uuid } => {
+        }
+        ContainerCommand::Run { uuid } => {
             let request = Request::new(RunContainerRequest { uuid });
             match client.run_container(request).await {
                 Ok(response) => println!("RUN CONTAINER RESPONSE={:?}", response),
                 Err(e) => eprintln!("Error running container: {:?}", e),
             }
-        },
-        ContainerCommand::KillContainer { uuid } => {
+        }
+        ContainerCommand::Kill { uuid } => {
             let request = Request::new(KillContainerRequest { uuid });
             match client.kill_container(request).await {
                 Ok(response) => println!("KILL CONTAINER RESPONSE={:?}", response),
                 Err(e) => eprintln!("Error killing container: {:?}", e),
             }
-        },
-        ContainerCommand::StateContainer { uuid } => {
+        }
+        ContainerCommand::State { uuid } => {
             let request = Request::new(StateContainerRequest { uuid });
             match client.state_container(request).await {
                 Ok(response) => println!("STATE CONTAINER RESPONSE={:?}", response),
                 Err(e) => eprintln!("Error getting container state: {:?}", e),
             }
-        },
-        ContainerCommand::DeleteContainer { uuid } => {
+        }
+        ContainerCommand::Delete { uuid } => {
             let request = Request::new(DeleteContainerRequest { uuid });
             match client.delete_container(request).await {
                 Ok(response) => println!("DELETE CONTAINER RESPONSE={:?}", response),
                 Err(e) => eprintln!("Error deleting container: {:?}", e),
             }
-        },
+        }
     }
 
     Ok(())
