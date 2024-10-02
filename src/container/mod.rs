@@ -10,7 +10,7 @@ use std::{fmt::Debug, path::PathBuf};
 use tonic::{Request, Response, Status};
 pub mod oci;
 use flate2::read::GzDecoder;
-use libcontainer::oci_spec::runtime::{LinuxNamespace, LinuxNamespaceType, Spec};
+use libcontainer::oci_spec::runtime::{LinuxNamespace, Mount, Spec};
 use libcontainer::workload::default::DefaultExecutor;
 use serde_json::to_writer_pretty;
 use std::fs;
@@ -31,12 +31,11 @@ pub struct ContainerAPI {}
 fn create(
     id: String,
     bundle: PathBuf,
-    socket: Option<PathBuf>,
+    _socket: Option<PathBuf>,
 ) -> anyhow::Result<libcontainer::container::Container> {
     let container = ContainerBuilder::new(id, SyscallType::default())
         .with_executor(DefaultExecutor {})
-        .with_root_path("/run/containers/youki")?
-        .with_console_socket(socket)
+        .with_root_path("/var/lib/feos/youki")?
         .validate_id()?
         .as_init(bundle)
         .with_systemd(false)
@@ -70,7 +69,9 @@ impl ContainerService for ContainerAPI {
 
         let mut rootfs_path = bundle_path.clone();
         rootfs_path.push("rootfs");
+
         fs::create_dir_all(&rootfs_path)?;
+        fs::create_dir_all("/var/lib/feos/youki")?;
 
         info!("unpacking image content");
         let src = format!("{}/{}", DEFAULT_IMAGE_PATH, digest);
@@ -96,13 +97,33 @@ impl ContainerService for ContainerAPI {
             .namespaces_mut()
             .as_mut()
             .ok_or_else(|| Status::new(tonic::Code::Internal, ""))?;
-        ns.retain(|ns| ns.typ() != LinuxNamespaceType::Network);
+        ns.retain(|_| false);
+
+        linux.set_masked_paths(None);
+        linux.set_readonly_paths(None);
+
+        let mount: &mut Vec<Mount> = spec
+            .mounts_mut()
+            .as_mut()
+            .ok_or_else(|| Status::new(tonic::Code::Internal, ""))?;
+
+        let drop_mounts = vec![
+            PathBuf::from("/dev/pts"),
+            PathBuf::from("/dev/shm"),
+            PathBuf::from("/dev/mqueue"),
+            PathBuf::from("/sys/fs/cgroup"),
+        ];
+
+        for mnt in drop_mounts {
+            mount.retain(|m| m.destination().to_str() != mnt.to_str())
+        }
 
         if let Some(mut process) = spec.process_mut().take() {
             process.set_args(Some(request.get_ref().command.to_owned()));
             spec.set_process(Some(process));
         }
 
+        info!("writing container config");
         let mut cfg_file = bundle_path.clone();
         cfg_file.push("config.json");
         let cfg_file = File::create(cfg_file).expect("msg");
@@ -110,9 +131,18 @@ impl ContainerService for ContainerAPI {
         to_writer_pretty(&mut writer, &spec).expect("msg");
         writer.flush().expect("msg");
 
-        // let socket = PathBuf::from("/home/lukasfrank/dev/sample-nginx-pod/sock.tty");
-
-        let _ = create(id.to_string(), bundle_path, None).expect("msg");
+        info!("creating container");
+        info!("bundle_path: {:?}", bundle_path.to_str());
+        match create(id.to_string(), bundle_path, None) {
+            Ok(_) => info!("container created"),
+            Err(x) => {
+                info!("failed to create container: {:?}", x);
+                return Err(Status::new(
+                    tonic::Code::Internal,
+                    "failed to create container ",
+                ));
+            }
+        }
 
         Ok(Response::new(container_service::CreateContainerResponse {
             uuid: id.to_string(),
@@ -127,7 +157,7 @@ impl ContainerService for ContainerAPI {
 
         let container_id: String = request.get_ref().uuid.clone();
 
-        let container_root = PathBuf::from(format!("/run/containers/youki/{}", container_id));
+        let container_root = PathBuf::from(format!("/var/lib/feos/youki/{}", container_id));
         if !container_root.exists() {
             info!("container {} does not exist.", container_id)
         }
@@ -146,7 +176,7 @@ impl ContainerService for ContainerAPI {
 
         let container_id: String = request.get_ref().uuid.clone();
 
-        let container_root = PathBuf::from(format!("/run/containers/youki/{}", container_id));
+        let container_root = PathBuf::from(format!("/var/lib/feos/youki/{}", container_id));
         if !container_root.exists() {
             info!("container {} does not exist.", container_id)
         }
@@ -167,7 +197,7 @@ impl ContainerService for ContainerAPI {
 
         let container_id: String = request.get_ref().uuid.clone();
 
-        let container_root = PathBuf::from(format!("/run/containers/youki/{}", container_id));
+        let container_root = PathBuf::from(format!("/var/lib/feos/youki/{}", container_id));
         if !container_root.exists() {
             info!("container {} does not exist.", container_id)
         }
@@ -191,7 +221,7 @@ impl ContainerService for ContainerAPI {
 
         let container_id: String = request.get_ref().uuid.clone();
 
-        let container_root = PathBuf::from(format!("/run/containers/youki/{}", container_id));
+        let container_root = PathBuf::from(format!("/var/lib/feos/youki/{}", container_id));
         if !container_root.exists() {
             info!("container {} does not exist.", container_id);
             return Ok(Response::new(container_service::DeleteContainerResponse {}));

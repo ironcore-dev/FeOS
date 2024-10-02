@@ -43,4 +43,14 @@ pub fn mount_virtual_filesystems() {
         NONE,
     )
     .unwrap_or_else(|e| panic!("/var/lib/feos mount failed: {e}"));
+
+    debug!("Mounting /sys/fs/cgroup");
+    mount(
+        Some(b"cgroup2".as_ref()),
+        "/sys/fs/cgroup",
+        Some(b"cgroup2".as_ref()),
+        MsFlags::empty(),
+        NONE,
+    )
+    .unwrap_or_else(|e| panic!("/sys/fs/cgroup mount failed: {e}"));
 }

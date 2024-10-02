@@ -67,6 +67,7 @@ impl log::Log for SimpleLogger {
                 record.target(),
                 record.args()
             );
+            println!("{}", log_message);
             let buffer = self.buffer.clone();
             let sender = self.sender.clone();
             tokio::spawn(async move {
