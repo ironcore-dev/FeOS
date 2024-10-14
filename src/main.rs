@@ -1,11 +1,11 @@
 extern crate nix;
 use feos::daemon::start_feos;
+use feos::move_root::{get_root_fstype, move_root};
+use nix::unistd::execv;
 use std::env;
 use std::net::Ipv6Addr;
 use std::str::FromStr;
 use std::{env::args, ffi::CString};
-use feos::move_root::{get_root_fstype, move_root};
-use nix::unistd::execv;
 
 use tokio::io;
 use tokio::io::{AsyncBufReadExt, BufReader};
