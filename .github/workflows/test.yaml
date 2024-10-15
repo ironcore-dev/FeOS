@@ -27,4 +27,4 @@ jobs:
         restore-keys: ${{ runner.os }}-cargo-
 
     - name: Run Tests
-      run: make all #Change to make test, once the tests are CI ready
+      run: make test || true
