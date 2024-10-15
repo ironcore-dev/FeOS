@@ -618,7 +618,7 @@ pub async fn start_feos(
 
     if std::process::id() == 1 {
         info!("Configuring network devices...");
-        configure_network_devices(is_nested)
+        configure_network_devices()
             .await
             .expect("could not configure network devices");
     }

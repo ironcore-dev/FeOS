@@ -20,14 +20,11 @@ use pnet::packet::Packet;
 
 use netlink_packet_route::neighbour::*;
 
-const INTERFACE_NAME: &str = "veth-feos";
+const INTERFACE_NAME: &str = "eth0";
 
-pub async fn configure_network_devices(is_nested: bool) -> Result<(), String> {
+pub async fn configure_network_devices() -> Result<(), String> {
     let ignore_ra_flag = true; // Till the RA has the correct flags (O or M), ignore the flag
-    let mut interface_name = String::from(INTERFACE_NAME);
-    if is_nested {
-        interface_name = "eth0".to_string();
-    }
+    let interface_name = String::from(INTERFACE_NAME);
     let (connection, handle, _) = new_connection().unwrap();
     let mut mac_bytes_option: Option<Vec<u8>> = None;
     tokio::spawn(connection);
