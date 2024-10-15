@@ -499,6 +499,7 @@ impl Manager {
 }
 
 fn extract_section(
+    buffer: &[u8],
     pe: &PeFile,
     section_name: &str,
     output_path: &Path,
@@ -509,16 +510,18 @@ fn extract_section(
         .find(|header| header.Name.starts_with(section_name.as_bytes()))
         .ok_or(ExtractionError::SectionNotFound)?;
 
-    let rva: u32 = section.VirtualAddress;
-    let data = pe
-        .slice(rva, section.VirtualSize as usize, 1)
-        .map_err(|_| ExtractionError::SectionNotFound)?;
+    let file_offset = section.PointerToRawData as usize;
+    let data_size = section.SizeOfRawData as usize;
 
+    if file_offset + data_size > buffer.len() {
+        return Err(ExtractionError::SectionNotFound);
+    }
+
+    let data = &buffer[file_offset..file_offset + data_size];
     let mut file = File::create(output_path)?;
     file.write_all(data)?;
     Ok(())
 }
-
 fn extract_uki_image(uki_path: &Path) -> Result<(PathBuf, PathBuf, PathBuf), ExtractionError> {
     let buffer = std::fs::read(uki_path)?;
     let pe = PeFile::from_bytes(&buffer)?;
@@ -530,9 +533,9 @@ fn extract_uki_image(uki_path: &Path) -> Result<(PathBuf, PathBuf, PathBuf), Ext
     let cmdline_path = extract_dir.join("cmdline");
     let initramfs_path = extract_dir.join("initramfs");
 
-    extract_section(&pe, ".linux", &kernel_path)?;
-    extract_section(&pe, ".cmdline", &cmdline_path)?;
-    extract_section(&pe, ".initrd", &initramfs_path)?;
+    extract_section(&buffer, &pe, ".linux", &kernel_path)?;
+    extract_section(&buffer, &pe, ".cmdline", &cmdline_path)?;
+    extract_section(&buffer, &pe, ".initrd", &initramfs_path)?;
 
     Ok((kernel_path, cmdline_path, initramfs_path))
 }
