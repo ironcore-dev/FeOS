@@ -10,12 +10,17 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::oneshot;
 use tokio::time::{sleep, Duration};
+use tonic::transport::Channel;
 
 const FEOS_BINARY: &str = "./target/debug/feos";
 const UKI_FILE: &str = "./target/uki.efi";
 const IMAGE_DIRECTORY: &str = "./images/feos_nested";
 const ROOTFS_FILE: &str =
     "./images/feos_nested/application.vnd.ironcore.image.rootfs.v1alpha1.rootfs";
+
+const VM_MEMORY_SIZE: u64 = 536870912;
+const VM_CPU_COUNT: u32 = 2;
+const LOCAL_HOST_DESTINATION: &str = "http://localhost:1337";
 
 async fn copy_file_if_needed() -> Result<(), Box<dyn std::error::Error>> {
     if Path::new(ROOTFS_FILE).exists() {
@@ -79,8 +84,8 @@ async fn create_and_boot_vm(
     image_uuid: &str,
 ) -> Result<String, Box<dyn std::error::Error>> {
     let create_vm_request = CreateVmRequest {
-        cpu: 2,
-        memory_bytes: 4294967296,
+        cpu: VM_CPU_COUNT,
+        memory_bytes: VM_MEMORY_SIZE,
         image_uuid: image_uuid.into(),
         ignition: None,
     };
@@ -128,6 +133,13 @@ async fn cleanup(child: &mut tokio::process::Child) -> Result<(), Box<dyn std::e
     Ok(())
 }
 
+async fn setup_vm() -> Result<(FeosGrpcClient<Channel>, String), Box<dyn std::error::Error>> {
+    sleep(Duration::from_millis(2000)).await;
+    let mut client = FeosGrpcClient::connect(LOCAL_HOST_DESTINATION).await?;
+    let vm_uuid = create_and_boot_vm(&mut client, "feos_nested").await?;
+    Ok((client, vm_uuid))
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[serial]
 async fn test_create_and_boot_vm() -> Result<(), Box<dyn std::error::Error>> {
@@ -149,10 +161,7 @@ async fn test_create_and_boot_vm() -> Result<(), Box<dyn std::error::Error>> {
     })
     .await?;
 
-    sleep(Duration::from_millis(2000)).await;
-
-    let mut client = FeosGrpcClient::connect(format!("http://{}:{}", "127.0.0.1", 1337)).await?;
-    create_and_boot_vm(&mut client, "feos_nested").await?;
+    setup_vm().await?;
 
     let assigned_ip = match tokio::time::timeout(Duration::from_secs(20), rx).await {
         Ok(Ok(ip)) => ip,
@@ -192,11 +201,7 @@ async fn test_ping_vsock_vm() -> Result<(), Box<dyn std::error::Error>> {
     })
     .await?;
 
-    sleep(Duration::from_millis(2000)).await;
-
-    let mut client = FeosGrpcClient::connect(format!("http://{}:{}", "127.0.0.1", 1337)).await?;
-
-    let vm_uuid = create_and_boot_vm(&mut client, "feos_nested").await?;
+    let (mut client, vm_uuid) = setup_vm().await?;
 
     sleep(Duration::from_millis(11000)).await;
 

@@ -106,7 +106,6 @@ pub async fn configure_network_devices() -> Result<(), String> {
 
     if let Some(ipv6_gateway) = is_dhcpv6_needed(interface_name.clone(), ignore_ra_flag) {
         time::sleep(Duration::from_secs(4)).await;
-        info!("dhcvp6 needed");
         match run_dhcpv6_client(interface_name.clone()).await {
             Ok(addr) => send_neigh_solicitation(interface_name.clone(), &ipv6_gateway, &addr),
             Err(e) => warn!("Error: {}", e),
@@ -130,10 +129,6 @@ pub async fn configure_network_devices() -> Result<(), String> {
             }
         }
     }
-
-    /* let _handle = tokio::task::spawn(async move {
-        capture_packets(interface_name_clone).await;
-    });*/
 
     Ok(())
 }
