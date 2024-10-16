@@ -1,7 +1,7 @@
 use feos::feos_grpc::feos_grpc_client::FeosGrpcClient;
 use feos::feos_grpc::{BootVmRequest, CreateVmRequest, PingVmRequest};
 use regex::Regex;
-//use serial_test::serial;
+use serial_test::serial;
 use std::path::Path;
 use std::process::Stdio;
 use tokio::fs;
@@ -12,43 +12,43 @@ use tokio::sync::oneshot;
 use tokio::time::{sleep, Duration};
 use tonic::transport::Channel;
 
-const _FEOS_BINARY: &str = "./target/debug/feos";
-const _UKI_FILE: &str = "./target/uki.efi";
-const _IMAGE_DIRECTORY: &str = "./images/feos_nested";
-const _ROOTFS_FILE: &str =
+const FEOS_BINARY: &str = "./target/debug/feos";
+const UKI_FILE: &str = "./target/uki.efi";
+const IMAGE_DIRECTORY: &str = "./images/feos_nested";
+const ROOTFS_FILE: &str =
     "./images/feos_nested/application.vnd.ironcore.image.rootfs.v1alpha1.rootfs";
 
-const _VM_MEMORY_SIZE: u64 = 536870912;
-const _VM_CPU_COUNT: u32 = 2;
-const _LOCAL_HOST_DESTINATION: &str = "http://localhost:1337";
+const VM_MEMORY_SIZE: u64 = 536870912;
+const VM_CPU_COUNT: u32 = 2;
+const LOCAL_HOST_DESTINATION: &str = "http://localhost:1337";
 
-async fn _copy_file_if_needed() -> Result<(), Box<dyn std::error::Error>> {
-    if Path::new(_ROOTFS_FILE).exists() {
+async fn copy_file_if_needed() -> Result<(), Box<dyn std::error::Error>> {
+    if Path::new(ROOTFS_FILE).exists() {
         return Ok(());
     }
 
-    if !Path::new(_UKI_FILE).exists() {
+    if !Path::new(UKI_FILE).exists() {
         return Err(Box::new(io::Error::new(
             io::ErrorKind::NotFound,
             "Source file not found",
         )));
     }
 
-    if !Path::new(_IMAGE_DIRECTORY).exists() {
-        fs::create_dir_all(_IMAGE_DIRECTORY).await?;
+    if !Path::new(IMAGE_DIRECTORY).exists() {
+        fs::create_dir_all(IMAGE_DIRECTORY).await?;
     }
 
-    fs::copy(_UKI_FILE, _ROOTFS_FILE).await?;
+    fs::copy(UKI_FILE, ROOTFS_FILE).await?;
 
     Ok(())
 }
 
-async fn _start_feos_server<R: Send + 'static>(
+async fn start_feos_server<R: Send + 'static>(
     stdout_processor: impl Fn(&str) -> Option<R> + Send + Sync + 'static,
 ) -> Result<(tokio::process::Child, oneshot::Receiver<R>), Box<dyn std::error::Error>> {
-    _copy_file_if_needed().await?;
+    copy_file_if_needed().await?;
 
-    let mut child = Command::new(_FEOS_BINARY)
+    let mut child = Command::new(FEOS_BINARY)
         .arg("--ipam")
         .arg("2a10:afc0:e01f:f4:9::/80")
         .env("RUN_MODE", "test")
@@ -79,13 +79,13 @@ async fn _start_feos_server<R: Send + 'static>(
     Ok((child, rx))
 }
 
-async fn _create_and_boot_vm(
+async fn create_and_boot_vm(
     client: &mut FeosGrpcClient<tonic::transport::Channel>,
     image_uuid: &str,
 ) -> Result<String, Box<dyn std::error::Error>> {
     let create_vm_request = CreateVmRequest {
-        cpu: _VM_CPU_COUNT,
-        memory_bytes: _VM_MEMORY_SIZE,
+        cpu: VM_CPU_COUNT,
+        memory_bytes: VM_MEMORY_SIZE,
         image_uuid: image_uuid.into(),
         ignition: None,
     };
@@ -107,7 +107,7 @@ async fn _create_and_boot_vm(
     Ok(vm_uuid)
 }
 
-async fn _cleanup(child: &mut tokio::process::Child) -> Result<(), Box<dyn std::error::Error>> {
+async fn cleanup(child: &mut tokio::process::Child) -> Result<(), Box<dyn std::error::Error>> {
     // TODO client shutdown does not work as expected. Revisit needed
     //let _shutdown_vm_request = ShutdownVmRequest {
     //    uuid: vm_uuid.clone(),
@@ -133,17 +133,19 @@ async fn _cleanup(child: &mut tokio::process::Child) -> Result<(), Box<dyn std::
     Ok(())
 }
 
-async fn _setup_vm() -> Result<(FeosGrpcClient<Channel>, String), Box<dyn std::error::Error>> {
+async fn setup_vm() -> Result<(FeosGrpcClient<Channel>, String), Box<dyn std::error::Error>> {
     sleep(Duration::from_millis(2000)).await;
-    let mut client = FeosGrpcClient::connect(_LOCAL_HOST_DESTINATION).await?;
-    let vm_uuid = _create_and_boot_vm(&mut client, "feos_nested").await?;
+    let mut client = FeosGrpcClient::connect(LOCAL_HOST_DESTINATION).await?;
+    let vm_uuid = create_and_boot_vm(&mut client, "feos_nested").await?;
     Ok((client, vm_uuid))
 }
 
-async fn _test_create_and_boot_vm() -> Result<(), Box<dyn std::error::Error>> {
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[serial]
+async fn test_create_and_boot_vm() -> Result<(), Box<dyn std::error::Error>> {
     let ip_regex = Regex::new(r"Assigning IP\s+([0-9a-fA-F:]+)").unwrap();
 
-    let (mut child, rx) = _start_feos_server(move |line| {
+    let (mut child, rx) = start_feos_server(move |line| {
         if line.contains("Assigning IP") {
             if let Some(captures) = ip_regex.captures(&line) {
                 if let Some(ip_match) = captures.get(1) {
@@ -159,7 +161,7 @@ async fn _test_create_and_boot_vm() -> Result<(), Box<dyn std::error::Error>> {
     })
     .await?;
 
-    _setup_vm().await?;
+    setup_vm().await?;
 
     let assigned_ip = match tokio::time::timeout(Duration::from_secs(20), rx).await {
         Ok(Ok(ip)) => ip,
@@ -183,13 +185,15 @@ async fn _test_create_and_boot_vm() -> Result<(), Box<dyn std::error::Error>> {
         return Err("Ping failed".into());
     }
 
-    _cleanup(&mut child).await?;
+    cleanup(&mut child).await?;
 
     Ok(())
 }
 
-async fn _test_ping_vsock_vm() -> Result<(), Box<dyn std::error::Error>> {
-    let (mut child, rx) = _start_feos_server(move |line| {
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[serial]
+async fn test_ping_vsock_vm() -> Result<(), Box<dyn std::error::Error>> {
+    let (mut child, rx) = start_feos_server(move |line| {
         if line.contains("Connected to vsock: OK") {
             return Some(true);
         }
@@ -197,7 +201,7 @@ async fn _test_ping_vsock_vm() -> Result<(), Box<dyn std::error::Error>> {
     })
     .await?;
 
-    let (mut client, vm_uuid) = _setup_vm().await?;
+    let (mut client, vm_uuid) = setup_vm().await?;
 
     sleep(Duration::from_millis(11000)).await;
 
@@ -217,7 +221,7 @@ async fn _test_ping_vsock_vm() -> Result<(), Box<dyn std::error::Error>> {
         "Expected 'Connected to vsock: OK' in FeOS output"
     );
 
-    _cleanup(&mut child).await?;
+    cleanup(&mut child).await?;
 
     Ok(())
 }
