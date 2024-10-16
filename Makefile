@@ -16,6 +16,9 @@ clean:
 test: clippy
 	cargo test
 
+test-ci:
+	cargo test
+
 include hack/hack.mk
 
 feos_client:
