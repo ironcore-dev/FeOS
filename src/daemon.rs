@@ -4,8 +4,6 @@ use std::path::PathBuf;
 use std::{env, io};
 use tonic::{transport::Server, Request, Response, Status};
 
-use crate::container;
-use crate::dhcpv6::{add_ipv6_route, add_to_ipv6, adjust_base_ip, run_dhcpv6_server, IpRange};
 use crate::feos_grpc;
 use crate::feos_grpc::feos_grpc_server::*;
 use crate::feos_grpc::{
@@ -17,10 +15,12 @@ use crate::feos_grpc::{
     ShutdownVmRequest, ShutdownVmResponse,
 };
 use crate::host;
+use crate::isolated_container;
 use crate::radv::start_radv_server;
 use crate::ringbuffer::*;
 use crate::vm::{self};
 use crate::vm::{image, Manager};
+use crate::{container, network};
 use hyper_util::rt::TokioIo;
 use nix::libc::VMADDR_CID_ANY;
 use nix::unistd::Uid;
@@ -40,6 +40,7 @@ use tower::service_fn;
 use uuid::Uuid;
 
 use crate::filesystem::mount_virtual_filesystems;
+use crate::isolated_container::{isolated_container_service, IsolatedContainerAPI};
 use crate::network::{configure_network_devices, configure_sriov};
 
 #[derive(Debug)]
@@ -51,12 +52,12 @@ pub struct FeOSAPI {
 
 impl FeOSAPI {
     pub fn new(
-        vmm: vm::Manager,
+        vmm: Arc<vm::Manager>,
         buffer: Arc<RingBuffer>,
         log_receiver: Arc<Mutex<mpsc::Receiver<String>>>,
     ) -> Self {
         FeOSAPI {
-            vmm: Arc::new(vmm),
+            vmm,
             buffer,
             log_receiver,
         }
@@ -89,44 +90,162 @@ fn handle_error(e: vm::Error) -> tonic::Status {
                 "failed to connect to cloud hypervisor api",
             )
         }
-        vm::Error::ExtractionFailure(e) => {
-            info!("extraction error: {:?}", e);
-            Status::new(tonic::Code::Internal, "failed to extract UKI image")
-        }
         vm::Error::Failed => Status::new(tonic::Code::AlreadyExists, "vm already exists"),
     }
 }
 
 #[tonic::async_trait]
 impl FeosGrpc for FeOSAPI {
-    type GetFeOSKernelLogsStream = ReceiverStream<Result<GetFeOsKernelLogResponse, Status>>;
-    type GetFeOSLogsStream = ReceiverStream<Result<GetFeOsLogResponse, Status>>;
-    type ConsoleVMStream = ReceiverStream<Result<feos_grpc::ConsoleVmResponse, Status>>;
-
-    async fn get_fe_os_kernel_logs(
+    async fn reboot(&self, _: Request<RebootRequest>) -> Result<Response<RebootResponse>, Status> {
+        info!("Got reboot request");
+        tokio::spawn(async {
+            sleep(Duration::from_secs(1)).await;
+            match host::power::reboot() {
+                Ok(_) => info!("reboot"),
+                Err(e) => info!("failed to reboot: {:?}", e),
+            }
+        });
+        Ok(Response::new(feos_grpc::RebootResponse {}))
+    }
+    async fn shutdown(
         &self,
-        _: Request<GetFeOsKernelLogRequest>,
-    ) -> Result<Response<Self::GetFeOSKernelLogsStream>, Status> {
-        let (tx, rx) = mpsc::channel(4);
-        let tx = tx.clone();
+        _: Request<ShutdownRequest>,
+    ) -> Result<Response<ShutdownResponse>, Status> {
+        info!("Got shutdown request");
+        tokio::spawn(async {
+            sleep(Duration::from_secs(1)).await;
+            match host::power::shutdown() {
+                Ok(_) => info!("shutdown"),
+                Err(e) => info!("failed to shutdown: {:?}", e),
+            }
+        });
+        Ok(Response::new(feos_grpc::ShutdownResponse {}))
+    }
+    async fn host_info(
+        &self,
+        _: Request<HostInfoRequest>,
+    ) -> Result<Response<HostInfoResponse>, Status> {
+        info!("Got host info request");
 
+        let host = host::info::check_info();
+
+        let mut interfaces = Vec::new();
+        for interface in host.net_interfaces {
+            interfaces.push(NetInterface {
+                name: interface.name,
+                pci_address: interface.pci_address.unwrap_or_default(),
+                mac_address: interface.mac_address.unwrap_or_default(),
+            })
+        }
+
+        Ok(Response::new(feos_grpc::HostInfoResponse {
+            uptime: host.uptime,
+            ram_total: host.ram_total,
+            ram_unused: host.ram_unused,
+            num_cores: host.num_cores,
+            net_interfaces: interfaces,
+        }))
+    }
+
+    async fn ping(
+        &self,
+        request: Request<Empty>, // Accept request of type HelloRequest
+    ) -> Result<Response<Empty>, Status> {
+        // Return an instance of type HelloReply
+        info!("Got a request: {:?}", request);
+
+        let reply = feos_grpc::Empty {};
+
+        Ok(Response::new(reply)) // Send back our formatted greeting
+    }
+
+    async fn fetch_image(
+        &self,
+        request: Request<FetchImageRequest>,
+    ) -> Result<Response<FetchImageResponse>, Status> {
+        info!("Got fetch_image request");
+
+        let id = Uuid::new_v4();
+        let path: PathBuf = PathBuf::from(format!("./images/{}", id.clone()));
         tokio::spawn(async move {
-            let file = File::open("/dev/kmsg")
-                .await
-                .expect("Failed to open /dev/kmsg");
-            let reader = BufReader::new(file);
-            let mut lines = reader.lines();
-
-            while let Some(line) = lines.next_line().await.unwrap() {
-                let response = GetFeOsKernelLogResponse { message: line };
-                if tx.send(Ok(response)).await.is_err() {
-                    break;
+            match vm::image::fetch_image(request.get_ref().image.clone(), path).await {
+                Ok(_) => info!("image pulled"),
+                Err(image::ImageError::IOError(e)) => {
+                    info!("failed to pull image: io error: {:?}", e)
+                }
+                Err(image::ImageError::PullError(e)) => info!("failed to pull image: {:?}", e),
+                Err(image::ImageError::InvalidReference(e)) => {
+                    info!("failed to pull image: invalid reference: {:?}", e)
+                }
+                Err(image::ImageError::MissingLayer(e)) => {
+                    info!("failed to pull image: missing layer: {:?}", e)
                 }
             }
         });
 
-        Ok(Response::new(ReceiverStream::new(rx)))
+        Ok(Response::new(feos_grpc::FetchImageResponse {
+            uuid: id.to_string(),
+        }))
     }
+
+    async fn create_vm(
+        &self,
+        request: Request<CreateVmRequest>,
+    ) -> Result<Response<CreateVmResponse>, Status> {
+        info!("Got create_vm request");
+
+        let id = Uuid::new_v4();
+        self.vmm.init_vmm(id, true).map_err(handle_error)?;
+
+        let root_fs = PathBuf::from(format!(
+            "./images/{}/application.vnd.ironcore.image.rootfs.v1alpha1.rootfs",
+            request.get_ref().image_uuid
+        ));
+        self.vmm
+            .create_vm(
+                id,
+                request.get_ref().cpu,
+                request.get_ref().memory_bytes,
+                vm::BootMode::FirmwareBoot(vm::FirmwareBootMode { root_fs }),
+                request.get_ref().ignition.clone(),
+            )
+            .map_err(handle_error)?;
+
+        Ok(Response::new(feos_grpc::CreateVmResponse {
+            uuid: id.to_string(),
+        }))
+    }
+
+    async fn get_vm(
+        &self,
+        request: Request<GetVmRequest>,
+    ) -> Result<Response<GetVmResponse>, Status> {
+        info!("Got get_vm request");
+
+        let id = request.get_ref().uuid.to_owned();
+        let id =
+            Uuid::parse_str(&id).map_err(|_| Status::invalid_argument("failed to parse uuid"))?;
+        self.vmm.ping_vmm(id).map_err(handle_error)?;
+        let vm_status = self.vmm.get_vm(id).map_err(handle_error)?;
+
+        Ok(Response::new(feos_grpc::GetVmResponse { info: vm_status }))
+    }
+
+    async fn boot_vm(
+        &self,
+        request: Request<BootVmRequest>,
+    ) -> Result<Response<BootVmResponse>, Status> {
+        info!("Received boot_vm request");
+
+        let id = Uuid::parse_str(&request.get_ref().uuid)
+            .map_err(|_| Status::invalid_argument("Failed to parse UUID"))?;
+
+        self.vmm.boot_vm(id).map_err(handle_error)?;
+
+        Ok(Response::new(feos_grpc::BootVmResponse {}))
+    }
+
+    type ConsoleVMStream = ReceiverStream<Result<feos_grpc::ConsoleVmResponse, Status>>;
 
     async fn console_vm(
         &self,
@@ -196,103 +315,6 @@ impl FeosGrpc for FeOSAPI {
         Ok(Response::new(ReceiverStream::new(rx)))
     }
 
-    async fn get_fe_os_logs(
-        &self,
-        _: Request<GetFeOsLogRequest>,
-    ) -> Result<Response<ReceiverStream<Result<GetFeOsLogResponse, Status>>>, Status> {
-        let (tx, rx) = mpsc::channel(4);
-        let buffer = self.buffer.clone();
-        let log_receiver = self.log_receiver.clone();
-
-        tokio::spawn(async move {
-            let logs = buffer.get_lines().await;
-            for log in logs {
-                let response = GetFeOsLogResponse { message: log };
-                if tx.send(Ok(response)).await.is_err() {
-                    break;
-                }
-            }
-
-            let mut log_receiver = log_receiver.lock().await;
-            while let Some(log_entry) = log_receiver.recv().await {
-                let response = GetFeOsLogResponse { message: log_entry };
-                if tx.send(Ok(response)).await.is_err() {
-                    break;
-                }
-            }
-        });
-
-        Ok(Response::new(ReceiverStream::new(rx)))
-    }
-
-    async fn ping(
-        &self,
-        request: Request<Empty>, // Accept request of type HelloRequest
-    ) -> Result<Response<Empty>, Status> {
-        // Return an instance of type HelloReply
-        info!("Got a request: {:?}", request);
-
-        let reply = feos_grpc::Empty {};
-
-        Ok(Response::new(reply)) // Send back our formatted greeting
-    }
-
-    async fn fetch_image(
-        &self,
-        request: Request<FetchImageRequest>,
-    ) -> Result<Response<FetchImageResponse>, Status> {
-        info!("Got fetch_image request");
-
-        let id = Uuid::new_v4();
-        let path: PathBuf = PathBuf::from(format!("./images/{}", id.clone()));
-        tokio::spawn(async move {
-            match vm::image::fetch_image(request.get_ref().image.clone(), path).await {
-                Ok(_) => info!("image pulled"),
-                Err(image::ImageError::IOError(e)) => {
-                    info!("failed to pull image: io error: {:?}", e)
-                }
-                Err(image::ImageError::PullError(e)) => info!("failed to pull image: {:?}", e),
-                Err(image::ImageError::InvalidReference(e)) => {
-                    info!("failed to pull image: invalid reference: {:?}", e)
-                }
-                Err(image::ImageError::MissingLayer(e)) => {
-                    info!("failed to pull image: missing layer: {:?}", e)
-                }
-            }
-        });
-
-        Ok(Response::new(feos_grpc::FetchImageResponse {
-            uuid: id.to_string(),
-        }))
-    }
-
-    async fn reboot(&self, _: Request<RebootRequest>) -> Result<Response<RebootResponse>, Status> {
-        info!("Got reboot request");
-        tokio::spawn(async {
-            sleep(Duration::from_secs(1)).await;
-            match host::power::reboot() {
-                Ok(_) => info!("reboot"),
-                Err(e) => info!("failed to reboot: {:?}", e),
-            }
-        });
-        Ok(Response::new(feos_grpc::RebootResponse {}))
-    }
-
-    async fn shutdown(
-        &self,
-        _: Request<ShutdownRequest>,
-    ) -> Result<Response<ShutdownResponse>, Status> {
-        info!("Got shutdown request");
-        tokio::spawn(async {
-            sleep(Duration::from_secs(1)).await;
-            match host::power::shutdown() {
-                Ok(_) => info!("shutdown"),
-                Err(e) => info!("failed to shutdown: {:?}", e),
-            }
-        });
-        Ok(Response::new(feos_grpc::ShutdownResponse {}))
-    }
-
     async fn attach_nic_vm(
         &self,
         request: Request<AttachNicVmRequest>,
@@ -303,91 +325,19 @@ impl FeosGrpc for FeOSAPI {
         let id =
             Uuid::parse_str(&id).map_err(|_| Status::invalid_argument("failed to parse uuid"))?;
 
-        let mac_address = if request.get_ref().mac_address.is_empty() {
-            None
+        let net_config = if !request.get_ref().mac_address.is_empty() {
+            vm::NetworkMode::MACAddress(request.get_ref().mac_address.clone())
+        } else if !request.get_ref().pci_address.is_empty() {
+            vm::NetworkMode::PCIAddress(request.get_ref().pci_address.clone())
         } else {
-            Some(request.get_ref().mac_address.clone())
-        };
-        let pci_address = if request.get_ref().pci_address.is_empty() {
-            None
-        } else {
-            Some(request.get_ref().pci_address.clone())
+            return Err(Status::invalid_argument("no network config provided"));
         };
 
         self.vmm
-            ._add_net_device(id, mac_address, pci_address)
+            .add_net_device(id, net_config)
             .map_err(handle_error)?;
 
         Ok(Response::new(feos_grpc::AttachNicVmResponse {}))
-    }
-
-    async fn host_info(
-        &self,
-        _: Request<HostInfoRequest>,
-    ) -> Result<Response<HostInfoResponse>, Status> {
-        info!("Got host info request");
-
-        let host = host::info::check_info();
-
-        let mut interfaces = Vec::new();
-        for interface in host.net_interfaces {
-            interfaces.push(NetInterface {
-                name: interface.name,
-                pci_address: interface.pci_address.unwrap_or_default(),
-                mac_address: interface.mac_address.unwrap_or_default(),
-            })
-        }
-
-        Ok(Response::new(feos_grpc::HostInfoResponse {
-            uptime: host.uptime,
-            ram_total: host.ram_total,
-            ram_unused: host.ram_unused,
-            num_cores: host.num_cores,
-            net_interfaces: interfaces,
-        }))
-    }
-
-    async fn create_vm(
-        &self,
-        request: Request<CreateVmRequest>,
-    ) -> Result<Response<CreateVmResponse>, Status> {
-        info!("Got create_vm request");
-
-        let id = Uuid::new_v4();
-        self.vmm.init_vmm(id, true).map_err(handle_error)?;
-
-        let root_fs = PathBuf::from(format!(
-            "./images/{}/application.vnd.ironcore.image.rootfs.v1alpha1.rootfs",
-            request.get_ref().image_uuid
-        ));
-        self.vmm
-            .create_vm(
-                id,
-                request.get_ref().cpu,
-                request.get_ref().memory_bytes,
-                root_fs,
-                request.get_ref().ignition.clone(),
-            )
-            .map_err(handle_error)?;
-
-        Ok(Response::new(feos_grpc::CreateVmResponse {
-            uuid: id.to_string(),
-        }))
-    }
-
-    async fn get_vm(
-        &self,
-        request: Request<GetVmRequest>,
-    ) -> Result<Response<GetVmResponse>, Status> {
-        info!("Got get_vm request");
-
-        let id = request.get_ref().uuid.to_owned();
-        let id =
-            Uuid::parse_str(&id).map_err(|_| Status::invalid_argument("failed to parse uuid"))?;
-        self.vmm.ping_vmm(id).map_err(handle_error)?;
-        let vm_status = self.vmm.get_vm(id).map_err(handle_error)?;
-
-        Ok(Response::new(feos_grpc::GetVmResponse { info: vm_status }))
     }
 
     async fn shutdown_vm(
@@ -412,7 +362,7 @@ impl FeosGrpc for FeOSAPI {
 
         let id = Uuid::parse_str(&request.get_ref().uuid)
             .map_err(|_| Status::invalid_argument("Failed to parse UUID"))?;
-        let path = format!("vsock{}.sock", Manager::vm_tap_name(&id));
+        let path = format!("vsock{}.sock", network::Manager::vm_tap_name(&id));
         let path_clone = path.clone();
 
         let channel = Endpoint::try_from("http://[::]:50051")
@@ -461,85 +411,74 @@ impl FeosGrpc for FeOSAPI {
         Ok(Response::new(feos_grpc::PingVmResponse {}))
     }
 
-    async fn boot_vm(
+    type GetFeOSKernelLogsStream = ReceiverStream<Result<GetFeOsKernelLogResponse, Status>>;
+
+    async fn get_fe_os_kernel_logs(
         &self,
-        request: Request<BootVmRequest>,
-    ) -> Result<Response<BootVmResponse>, Status> {
-        info!("Received boot_vm request");
+        _: Request<GetFeOsKernelLogRequest>,
+    ) -> Result<Response<Self::GetFeOSKernelLogsStream>, Status> {
+        let (tx, rx) = mpsc::channel(4);
+        let tx = tx.clone();
 
-        let id = Uuid::parse_str(&request.get_ref().uuid)
-            .map_err(|_| Status::invalid_argument("Failed to parse UUID"))?;
+        tokio::spawn(async move {
+            let file = File::open("/dev/kmsg")
+                .await
+                .expect("Failed to open /dev/kmsg");
+            let reader = BufReader::new(file);
+            let mut lines = reader.lines();
 
-        self.vmm.boot_vm(id).map_err(handle_error)?;
-
-        let interface_name = Manager::vm_tap_name(&id);
-        let (base_ip, prefix_length, prefix_count) = self.vmm.get_ipv6_info();
-        let adjusted_base_ip = adjust_base_ip(base_ip, prefix_length, prefix_count);
-        let new_prefix_length = prefix_length + 16;
-
-        let ip_start = add_to_ipv6(adjusted_base_ip, new_prefix_length, 100);
-        let ip_end = add_to_ipv6(adjusted_base_ip, new_prefix_length, 200);
-        debug!("IP Range: {} - {}", ip_start, ip_end);
-
-        let ip_range = IpRange {
-            start: ip_start,
-            end: ip_end,
-        };
-
-        let radv_handle = {
-            let interface_name = interface_name.clone();
-            spawn(async move {
-                if let Err(e) =
-                    start_radv_server(interface_name, adjusted_base_ip, new_prefix_length).await
-                {
-                    error!("Failed to start RADV server: {}", e);
+            while let Some(line) = lines.next_line().await.unwrap() {
+                let response = GetFeOsKernelLogResponse { message: line };
+                if tx.send(Ok(response)).await.is_err() {
+                    break;
                 }
-            })
-        };
+            }
+        });
 
-        self.vmm
-            .set_radv_handle(id, radv_handle)
-            .map_err(|_| Status::internal("Failed to set RADV handle"))?;
+        Ok(Response::new(ReceiverStream::new(rx)))
+    }
 
-        let dhcpv6_handle = {
-            let interface_name = interface_name.clone();
-            spawn(async move {
-                if let Err(e) = run_dhcpv6_server(interface_name, ip_range).await {
-                    error!("Failed to run DHCPv6 server: {}", e);
+    type GetFeOSLogsStream = ReceiverStream<Result<GetFeOsLogResponse, Status>>;
+
+    async fn get_fe_os_logs(
+        &self,
+        _: Request<GetFeOsLogRequest>,
+    ) -> Result<Response<ReceiverStream<Result<GetFeOsLogResponse, Status>>>, Status> {
+        let (tx, rx) = mpsc::channel(4);
+        let buffer = self.buffer.clone();
+        let log_receiver = self.log_receiver.clone();
+
+        tokio::spawn(async move {
+            let logs = buffer.get_lines().await;
+            for log in logs {
+                let response = GetFeOsLogResponse { message: log };
+                if tx.send(Ok(response)).await.is_err() {
+                    break;
                 }
-            })
-        };
+            }
 
-        self.vmm
-            .set_dhcpv6_handle(id, dhcpv6_handle)
-            .map_err(|_| Status::internal("Failed to set DHCPv6 handle"))?;
+            let mut log_receiver = log_receiver.lock().await;
+            while let Some(log_entry) = log_receiver.recv().await {
+                let response = GetFeOsLogResponse { message: log_entry };
+                if tx.send(Ok(response)).await.is_err() {
+                    break;
+                }
+            }
+        });
 
-        let (connection, handle, _) =
-            new_connection().map_err(|_| Status::internal("Failed to establish new connection"))?;
-        spawn(connection);
-
-        add_ipv6_route(
-            &handle,
-            &interface_name,
-            adjusted_base_ip,
-            new_prefix_length,
-            None,
-            1024,
-        )
-        .await
-        .map_err(|_| Status::internal("Failed to add IPv6 route"))?;
-
-        Ok(Response::new(feos_grpc::BootVmResponse {}))
+        Ok(Response::new(ReceiverStream::new(rx)))
     }
 }
 
 pub async fn daemon_start(
-    vmm: vm::Manager,
+    vmm: Arc<vm::Manager>,
+    network: Arc<network::Manager>,
     buffer: Arc<RingBuffer>,
     log_receiver: Arc<Mutex<mpsc::Receiver<String>>>,
     is_nested: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let api = FeOSAPI::new(vmm, buffer, log_receiver);
+    let api = FeOSAPI::new(vmm.clone(), buffer, log_receiver);
+    let isolated_container_api = IsolatedContainerAPI::new(vmm, network);
 
     if is_nested {
         let sockaddr = VsockAddr::new(VMADDR_CID_ANY, 1337);
@@ -563,6 +502,7 @@ pub async fn daemon_start(
                     container::ContainerAPI {},
                 ),
             )
+            .add_service(isolated_container_service::isolated_container_service_server::IsolatedContainerServiceServer::new(isolated_container_api))
             .serve(addr)
             .await?;
     }
@@ -608,13 +548,10 @@ pub async fn start_feos(
         );
     }
 
-    let is_nested = match is_running_on_vm().await {
-        Ok(result) => result,
-        Err(e) => {
-            error!("Error checking VM status: {}", e);
-            false // Default to false in case of error
-        }
-    };
+    let is_nested = is_running_on_vm().await.unwrap_or_else(|e| {
+        error!("Error checking VM status: {}", e);
+        false // Default to false in case of error
+    });
 
     if std::process::id() == 1 {
         info!("Configuring network devices...");
@@ -632,16 +569,20 @@ pub async fn start_feos(
         }
     }
 
-    let vmm = Manager::new(
-        String::from("cloud-hypervisor"),
-        is_nested,
-        test_mode,
-        ipv6_address,
-        prefix_length,
-    );
+    let vmm = Manager::new(String::from("cloud-hypervisor"));
+
+    let network_manager = network::Manager::new(ipv6_address, prefix_length);
 
     info!("Starting FeOS daemon...");
-    match daemon_start(vmm, buffer, log_receiver, is_nested).await {
+    match daemon_start(
+        Arc::new(vmm),
+        Arc::new(network_manager),
+        buffer,
+        log_receiver,
+        is_nested,
+    )
+    .await
+    {
         Err(e) => {
             error!("FeOS daemon crashed: {}", e);
             Err(format!("FeOS daemon crashed: {}", e))

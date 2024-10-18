@@ -1,6 +1,6 @@
 use std::io;
 
-use crate::dhcpv6::*;
+use crate::network::dhcpv6::*;
 use futures::stream::TryStreamExt;
 use log::{info, warn};
 use rtnetlink::new_connection;
