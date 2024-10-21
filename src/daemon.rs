@@ -1,4 +1,4 @@
-use log::{debug, error, info, warn};
+use log::{error, info, warn};
 use std::net::Ipv6Addr;
 use std::path::PathBuf;
 use std::{env, io};
@@ -15,8 +15,6 @@ use crate::feos_grpc::{
     ShutdownVmRequest, ShutdownVmResponse,
 };
 use crate::host;
-use crate::isolated_container;
-use crate::radv::start_radv_server;
 use crate::ringbuffer::*;
 use crate::vm::{self};
 use crate::vm::{image, Manager};
@@ -24,13 +22,11 @@ use crate::{container, network};
 use hyper_util::rt::TokioIo;
 use nix::libc::VMADDR_CID_ANY;
 use nix::unistd::Uid;
-use rtnetlink::new_connection;
 use std::sync::Arc;
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
-use tokio::spawn;
 use tokio::sync::{mpsc, Mutex};
 use tokio::time::{sleep, Duration};
 use tokio_stream::wrappers::ReceiverStream;

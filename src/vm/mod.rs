@@ -1,4 +1,4 @@
-use log::{error, info};
+use log::info;
 use serde_json::json;
 use std::{
     collections::HashMap,
@@ -14,22 +14,13 @@ use uuid::Uuid;
 use vmm::vm_config;
 
 use vmm::config::{
-    ConsoleConfig, ConsoleOutputMode, CpusConfig, DiskConfig, MemoryConfig, NetConfig,
-    PayloadConfig, PlatformConfig, VsockConfig,
+    ConsoleConfig, ConsoleOutputMode, CpusConfig, DiskConfig, MemoryConfig, PayloadConfig,
+    PlatformConfig, VsockConfig,
 };
 
 use net_util::MacAddr;
 
 use crate::network;
-use pelite::pe64::{Pe, PeFile};
-use std::fs;
-use std::fs::{create_dir_all, File};
-use std::io::{self, Write};
-use std::net::Ipv6Addr;
-use std::sync::atomic::{AtomicU16, Ordering};
-use std::sync::Arc;
-use thiserror::Error;
-use tokio::task::JoinHandle;
 
 pub mod config;
 pub mod image;
@@ -197,7 +188,7 @@ impl Manager {
         //     ..config::_default_net_cfg()
         // }]);
 
-        if disks.len() != 0 {
+        if !disks.is_empty() {
             vm_config.disks = Some(disks);
         }
 
@@ -281,7 +272,7 @@ impl Manager {
 
         let mut socket = UnixStream::connect(id.to_string()).map_err(Error::SocketFailure)?;
 
-        let mut request: (String, String);
+        let request: (String, String);
 
         match config {
             NetworkMode::PCIAddress(pci) => {
@@ -334,7 +325,7 @@ impl Manager {
             )
         }
 
-        return Ok(());
+        Ok(())
     }
 
     pub fn ping_vmm(&self, id: Uuid) -> Result<(), Error> {
@@ -396,23 +387,20 @@ impl Manager {
             info!("shutdown vm: id {}, response: {}", id, x);
         }
 
-
         let response = api_client::simple_api_full_command_and_response(
             &mut socket,
             "PUT",
             "vmm.shutdown",
             None,
         )
-            .map_err(Error::CHApiFailure)?;
+        .map_err(Error::CHApiFailure)?;
 
         if let Some(x) = &response {
             info!("shutdown vmm: id {}, response: {}", id, x);
         }
-
 
         vms.remove(&id);
 
         Ok(String::new())
     }
 }
-

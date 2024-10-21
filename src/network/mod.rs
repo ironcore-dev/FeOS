@@ -1,19 +1,11 @@
-use log::{debug, error, info, warn};
-use netlink_packet_route::link::LinkMessage;
-use nix::net::if_::if_nametoindex;
+use log::{debug, error, info};
 use rtnetlink::new_connection;
 use std::collections::HashMap;
 use std::net::Ipv6Addr;
-use std::num::TryFromIntError;
-use std::path::Path;
-use std::process::Child;
 use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::{Arc, Mutex};
-use tokio::fs::{read_link, OpenOptions};
 use tokio::spawn;
 use tokio::task::JoinHandle;
-use tokio::time::sleep;
-use tonic::Status;
 use uuid::Uuid;
 
 pub mod dhcpv6;
@@ -81,7 +73,7 @@ impl Manager {
 
     pub async fn stop_dhcp(&self, id: Uuid) -> Result<(), Error> {
         let mut instances = self.instances.lock().unwrap();
-        if let Some(handle) = instances.remove(&id)  {
+        if let Some(handle) = instances.remove(&id) {
             handle.radv_handle.abort();
             handle.dhcpv6_handle.abort();
         }

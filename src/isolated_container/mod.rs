@@ -1,37 +1,18 @@
 use crate::container::container_service::container_service_client::ContainerServiceClient;
-use crate::container::container_service::{CreateContainerRequest, RunContainerRequest, StateContainerRequest};
-use crate::daemon::FeOSAPI;
-use crate::feos_grpc::Empty;
-use crate::ringbuffer::RingBuffer;
+use crate::container::container_service::{
+    CreateContainerRequest, RunContainerRequest, StateContainerRequest,
+};
 use crate::vm::{Error, NetworkMode};
-use crate::{container, feos_grpc, network, vm};
-use flate2::read::GzDecoder;
-use futures::channel;
+use crate::{network, vm};
 use hyper_util::rt::TokioIo;
 use isolated_container_service::isolated_container_service_server::IsolatedContainerService;
-use libcontainer::container::builder::ContainerBuilder;
-use libcontainer::container::Container;
-use libcontainer::oci_spec::runtime::{LinuxNamespace, Mount, Spec};
-use libcontainer::signal::Signal;
-use libcontainer::syscall::syscall::SyscallType;
-use libcontainer::workload::default::DefaultExecutor;
-use log::{debug, error, info};
-use rtnetlink::new_connection;
-use serde_json::to_writer_pretty;
-use std::fs;
-use std::fs::File;
-use std::io::BufReader;
-use std::io::{BufWriter, Write};
-use std::path::Path;
+use log::info;
+use std::io::Write;
 use std::sync::Arc;
-use std::thread::sleep;
-use std::{collections::HashMap, num::TryFromIntError, sync::Mutex};
+use std::{collections::HashMap, sync::Mutex};
 use std::{fmt::Debug, io, path::PathBuf, time};
-use tar::Archive;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixStream;
-use tokio::spawn;
-use tokio::sync::mpsc;
 use tonic::transport::{Channel, Endpoint, Uri};
 use tonic::{Request, Response, Status};
 use tower::service_fn;
@@ -255,7 +236,6 @@ impl IsolatedContainerService for IsolatedContainerAPI {
     ) -> Result<Response<isolated_container_service::StopContainerResponse>, Status> {
         info!("Got stop_container request");
 
-
         let container_id: String = request.get_ref().uuid.clone();
         let container_id = Uuid::parse_str(&container_id)
             .map_err(|_| Status::invalid_argument("failed to parse uuid"))?;
@@ -301,15 +281,14 @@ impl IsolatedContainerService for IsolatedContainerAPI {
         let channel = get_channel(path).await.expect("abc");
 
         let mut client = ContainerServiceClient::new(channel);
-        let request = tonic::Request::new( StateContainerRequest {
+        let request = tonic::Request::new(StateContainerRequest {
             uuid: container_id.to_string(),
         });
         let response = client.state_container(request).await?;
 
-
         Ok(Response::new(
             isolated_container_service::StateContainerResponse {
-                state:  response.get_ref().state.to_string(),
+                state: response.get_ref().state.to_string(),
                 pid: response.get_ref().pid,
             },
         ))
