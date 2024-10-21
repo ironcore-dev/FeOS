@@ -79,6 +79,15 @@ impl Manager {
         Ok(())
     }
 
+    pub async fn stop_dhcp(&self, id: Uuid) -> Result<(), Error> {
+        let mut instances = self.instances.lock().unwrap();
+        if let Some(handle) = instances.remove(&id)  {
+            handle.radv_handle.abort();
+            handle.dhcpv6_handle.abort();
+        }
+
+        Ok(())
+    }
     pub async fn start_dhcp(&self, id: Uuid) -> Result<(), Error> {
         self.exists(id)?;
 

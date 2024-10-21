@@ -1,5 +1,5 @@
 use crate::container::container_service::container_service_client::ContainerServiceClient;
-use crate::container::container_service::{CreateContainerRequest, RunContainerRequest};
+use crate::container::container_service::{CreateContainerRequest, RunContainerRequest, StateContainerRequest};
 use crate::daemon::FeOSAPI;
 use crate::feos_grpc::Empty;
 use crate::ringbuffer::RingBuffer;
@@ -88,7 +88,7 @@ fn handle_error(e: vm::Error) -> tonic::Status {
     }
 }
 
-async fn retry_get_channel(path: String) -> Result<Channel, Error> {
+async fn get_channel(path: String) -> Result<Channel, Error> {
     async fn get_channel(path: String) -> Result<Channel, Error> {
         let channel = Endpoint::try_from("http://[::]:50051")
             .map_err(|e| Error::Failed)?
@@ -192,7 +192,7 @@ impl IsolatedContainerService for IsolatedContainerAPI {
             .expect("failed to start network");
 
         let path = format!("vsock{}.sock", network::Manager::device_name(&id));
-        let channel = retry_get_channel(path).await.expect("abc");
+        let channel = get_channel(path).await.expect("abc");
 
         let mut client = ContainerServiceClient::new(channel);
         let request = tonic::Request::new(CreateContainerRequest {
@@ -236,7 +236,7 @@ impl IsolatedContainerService for IsolatedContainerAPI {
         };
 
         let path = format!("vsock{}.sock", network::Manager::device_name(&vm_id));
-        let channel = retry_get_channel(path).await.expect("abc");
+        let channel = get_channel(path).await.expect("abc");
 
         let mut client = ContainerServiceClient::new(channel);
         let request = tonic::Request::new(RunContainerRequest {
@@ -255,7 +255,20 @@ impl IsolatedContainerService for IsolatedContainerAPI {
     ) -> Result<Response<isolated_container_service::StopContainerResponse>, Status> {
         info!("Got stop_container request");
 
+
         let container_id: String = request.get_ref().uuid.clone();
+        let container_id = Uuid::parse_str(&container_id)
+            .map_err(|_| Status::invalid_argument("failed to parse uuid"))?;
+
+        self.network
+            .stop_dhcp(container_id)
+            .await
+            .expect("failed to start network");
+
+        self.vmm.kill_vm(container_id).map_err(handle_error)?;
+
+        let mut vm_to_container = self.vm_to_container.lock().unwrap();
+        vm_to_container.remove(&container_id);
 
         Ok(Response::new(
             isolated_container_service::StopContainerResponse {},
@@ -270,10 +283,34 @@ impl IsolatedContainerService for IsolatedContainerAPI {
 
         let container_id: String = request.get_ref().uuid.clone();
 
+        let vm_id: String = request.get_ref().uuid.clone();
+        let vm_id = Uuid::parse_str(&vm_id)
+            .map_err(|_| Status::invalid_argument("failed to parse uuid"))?;
+
+        let container_id = {
+            let vm_to_container = self
+                .vm_to_container
+                .lock()
+                .map_err(|_| Status::internal("Failed to lock mutex"))?;
+            *vm_to_container
+                .get(&vm_id)
+                .ok_or_else(|| Status::not_found(format!("VM with ID '{}' not found", vm_id)))?
+        };
+
+        let path = format!("vsock{}.sock", network::Manager::device_name(&vm_id));
+        let channel = get_channel(path).await.expect("abc");
+
+        let mut client = ContainerServiceClient::new(channel);
+        let request = tonic::Request::new( StateContainerRequest {
+            uuid: container_id.to_string(),
+        });
+        let response = client.state_container(request).await?;
+
+
         Ok(Response::new(
             isolated_container_service::StateContainerResponse {
-                state: "".to_string(),
-                pid: None,
+                state:  response.get_ref().state.to_string(),
+                pid: response.get_ref().pid,
             },
         ))
     }

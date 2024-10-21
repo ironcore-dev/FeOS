@@ -376,7 +376,7 @@ impl Manager {
         Ok(String::new())
     }
 
-    pub fn shutdown_vm(&self, id: Uuid) -> Result<String, Error> {
+    pub fn kill_vm(&self, id: Uuid) -> Result<String, Error> {
         let mut vms = self.vms.lock().unwrap();
         let vm_info = match vms.get_mut(&id) {
             Some(info) => info,
@@ -396,16 +396,19 @@ impl Manager {
             info!("shutdown vm: id {}, response: {}", id, x);
         }
 
-        if let Err(e) = vm_info.child.kill() {
-            error!("Failed to kill child process for VM {}: {}", id, e);
-        } else {
-            info!("Sent kill signal to VM {}", id);
+
+        let response = api_client::simple_api_full_command_and_response(
+            &mut socket,
+            "PUT",
+            "vmm.shutdown",
+            None,
+        )
+            .map_err(Error::CHApiFailure)?;
+
+        if let Some(x) = &response {
+            info!("shutdown vmm: id {}, response: {}", id, x);
         }
 
-        match vm_info.child.wait() {
-            Ok(status) => info!("VM {} exited with status {}", id, status),
-            Err(e) => error!("Failed to wait for VM {}: {}", id, e),
-        }
 
         vms.remove(&id);
 

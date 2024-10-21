@@ -349,7 +349,8 @@ impl FeosGrpc for FeOSAPI {
         let id = Uuid::parse_str(&request.get_ref().uuid)
             .map_err(|_| Status::invalid_argument("Failed to parse UUID"))?;
 
-        self.vmm.shutdown_vm(id).map_err(handle_error)?;
+        // TODO differentiate between kill and shutdown
+        self.vmm.kill_vm(id).map_err(handle_error)?;
 
         Ok(Response::new(feos_grpc::ShutdownVmResponse {}))
     }
