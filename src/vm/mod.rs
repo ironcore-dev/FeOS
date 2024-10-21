@@ -18,9 +18,8 @@ use vmm::config::{
     PlatformConfig, VsockConfig,
 };
 
-use net_util::MacAddr;
-
 use crate::network;
+use net_util::MacAddr;
 
 pub mod config;
 pub mod image;
@@ -33,7 +32,6 @@ pub enum Error {
     InvalidInput(TryFromIntError),
     CHCommandFailure(std::io::Error),
     CHApiFailure(api_client::Error),
-    Failed,
 }
 
 pub enum BootMode {
@@ -59,7 +57,7 @@ pub enum NetworkMode {
 
 #[derive(Debug)]
 struct VmInfo {
-    pub child: Child,
+    child: Child,
 }
 
 #[derive(Debug)]
@@ -369,10 +367,6 @@ impl Manager {
 
     pub fn kill_vm(&self, id: Uuid) -> Result<String, Error> {
         let mut vms = self.vms.lock().unwrap();
-        let vm_info = match vms.get_mut(&id) {
-            Some(info) => info,
-            None => return Err(Error::NotFound),
-        };
 
         let mut socket = UnixStream::connect(id.to_string()).map_err(Error::SocketFailure)?;
         let response = api_client::simple_api_full_command_and_response(
@@ -399,7 +393,11 @@ impl Manager {
             info!("shutdown vmm: id {}, response: {}", id, x);
         }
 
-        vms.remove(&id);
+        if let Some(mut info) = vms.remove(&id) {
+            if let Err(e) = info.child.kill() {
+                info!("failed to kill vm process {}: {}", id, e);
+            }
+        }
 
         Ok(String::new())
     }

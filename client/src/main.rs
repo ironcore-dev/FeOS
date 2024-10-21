@@ -1,5 +1,6 @@
 mod client;
 mod client_container;
+mod client_isolated_container;
 
 use client::Opt;
 use structopt::StructOpt;

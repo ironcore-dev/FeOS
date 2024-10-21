@@ -7,6 +7,7 @@ use tonic::transport::Endpoint;
 use tonic::Request;
 
 use crate::client_container::ContainerCommand;
+use crate::client_isolated_container::IsolatedContainerCommand;
 use feos_grpc::feos_grpc_client::FeosGrpcClient;
 use feos_grpc::*;
 
@@ -63,6 +64,7 @@ pub enum Command {
         uuid: String,
     },
     Container(ContainerCommand),
+    IsolatedContainer(IsolatedContainerCommand),
 }
 
 fn format_address(ip: &str, port: u16) -> String {
@@ -88,6 +90,14 @@ pub async fn run_client(opt: Opt) -> Result<(), Box<dyn std::error::Error>> {
         Command::Container(container_cmd) => {
             crate::client_container::run_container_client(opt.server_ip, opt.port, container_cmd)
                 .await?;
+        }
+        Command::IsolatedContainer(container_cmd) => {
+            crate::client_isolated_container::run_isolated_container_client(
+                opt.server_ip,
+                opt.port,
+                container_cmd,
+            )
+            .await?;
         }
         Command::Reboot => {
             let request = Request::new(RebootRequest {});

@@ -9,14 +9,15 @@ use tokio::task::JoinHandle;
 use uuid::Uuid;
 
 pub mod dhcpv6;
-mod network;
+pub mod radv;
+mod utils;
 
 use crate::network::dhcpv6::{
     add_ipv6_route, add_to_ipv6, adjust_base_ip, run_dhcpv6_server, IpRange,
 };
-use crate::radv::start_radv_server;
-pub use network::configure_network_devices;
-pub use network::configure_sriov;
+use radv::start_radv_server;
+pub use utils::configure_network_devices;
+pub use utils::configure_sriov;
 
 #[derive(Debug)]
 pub enum Error {

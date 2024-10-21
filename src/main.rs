@@ -29,9 +29,7 @@ async fn main() -> Result<(), String> {
         (ipv6_address, prefix_length) = parse_command_line()?;
     }
 
-    let test_mode = env::var("RUN_MODE").map_or(false, |v| v == "test");
-
-    start_feos(ipv6_address, prefix_length, test_mode).await?;
+    start_feos(ipv6_address, prefix_length).await?;
     Err("FeOS exited".to_string())
 }
 

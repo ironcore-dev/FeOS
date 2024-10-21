@@ -58,35 +58,36 @@ impl FeOSAPI {
             log_receiver,
         }
     }
-}
 
-fn handle_error(e: vm::Error) -> tonic::Status {
-    match e {
-        vm::Error::AlreadyExists => Status::new(tonic::Code::AlreadyExists, "vm already exists"),
-        vm::Error::NotFound => Status::new(tonic::Code::NotFound, "vm not found"),
-        vm::Error::SocketFailure(e) => {
-            info!("socket error: {:?}", e);
-            Status::new(tonic::Code::Internal, "failed to ")
+    fn handle_error(&self, e: vm::Error) -> Status {
+        match e {
+            vm::Error::AlreadyExists => {
+                Status::new(tonic::Code::AlreadyExists, "vm already exists")
+            }
+            vm::Error::NotFound => Status::new(tonic::Code::NotFound, "vm not found"),
+            vm::Error::SocketFailure(e) => {
+                info!("socket error: {:?}", e);
+                Status::new(tonic::Code::Internal, "failed to ")
+            }
+            vm::Error::InvalidInput(e) => {
+                info!("invalid input error: {:?}", e);
+                Status::new(tonic::Code::Internal, "invalid input")
+            }
+            vm::Error::CHCommandFailure(e) => {
+                info!("failed to connect to cloud hypervisor: {:?}", e);
+                Status::new(
+                    tonic::Code::Internal,
+                    "failed to connect to cloud hypervisor",
+                )
+            }
+            vm::Error::CHApiFailure(e) => {
+                info!("failed to connect to cloud hypervisor api: {:?}", e);
+                Status::new(
+                    tonic::Code::Internal,
+                    "failed to connect to cloud hypervisor api",
+                )
+            }
         }
-        vm::Error::InvalidInput(e) => {
-            info!("invalid input error: {:?}", e);
-            Status::new(tonic::Code::Internal, "invalid input")
-        }
-        vm::Error::CHCommandFailure(e) => {
-            info!("failed to connect to cloud hypervisor: {:?}", e);
-            Status::new(
-                tonic::Code::Internal,
-                "failed to connect to cloud hypervisor",
-            )
-        }
-        vm::Error::CHApiFailure(e) => {
-            info!("failed to connect to cloud hypervisor api: {:?}", e);
-            Status::new(
-                tonic::Code::Internal,
-                "failed to connect to cloud hypervisor api",
-            )
-        }
-        vm::Error::Failed => Status::new(tonic::Code::AlreadyExists, "vm already exists"),
     }
 }
 
@@ -191,7 +192,9 @@ impl FeosGrpc for FeOSAPI {
         info!("Got create_vm request");
 
         let id = Uuid::new_v4();
-        self.vmm.init_vmm(id, true).map_err(handle_error)?;
+        self.vmm
+            .init_vmm(id, true)
+            .map_err(|e| self.handle_error(e))?;
 
         let root_fs = PathBuf::from(format!(
             "./images/{}/application.vnd.ironcore.image.rootfs.v1alpha1.rootfs",
@@ -205,7 +208,7 @@ impl FeosGrpc for FeOSAPI {
                 vm::BootMode::FirmwareBoot(vm::FirmwareBootMode { root_fs }),
                 request.get_ref().ignition.clone(),
             )
-            .map_err(handle_error)?;
+            .map_err(|e| self.handle_error(e))?;
 
         Ok(Response::new(feos_grpc::CreateVmResponse {
             uuid: id.to_string(),
@@ -221,8 +224,8 @@ impl FeosGrpc for FeOSAPI {
         let id = request.get_ref().uuid.to_owned();
         let id =
             Uuid::parse_str(&id).map_err(|_| Status::invalid_argument("failed to parse uuid"))?;
-        self.vmm.ping_vmm(id).map_err(handle_error)?;
-        let vm_status = self.vmm.get_vm(id).map_err(handle_error)?;
+        self.vmm.ping_vmm(id).map_err(|e| self.handle_error(e))?;
+        let vm_status = self.vmm.get_vm(id).map_err(|e| self.handle_error(e))?;
 
         Ok(Response::new(feos_grpc::GetVmResponse { info: vm_status }))
     }
@@ -236,7 +239,7 @@ impl FeosGrpc for FeOSAPI {
         let id = Uuid::parse_str(&request.get_ref().uuid)
             .map_err(|_| Status::invalid_argument("Failed to parse UUID"))?;
 
-        self.vmm.boot_vm(id).map_err(handle_error)?;
+        self.vmm.boot_vm(id).map_err(|e| self.handle_error(e))?;
 
         Ok(Response::new(feos_grpc::BootVmResponse {}))
     }
@@ -263,7 +266,10 @@ impl FeosGrpc for FeOSAPI {
         };
         let id = Uuid::parse_str(&initial_request.uuid)
             .map_err(|_| Status::invalid_argument("failed to parse uuid"))?;
-        let socket_path = self.vmm.get_vm_console_path(id).map_err(handle_error)?;
+        let socket_path = self
+            .vmm
+            .get_vm_console_path(id)
+            .map_err(|e| self.handle_error(e))?;
 
         tokio::spawn(async move {
             let stream = match UnixStream::connect(&socket_path).await {
@@ -331,7 +337,7 @@ impl FeosGrpc for FeOSAPI {
 
         self.vmm
             .add_net_device(id, net_config)
-            .map_err(handle_error)?;
+            .map_err(|e| self.handle_error(e))?;
 
         Ok(Response::new(feos_grpc::AttachNicVmResponse {}))
     }
@@ -346,7 +352,7 @@ impl FeosGrpc for FeOSAPI {
             .map_err(|_| Status::invalid_argument("Failed to parse UUID"))?;
 
         // TODO differentiate between kill and shutdown
-        self.vmm.kill_vm(id).map_err(handle_error)?;
+        self.vmm.kill_vm(id).map_err(|e| self.handle_error(e))?;
 
         Ok(Response::new(feos_grpc::ShutdownVmResponse {}))
     }
@@ -507,11 +513,7 @@ pub async fn daemon_start(
     Ok(())
 }
 
-pub async fn start_feos(
-    ipv6_address: Ipv6Addr,
-    prefix_length: u8,
-    test_mode: bool,
-) -> Result<(), String> {
+pub async fn start_feos(ipv6_address: Ipv6Addr, prefix_length: u8) -> Result<(), String> {
     println!(
         "
 

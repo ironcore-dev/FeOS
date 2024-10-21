@@ -2,19 +2,18 @@ use crate::container::container_service::container_service_client::ContainerServ
 use crate::container::container_service::{
     CreateContainerRequest, RunContainerRequest, StateContainerRequest,
 };
-use crate::vm::{Error, NetworkMode};
+use crate::vm::NetworkMode;
 use crate::{network, vm};
 use hyper_util::rt::TokioIo;
 use isolated_container_service::isolated_container_service_server::IsolatedContainerService;
 use log::info;
-use std::io::Write;
 use std::sync::Arc;
 use std::{collections::HashMap, sync::Mutex};
-use std::{fmt::Debug, io, path::PathBuf, time};
+use std::{fmt::Debug, io, path::PathBuf};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixStream;
 use tonic::transport::{Channel, Endpoint, Uri};
-use tonic::{Request, Response, Status};
+use tonic::{transport, Request, Response, Status};
 use tower::service_fn;
 use uuid::Uuid;
 
@@ -26,7 +25,13 @@ pub mod isolated_container_service {
 pub struct IsolatedContainerAPI {
     vmm: Arc<vm::Manager>,
     network: Arc<network::Manager>,
-    vm_to_container: Mutex<HashMap<Uuid, Uuid>>,
+    vm_to_container: Mutex<HashMap<Uuid, IsolatedContainerInfo>>,
+}
+
+#[derive(Debug, Clone)]
+struct IsolatedContainerInfo {
+    pub container_id: Uuid,
+    pub sock: Channel,
 }
 
 impl IsolatedContainerAPI {
@@ -39,83 +44,57 @@ impl IsolatedContainerAPI {
     }
 }
 
-fn handle_error(e: vm::Error) -> tonic::Status {
-    match e {
-        vm::Error::AlreadyExists => Status::new(tonic::Code::AlreadyExists, "vm already exists"),
-        vm::Error::NotFound => Status::new(tonic::Code::NotFound, "vm not found"),
-        vm::Error::SocketFailure(e) => {
-            info!("socket error: {:?}", e);
-            Status::new(tonic::Code::Internal, "failed to ")
-        }
-        vm::Error::InvalidInput(e) => {
-            info!("invalid input error: {:?}", e);
-            Status::new(tonic::Code::Internal, "invalid input")
-        }
-        vm::Error::CHCommandFailure(e) => {
-            info!("failed to connect to cloud hypervisor: {:?}", e);
-            Status::new(
-                tonic::Code::Internal,
-                "failed to connect to cloud hypervisor",
-            )
-        }
-        vm::Error::CHApiFailure(e) => {
-            info!("failed to connect to cloud hypervisor api: {:?}", e);
-            Status::new(
-                tonic::Code::Internal,
-                "failed to connect to cloud hypervisor api",
-            )
-        }
-        vm::Error::Failed => Status::new(tonic::Code::AlreadyExists, "vm already exists"),
-    }
+#[derive(Debug)]
+pub enum Error {
+    VMConnectionError(transport::Error),
+    VMConnectionMaxRetriesError,
+    VMError(vm::Error),
+    NetworkingError(network::Error),
+    InvalidID,
+    Error(String),
 }
 
 async fn get_channel(path: String) -> Result<Channel, Error> {
-    async fn get_channel(path: String) -> Result<Channel, Error> {
-        let channel = Endpoint::try_from("http://[::]:50051")
-            .map_err(|e| Error::Failed)?
-            .connect_with_connector(service_fn(move |_: Uri| {
-                let path = path.clone();
-                async move {
-                    let mut stream = UnixStream::connect(&path).await.map_err(|e| {
-                        io::Error::new(
-                            io::ErrorKind::Other,
-                            format!("UnixStream connect error: {}", e),
-                        )
-                    })?;
-                    let connect_cmd = format!("CONNECT {}\n", 1337);
-                    stream
-                        .write_all(connect_cmd.as_bytes())
-                        .await
-                        .map_err(|e| {
-                            io::Error::new(io::ErrorKind::Other, format!("Write error: {}", e))
-                        })?;
+    async fn establish_connection(path: String) -> Result<Channel, tonic::transport::Error> {
+        let endpoint = Endpoint::try_from("http://[::]:50051")?;
 
-                    let mut buffer = [0u8; 128];
-                    let n = stream.read(&mut buffer).await.map_err(|e| {
-                        io::Error::new(io::ErrorKind::Other, format!("Read error: {}", e))
+        let connector = service_fn(move |_: Uri| {
+            let path = path.clone();
+            async move {
+                let mut stream = UnixStream::connect(&path).await?;
+
+                let connect_cmd = format!("CONNECT {}\n", 1337);
+                stream
+                    .write_all(connect_cmd.as_bytes())
+                    .await
+                    .map_err(|e| {
+                        io::Error::new(io::ErrorKind::Other, format!("Write error: {}", e))
                     })?;
-                    let response = String::from_utf8_lossy(&buffer[..n]);
-                    // Parse the response
-                    if !response.starts_with("OK") {
-                        return Err(io::Error::new(
-                            io::ErrorKind::Other,
-                            format!("Failed to connect to vsock: {}", response.trim()),
-                        ));
-                    }
-                    info!("Connected to vsock: {}", response.trim());
-                    // Connect to an Uds socket
-                    Ok::<_, io::Error>(TokioIo::new(stream))
+
+                let mut buffer = [0u8; 128];
+                let n = stream.read(&mut buffer).await?;
+
+                let response = String::from_utf8_lossy(&buffer[..n]);
+                if !response.starts_with("OK") {
+                    return Err(io::Error::new(
+                        io::ErrorKind::Other,
+                        format!("Failed to connect to vsock: {}", response.trim()),
+                    ));
                 }
-            }))
-            .await
-            .map_err(|e| Error::Failed)?;
-        Ok(channel)
+
+                info!("Connected to vsock: {}", response.trim());
+                Ok::<_, io::Error>(TokioIo::new(stream))
+            }
+        });
+
+        endpoint.connect_with_connector(connector).await
     }
 
     const RETRIES: u8 = 20;
-    const DELAY: tokio::time::Duration = time::Duration::from_millis(2000);
+    const DELAY: tokio::time::Duration = tokio::time::Duration::from_millis(2000);
+
     for attempt in 0..RETRIES {
-        match get_channel(path.clone()).await {
+        match establish_connection(path.clone()).await {
             Ok(channel) => return Ok(channel),
             Err(e) => {
                 info!("Attempt {} failed: {:?}", attempt + 1, e);
@@ -126,7 +105,78 @@ async fn get_channel(path: String) -> Result<Channel, Error> {
             }
         }
     }
-    Err(Error::Failed) // Or another appropriate error
+
+    Err(Error::VMConnectionMaxRetriesError)
+}
+
+impl IsolatedContainerAPI {
+    fn prepare_vm(&self, id: uuid::Uuid) -> Result<(), Error> {
+        self.vmm.init_vmm(id, true).map_err(Error::VMError)?;
+        self.vmm
+            .create_vm(
+                id,
+                2,
+                4294967296,
+                vm::BootMode::KernelBoot(vm::KernelBootMode {
+                    kernel: PathBuf::from("/usr/share/feos/vmlinuz"),
+                    initramfs: PathBuf::from("/usr/share/feos/initramfs"),
+                    // TODO
+                    cmdline: "console=tty0 console=ttyS0,115200 intel_iommu=on iommu=pt"
+                        .to_string(),
+                }),
+                None,
+            )
+            .map_err(Error::VMError)?;
+
+        self.vmm.boot_vm(id).map_err(Error::VMError)?;
+
+        self.vmm
+            .add_net_device(
+                id,
+                NetworkMode::TAPDeviceName(network::Manager::device_name(&id)),
+            )
+            .map_err(Error::VMError)?;
+
+        Ok(())
+    }
+
+    fn handle_error(&self, e: Error) -> tonic::Status {
+        match e {
+            Error::VMConnectionError(e) => Status::new(
+                tonic::Code::Internal,
+                format!("failed to connect to vm: {}", e),
+            ),
+            Error::VMConnectionMaxRetriesError => Status::new(
+                tonic::Code::Internal,
+                format!("failed to connect to vm: mac retries reached: {:?}", e),
+            ),
+            Error::VMError(e) => Status::new(
+                tonic::Code::Internal,
+                format!("failed to prepare vm: {:?}", e),
+            ),
+            Error::NetworkingError(e) => Status::new(
+                tonic::Code::Internal,
+                format!("failed to prepare network: {:?}", e),
+            ),
+            Error::InvalidID => Status::invalid_argument("failed to parse uuid"),
+            Error::Error(m) => Status::internal(m),
+        }
+    }
+
+    fn get_container_info(&self, vm_id: Uuid) -> Result<IsolatedContainerInfo, Error> {
+        let container_id = {
+            let vm_to_container = self
+                .vm_to_container
+                .lock()
+                .map_err(|_| Error::Error("Failed to lock mutex".to_string()))?;
+            vm_to_container
+                .get(&vm_id)
+                .cloned()
+                .ok_or_else(|| Error::Error(format!("VM with ID '{}' not found", vm_id)))?
+        };
+
+        Ok(container_id)
+    }
 }
 
 #[tonic::async_trait]
@@ -139,43 +189,18 @@ impl IsolatedContainerService for IsolatedContainerAPI {
 
         let id = Uuid::new_v4();
 
-        self.vmm.init_vmm(id, true).map_err(handle_error)?;
-        self.vmm
-            .create_vm(
-                id,
-                2,
-                4294967296,
-                vm::BootMode::KernelBoot(vm::KernelBootMode {
-                    // kernel:   PathBuf::from("/usr/share/feos/vmlinuz"),
-                    kernel: PathBuf::from("/home/lukasfrank/dev/FeOS/target/kernel/vmlinuz"),
-                    initramfs: PathBuf::from("/home/lukasfrank/dev/FeOS/target/initramfs.zst"),
-                    // initramfs: PathBuf::from("/usr/share/feos/initramfs"),
-                    // TODO
-                    cmdline: "console=tty0 console=ttyS0,115200 intel_iommu=on iommu=pt"
-                        .to_string(),
-                }),
-                None,
-            )
-            .map_err(handle_error)?;
-
-        self.vmm.boot_vm(id).map_err(handle_error)?;
-
-        self.vmm
-            .add_net_device(
-                id,
-                NetworkMode::TAPDeviceName(network::Manager::device_name(&id)),
-            )
-            .expect("failed to add tap device");
+        self.prepare_vm(id).map_err(|e| self.handle_error(e))?;
 
         self.network
             .start_dhcp(id)
             .await
-            .expect("failed to start network");
+            .map_err(Error::NetworkingError)
+            .map_err(|e| self.handle_error(e))?;
 
         let path = format!("vsock{}.sock", network::Manager::device_name(&id));
-        let channel = get_channel(path).await.expect("abc");
+        let channel = get_channel(path).await.map_err(|e| self.handle_error(e))?;
 
-        let mut client = ContainerServiceClient::new(channel);
+        let mut client = ContainerServiceClient::new(channel.clone());
         let request = tonic::Request::new(CreateContainerRequest {
             image: request.get_ref().image.to_string(),
             command: request.get_ref().command.clone(),
@@ -184,10 +209,17 @@ impl IsolatedContainerService for IsolatedContainerAPI {
         println!("{}", response.get_ref().uuid);
 
         let container_id = Uuid::parse_str(&response.get_ref().uuid)
-            .map_err(|_| Status::invalid_argument("failed to parse uuid"))?;
+            .map_err(|_| Error::InvalidID)
+            .map_err(|e| self.handle_error(e))?;
 
         let mut vm_to_container = self.vm_to_container.lock().unwrap();
-        vm_to_container.insert(id, container_id);
+        vm_to_container.insert(
+            id,
+            IsolatedContainerInfo {
+                container_id,
+                sock: channel,
+            },
+        );
 
         Ok(Response::new(
             isolated_container_service::CreateContainerResponse {
@@ -204,26 +236,18 @@ impl IsolatedContainerService for IsolatedContainerAPI {
 
         let vm_id: String = request.get_ref().uuid.clone();
         let vm_id = Uuid::parse_str(&vm_id)
-            .map_err(|_| Status::invalid_argument("failed to parse uuid"))?;
+            .map_err(|_| Error::InvalidID)
+            .map_err(|e| self.handle_error(e))?;
 
-        let container_id = {
-            let vm_to_container = self
-                .vm_to_container
-                .lock()
-                .map_err(|_| Status::internal("Failed to lock mutex"))?;
-            *vm_to_container
-                .get(&vm_id)
-                .ok_or_else(|| Status::not_found(format!("VM with ID '{}' not found", vm_id)))?
-        };
+        let container = self
+            .get_container_info(vm_id)
+            .map_err(|e| self.handle_error(e))?;
 
-        let path = format!("vsock{}.sock", network::Manager::device_name(&vm_id));
-        let channel = get_channel(path).await.expect("abc");
-
-        let mut client = ContainerServiceClient::new(channel);
+        let mut client = ContainerServiceClient::new(container.sock.clone());
         let request = tonic::Request::new(RunContainerRequest {
-            uuid: container_id.to_string(),
+            uuid: container.container_id.to_string(),
         });
-        let response = client.run_container(request).await?;
+        client.run_container(request).await?;
 
         Ok(Response::new(
             isolated_container_service::RunContainerResponse {},
@@ -236,19 +260,24 @@ impl IsolatedContainerService for IsolatedContainerAPI {
     ) -> Result<Response<isolated_container_service::StopContainerResponse>, Status> {
         info!("Got stop_container request");
 
-        let container_id: String = request.get_ref().uuid.clone();
-        let container_id = Uuid::parse_str(&container_id)
-            .map_err(|_| Status::invalid_argument("failed to parse uuid"))?;
+        let vm_id: String = request.get_ref().uuid.clone();
+        let vm_id = Uuid::parse_str(&vm_id)
+            .map_err(|_| Error::InvalidID)
+            .map_err(|e| self.handle_error(e))?;
 
         self.network
-            .stop_dhcp(container_id)
+            .stop_dhcp(vm_id)
             .await
-            .expect("failed to start network");
+            .map_err(Error::NetworkingError)
+            .map_err(|e| self.handle_error(e))?;
 
-        self.vmm.kill_vm(container_id).map_err(handle_error)?;
+        self.vmm
+            .kill_vm(vm_id)
+            .map_err(Error::VMError)
+            .map_err(|e| self.handle_error(e))?;
 
         let mut vm_to_container = self.vm_to_container.lock().unwrap();
-        vm_to_container.remove(&container_id);
+        vm_to_container.remove(&vm_id);
 
         Ok(Response::new(
             isolated_container_service::StopContainerResponse {},
@@ -261,28 +290,18 @@ impl IsolatedContainerService for IsolatedContainerAPI {
     ) -> Result<Response<isolated_container_service::StateContainerResponse>, Status> {
         info!("Got state_container request");
 
-        let container_id: String = request.get_ref().uuid.clone();
-
         let vm_id: String = request.get_ref().uuid.clone();
         let vm_id = Uuid::parse_str(&vm_id)
-            .map_err(|_| Status::invalid_argument("failed to parse uuid"))?;
+            .map_err(|_| Error::InvalidID)
+            .map_err(|e| self.handle_error(e))?;
 
-        let container_id = {
-            let vm_to_container = self
-                .vm_to_container
-                .lock()
-                .map_err(|_| Status::internal("Failed to lock mutex"))?;
-            *vm_to_container
-                .get(&vm_id)
-                .ok_or_else(|| Status::not_found(format!("VM with ID '{}' not found", vm_id)))?
-        };
+        let container = self
+            .get_container_info(vm_id)
+            .map_err(|e| self.handle_error(e))?;
 
-        let path = format!("vsock{}.sock", network::Manager::device_name(&vm_id));
-        let channel = get_channel(path).await.expect("abc");
-
-        let mut client = ContainerServiceClient::new(channel);
+        let mut client = ContainerServiceClient::new(container.sock.clone());
         let request = tonic::Request::new(StateContainerRequest {
-            uuid: container_id.to_string(),
+            uuid: container.container_id.to_string(),
         });
         let response = client.state_container(request).await?;
 
