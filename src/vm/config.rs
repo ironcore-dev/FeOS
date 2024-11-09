@@ -63,6 +63,8 @@ pub fn default_vm_cfg() -> VmConfig {
         platform: None,
         tpm: None,
         preserved_fds: None,
+        landlock_enable: false,
+        landlock_rules: None,
     }
 }
 
