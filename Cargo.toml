@@ -3,7 +3,9 @@ name = "feos"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[[bin]]
+name = "feos-tui"
+path = "src/bin/feos_tui/main.rs"
 
 [lints.rust]
 unsafe_code = "deny"
@@ -52,6 +54,8 @@ libc = "0.2"
 
 pelite = "0.10"
 regex = "1.10"
+ratatui = "0.29.0"
+crossterm = "0.28.1"
 
 [build-dependencies]
 tonic-build = "0.12.3"
