@@ -16,7 +16,7 @@ pub mod feos_grpc {
 }
 
 #[derive(StructOpt, Debug)]
-#[structopt(name = "feos_client")]
+#[structopt(name = "feos-cli")]
 pub struct Opt {
     #[structopt(short, long, default_value = "::1")]
     pub server_ip: String,
