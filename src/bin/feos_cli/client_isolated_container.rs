@@ -6,6 +6,7 @@ use tonic::Request;
 
 use isolated_container_grpc::isolated_container_service_client::IsolatedContainerServiceClient;
 use isolated_container_grpc::*;
+use url_builder::URLBuilder;
 
 pub mod isolated_container_grpc {
     tonic::include_proto!("isolated_container");
@@ -30,11 +31,16 @@ pub enum IsolatedContainerCommand {
 }
 
 pub async fn run_isolated_container_client(
-    server_ip: String,
+    server: String,
     port: u16,
     cmd: IsolatedContainerCommand,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let address = format!("http://{}:{}", server_ip, port);
+    let mut ub = URLBuilder::new();
+    ub.set_protocol("http")
+        .set_host(server.as_str())
+        .set_port(port);
+    let address = ub.build();
+
     let channel = Endpoint::from_shared(address)?.connect().await?;
     let mut client = IsolatedContainerServiceClient::new(channel);
 

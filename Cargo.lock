@@ -805,6 +805,7 @@ dependencies = [
  "tonic",
  "tonic-build",
  "tower 0.5.1",
+ "url-builder",
  "uuid",
  "vmm",
 ]
@@ -3565,6 +3566,12 @@ dependencies = [
  "idna 1.0.3",
  "percent-encoding",
 ]
+
+[[package]]
+name = "url-builder"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c560d19163937c53680c515b82a9311c5a796691c67890b8ad579423123e194"
 
 [[package]]
 name = "utf16_iter"

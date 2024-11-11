@@ -6,6 +6,7 @@ use tonic::Request;
 
 use container_grpc::container_service_client::ContainerServiceClient;
 use container_grpc::*;
+use url_builder::URLBuilder;
 
 pub mod container_grpc {
     tonic::include_proto!("container");
@@ -33,11 +34,16 @@ pub enum ContainerCommand {
 }
 
 pub async fn run_container_client(
-    server_ip: String,
+    server: String,
     port: u16,
     cmd: ContainerCommand,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let address = format!("http://{}:{}", server_ip, port);
+    let mut ub = URLBuilder::new();
+    ub.set_protocol("http")
+        .set_host(server.as_str())
+        .set_port(port);
+    let address = ub.build();
+
     let channel = Endpoint::from_shared(address)?.connect().await?;
     let mut client = ContainerServiceClient::new(channel);
 

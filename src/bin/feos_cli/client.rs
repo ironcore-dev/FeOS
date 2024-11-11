@@ -19,7 +19,7 @@ pub mod feos_grpc {
 #[structopt(name = "feos-cli")]
 pub struct Opt {
     #[structopt(short, long, default_value = "::1")]
-    pub server_ip: String,
+    pub server: String,
     #[structopt(short, long, default_value = "1337")]
     pub port: u16,
     #[structopt(subcommand)]
@@ -78,7 +78,7 @@ fn format_address(ip: &str, port: u16) -> String {
 }
 
 pub async fn run_client(opt: Opt) -> Result<(), Box<dyn std::error::Error>> {
-    let address = format_address(&opt.server_ip, opt.port);
+    let address = format_address(&opt.server, opt.port);
     let endpoint = Endpoint::from_shared(address)?
         .keep_alive_while_idle(true)
         .keep_alive_timeout(Duration::from_secs(20));
@@ -88,12 +88,12 @@ pub async fn run_client(opt: Opt) -> Result<(), Box<dyn std::error::Error>> {
 
     match opt.cmd {
         Command::Container(container_cmd) => {
-            crate::client_container::run_container_client(opt.server_ip, opt.port, container_cmd)
+            crate::client_container::run_container_client(opt.server, opt.port, container_cmd)
                 .await?;
         }
         Command::IsolatedContainer(container_cmd) => {
             crate::client_isolated_container::run_isolated_container_client(
-                opt.server_ip,
+                opt.server,
                 opt.port,
                 container_cmd,
             )
