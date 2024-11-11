@@ -116,7 +116,8 @@ impl IsolatedContainerAPI {
             .create_vm(
                 id,
                 2,
-                4294967296,
+                // TODO make configurable through container request
+                536870912,
                 vm::BootMode::KernelBoot(vm::KernelBootMode {
                     kernel: PathBuf::from("/usr/share/feos/vmlinuz"),
                     initramfs: PathBuf::from("/usr/share/feos/initramfs"),
@@ -205,8 +206,16 @@ impl IsolatedContainerService for IsolatedContainerAPI {
             image: request.get_ref().image.to_string(),
             command: request.get_ref().command.clone(),
         });
-        let response = client.create_container(request).await?;
-        println!("{}", response.get_ref().uuid);
+        let response = client
+            .create_container(request)
+            .await
+            .map_err(|_| match self.vmm.kill_vm(id) {
+                Ok(_) => Error::Error("failed to create container".to_string()),
+                Err(e) => Error::Error(format!("failed to create container: {:?}", e)),
+            })
+            .map_err(|e| self.handle_error(e))?;
+
+        info!("created container with id: {}", response.get_ref().uuid);
 
         let container_id = Uuid::parse_str(&response.get_ref().uuid)
             .map_err(|_| Error::InvalidID)
