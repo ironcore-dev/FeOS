@@ -1,3 +1,5 @@
+IPAM ?=
+
 clippy:
 	cargo clippy
 
@@ -8,7 +10,7 @@ release: clippy
 	cargo build --release --target=x86_64-unknown-linux-musl --all
 
 run: all
-	./target/debug/feos
+	sudo ./target/debug/feos --ipam $(IPAM)
 
 clean:
 	rm -rf target
