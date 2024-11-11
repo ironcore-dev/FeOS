@@ -25,6 +25,13 @@ The virtual machine has a virtio-net NIC attached which will be connected to a L
 
 With the make target `virsh-start` the VM will be created and started. `virsh-console` brings you into the serial console of the VM (you can exit it with `Ctrl+]`). To stop and destroy the VM call `make virsh-stop` - you'll probably want to concatenate those commands to `make virsh-start virsh-console virsh-stop`. This will start the VM, opens the serial console and waits for you to hit `Ctrl+]` to exit the serial console and destroy the VM.
 
+### make run
+To test feos locally, you can execute `make run` to compile and run feos locally as a non-PID 1 process. Via the environment system `$IPAM` you can provide the IPAM prefix, that feos will use for providing IP addresses to containers and VMs:
+
+    IPAM=2001:db8::/64 make run
+
+
+
 
 ## Cloud-Hypervisor
 If you want to run FeOS within a [cloud-hypervisor](https://www.cloudhypervisor.org/) VM get some inspiration from this bash snippet:
