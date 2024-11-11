@@ -67,18 +67,12 @@ pub enum Command {
     IsolatedContainer(IsolatedContainerCommand),
 }
 
-fn format_address(ip: &str, port: u16) -> String {
-    if ip.contains(':') {
-        // IPv6 address
-        format!("http://[{}]:{}", ip, port)
-    } else {
-        // IPv4 address
-        format!("http://{}:{}", ip, port)
-    }
-}
-
 pub async fn run_client(opt: Opt) -> Result<(), Box<dyn std::error::Error>> {
-    let address = format_address(&opt.server, opt.port);
+    let mut ub = URLBuilder::new();
+    ub.set_protocol("http")
+        .set_host(server.as_str())
+        .set_port(port);
+    let address = ub.build();
     let endpoint = Endpoint::from_shared(address)?
         .keep_alive_while_idle(true)
         .keep_alive_timeout(Duration::from_secs(20));

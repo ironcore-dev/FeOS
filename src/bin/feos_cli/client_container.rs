@@ -43,7 +43,6 @@ pub async fn run_container_client(
         .set_host(server.as_str())
         .set_port(port);
     let address = ub.build();
-
     let channel = Endpoint::from_shared(address)?.connect().await?;
     let mut client = ContainerServiceClient::new(channel);
 
