@@ -32,6 +32,7 @@ pub enum Error {
     InvalidInput(TryFromIntError),
     CHCommandFailure(std::io::Error),
     CHApiFailure(api_client::Error),
+    NetworkingError(network::Error),
 }
 
 pub enum BootMode {

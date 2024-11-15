@@ -2,24 +2,30 @@ syntax = "proto3";
 package feos_grpc;
 
 service FeosGrpc {
-    rpc Reboot (RebootRequest) returns (RebootResponse);
-    rpc Shutdown (ShutdownRequest) returns (ShutdownResponse);
-    rpc HostInfo (HostInfoRequest) returns (HostInfoResponse);
+  rpc Reboot (RebootRequest) returns (RebootResponse);
+  rpc Shutdown (ShutdownRequest) returns (ShutdownResponse);
+  rpc HostInfo (HostInfoRequest) returns (HostInfoResponse);
 
-    rpc Ping (Empty) returns (Empty);
-    
-    rpc FetchImage (FetchImageRequest) returns (FetchImageResponse);
+  rpc Ping (Empty) returns (Empty);
 
-    rpc CreateVM (CreateVMRequest) returns (CreateVMResponse);
-    rpc GetVM (GetVMRequest) returns (GetVMResponse);
-    rpc BootVM (BootVMRequest) returns (BootVMResponse);
-    rpc ConsoleVM (stream ConsoleVMRequest) returns (stream ConsoleVMResponse);
-    rpc AttachNicVM (AttachNicVMRequest) returns (AttachNicVMResponse);
-    rpc ShutdownVM (ShutdownVMRequest) returns (ShutdownVMResponse);
-    rpc PingVM (PingVMRequest) returns (PingVMResponse);
+  rpc FetchImage (FetchImageRequest) returns (FetchImageResponse);
 
-    rpc GetFeOSKernelLogs (GetFeOSKernelLogRequest) returns (stream GetFeOSKernelLogResponse);
-    rpc GetFeOSLogs(GetFeOsLogRequest) returns (stream GetFeOsLogResponse);
+  rpc CreateVM (CreateVMRequest) returns (CreateVMResponse);
+  rpc GetVM (GetVMRequest) returns (GetVMResponse);
+  rpc BootVM (BootVMRequest) returns (BootVMResponse);
+  rpc ConsoleVM (stream ConsoleVMRequest) returns (stream ConsoleVMResponse);
+  rpc AttachNicVM (AttachNicVMRequest) returns (AttachNicVMResponse);
+  rpc ShutdownVM (ShutdownVMRequest) returns (ShutdownVMResponse);
+  rpc PingVM (PingVMRequest) returns (PingVMResponse);
+
+  rpc GetFeOSKernelLogs (GetFeOSKernelLogRequest) returns (stream GetFeOSKernelLogResponse);
+  rpc GetFeOSLogs(GetFeOsLogRequest) returns (stream GetFeOsLogResponse);
+}
+
+enum NicType {
+  MAC = 0;
+  PCI = 1;
+  TAP = 2;
 }
 
 message ConsoleVMRequest {
@@ -40,16 +46,20 @@ message GetFeOSKernelLogResponse {
 message GetFeOsLogRequest {}
 
 message GetFeOsLogResponse {
-    string message = 1;
+  string message = 1;
 }
 
 message AttachNicVMRequest {
-        string uuid = 1;
-        string mac_address = 2;
-        string pci_address = 3;
-}
-message AttachNicVMResponse {}
+  string uuid = 1;
+  NicType nic_type = 2;
 
+  oneof nic_data {
+    string mac_address = 3;
+    string pci_address = 4;
+  }
+}
+
+message AttachNicVMResponse {}
 
 message RebootRequest {}
 message RebootResponse {}
@@ -67,13 +77,12 @@ message HostInfoResponse {
 }
 
 message NetInterface {
-    string name = 1;
-    string pci_address = 2;
-    string mac_address = 3;
+  string name = 1;
+  string pci_address = 2;
+  string mac_address = 3;
 }
 
 message Empty {}
-
 
 message FetchImageRequest {
   string image = 1;
@@ -83,12 +92,11 @@ message FetchImageResponse {
   string uuid = 1;
 }
 
-
 message CreateVMRequest {
-  uint32 cpu = 1; 
-  uint64 memory_bytes = 2; 
+  uint32 cpu = 1;
+  uint64 memory_bytes = 2;
   string image_uuid = 3;
-  optional string ignition = 4; 
+  optional string ignition = 4;
 }
 
 message CreateVMResponse {
@@ -96,14 +104,14 @@ message CreateVMResponse {
 }
 
 message GetVMRequest {
-    string uuid = 1;
+  string uuid = 1;
 }
 message GetVMResponse {
   string info = 1;
 }
 
 message BootVMRequest {
-    string uuid = 1;
+  string uuid = 1;
 }
 message BootVMResponse {}
 

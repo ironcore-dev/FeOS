@@ -4,6 +4,7 @@ use crate::network::dhcpv6::*;
 use futures::stream::TryStreamExt;
 use log::{info, warn};
 use rtnetlink::new_connection;
+use std::net::Ipv6Addr;
 use tokio::fs::{read_link, OpenOptions};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::time::{self, sleep, Duration};
@@ -22,11 +23,12 @@ use netlink_packet_route::neighbour::*;
 
 const INTERFACE_NAME: &str = "eth0";
 
-pub async fn configure_network_devices() -> Result<(), String> {
+pub async fn configure_network_devices() -> Result<Option<(Ipv6Addr, u8)>, String> {
     let ignore_ra_flag = true; // Till the RA has the correct flags (O or M), ignore the flag
     let interface_name = String::from(INTERFACE_NAME);
     let (connection, handle, _) = new_connection().unwrap();
     let mut mac_bytes_option: Option<Vec<u8>> = None;
+    let mut delegated_prefix_option: Option<(Ipv6Addr, u8)> = None;
     tokio::spawn(connection);
 
     let mut link_ts = handle
@@ -107,7 +109,20 @@ pub async fn configure_network_devices() -> Result<(), String> {
     if let Some(ipv6_gateway) = is_dhcpv6_needed(interface_name.clone(), ignore_ra_flag) {
         time::sleep(Duration::from_secs(4)).await;
         match run_dhcpv6_client(interface_name.clone()).await {
-            Ok(addr) => send_neigh_solicitation(interface_name.clone(), &ipv6_gateway, &addr),
+            Ok(result) => {
+                send_neigh_solicitation(interface_name.clone(), &ipv6_gateway, &result.address);
+                if let Some(prefix_info) = result.prefix {
+                    let delegated_prefix = prefix_info.prefix;
+                    let prefix_length = prefix_info.prefix_length;
+                    info!(
+                        "Received delegated prefix {} with length {}",
+                        delegated_prefix, prefix_length
+                    );
+                    delegated_prefix_option = Some((delegated_prefix, prefix_length));
+                } else {
+                    info!("No prefix delegation received.");
+                }
+            }
             Err(e) => warn!("Error: {}", e),
         }
     }
@@ -130,7 +145,7 @@ pub async fn configure_network_devices() -> Result<(), String> {
         }
     }
 
-    Ok(())
+    Ok(delegated_prefix_option)
 }
 
 fn format_mac(bytes: Vec<u8>) -> String {

@@ -20,5 +20,5 @@ test: clippy
 
 include hack/hack.mk
 
-feos_client:
-	cd client && cargo build
+cli:
+	 cargo build --bin feos-cli

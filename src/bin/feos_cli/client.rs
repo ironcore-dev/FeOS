@@ -55,8 +55,10 @@ pub enum Command {
     },
     AttachNicVM {
         uuid: String,
-        mac_address: String,
-        pci_address: String,
+        #[structopt(long)]
+        mac_address: Option<String>,
+        #[structopt(long)]
+        pci_address: Option<String>,
     },
     GetFeOSKernelLogs,
     GetFeOSLogs,
@@ -152,7 +154,7 @@ pub async fn run_client(opt: Opt) -> Result<(), Box<dyn std::error::Error>> {
         Command::PingVM { uuid } => {
             let request = Request::new(PingVmRequest { uuid });
             let response = client.ping_vm(request).await?;
-            println!("BOOT VM RESPONSE={:?}", response);
+            println!("PING VM RESPONSE={:?}", response);
         }
         Command::ShutdownVM { uuid } => {
             let request = Request::new(ShutdownVmRequest { uuid });
@@ -164,11 +166,31 @@ pub async fn run_client(opt: Opt) -> Result<(), Box<dyn std::error::Error>> {
             mac_address,
             pci_address,
         } => {
+            let (nic_type, nic_data) = match (&mac_address, &pci_address) {
+                (Some(mac), None) => (
+                    feos_grpc::NicType::Mac as i32,
+                    Some(attach_nic_vm_request::NicData::MacAddress(mac.clone())),
+                ),
+                (None, Some(pci)) => (
+                    feos_grpc::NicType::Pci as i32,
+                    Some(attach_nic_vm_request::NicData::PciAddress(pci.clone())),
+                ),
+                (None, None) => (feos_grpc::NicType::Tap as i32, None),
+                (Some(_), Some(_)) => {
+                    eprintln!("Error: Provide either --mac_address or --pci_address, not both.");
+                    return Err(Box::new(std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "Provide either --mac_address or --pci_address, not both.",
+                    )));
+                }
+            };
+
             let request = Request::new(AttachNicVmRequest {
                 uuid,
-                mac_address,
-                pci_address,
+                nic_type,
+                nic_data,
             });
+
             let response = client.attach_nic_vm(request).await?;
             println!("ATTACH NIC VM RESPONSE={:?}", response);
         }

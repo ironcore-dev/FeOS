@@ -6,7 +6,6 @@ use std::env;
 use std::net::Ipv6Addr;
 use std::str::FromStr;
 use std::{env::args, ffi::CString};
-
 use tokio::io;
 use tokio::io::{AsyncBufReadExt, BufReader};
 
@@ -36,12 +35,16 @@ async fn main() -> Result<(), String> {
 fn parse_command_line() -> Result<(Ipv6Addr, u8), String> {
     let args: Vec<String> = env::args().collect();
 
-    if args.len() != 3 {
-        return Err("Usage: <program> --ipam <IPv6>/<prefix-length>".into());
+    if args.len() < 2 {
+        return Ok((Ipv6Addr::UNSPECIFIED, 64));
     }
 
     if args[1] != "--ipam" {
         return Err("Expected '--ipam' flag".into());
+    }
+
+    if args.len() != 3 {
+        return Err("Usage: <program> --ipam <IPv6>/<prefix-length>".into());
     }
 
     let prefix_input = &args[2];
