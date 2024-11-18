@@ -381,7 +381,7 @@ impl FeosGrpc for FeOSAPI {
         self.vmm
             .add_net_device(vm_uuid, net_config)
             .map_err(|e| self.handle_error(e))?;
-        
+
         Ok(Response::new(AttachNicVmResponse {}))
     }
 

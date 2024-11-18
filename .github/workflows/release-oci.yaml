@@ -5,6 +5,7 @@ on:
     branches:
       - master
       - feat/container
+      - feature/prefix_delegation
     tags:
     - '*'
     paths-ignore:
