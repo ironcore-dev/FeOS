@@ -35,6 +35,10 @@ echo "Install libraries for FeOS (copy from host)"
 install_libs $ROOTFS_DIR/bin/feos
 cp -ra /etc/ssl/certs usr/local/ssl/
 
+echo "Create initramfs (non-compressed)"
+find . -print0 | cpio --create --format=newc --null > "${TARGET_DIR}/initramfs"
+mv "${TARGET_DIR}/initramfs" "${ROOTFS_DIR}/usr/share/feos/"
+
 echo "Create initramfs.zst"
 find . -print0 | cpio --create --format=newc --null | zstd -3 > "${TARGET_DIR}/initramfs.zst"
 
