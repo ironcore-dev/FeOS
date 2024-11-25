@@ -37,7 +37,7 @@ use uuid::Uuid;
 
 use crate::filesystem::mount_virtual_filesystems;
 use crate::isolated_container::{isolated_container_service, IsolatedContainerAPI};
-use crate::network::{configure_network_devices, configure_sriov};
+use crate::network::configure_network_devices;
 
 #[derive(Debug)]
 pub struct FeOSAPI {
@@ -617,11 +617,11 @@ pub async fn start_feos(mut ipv6_address: Ipv6Addr, mut prefix_length: u8) -> Re
 
     // Special stuff for pid 1
     if std::process::id() == 1 && !is_nested {
-        info!("Configuring sriov...");
-        const VFS_NUM: u32 = 125;
+        info!("Skip configuring sriov...");
+        /*const VFS_NUM: u32 = 125;
         if let Err(e) = configure_sriov(VFS_NUM).await {
             warn!("failed to configure sriov: {}", e.to_string())
-        }
+        }*/
     }
 
     let vmm = Manager::new(String::from("cloud-hypervisor"));

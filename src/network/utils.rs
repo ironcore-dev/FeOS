@@ -156,7 +156,7 @@ fn format_mac(bytes: Vec<u8>) -> String {
         .join(":")
 }
 
-pub async fn configure_sriov(num_vfs: u32) -> Result<(), String> {
+pub async fn _configure_sriov(num_vfs: u32) -> Result<(), String> {
     let base_path = format!("/sys/class/net/{}/device", INTERFACE_NAME);
 
     let file_path = format!("{}/sriov_numvfs", base_path);
