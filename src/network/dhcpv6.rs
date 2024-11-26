@@ -1007,7 +1007,7 @@ pub fn add_to_ipv6(addr: Ipv6Addr, prefix_length: u8, increment: u128) -> Ipv6Ad
     Ipv6Addr::from(new_addr)
 }
 
-async fn _set_ipv6_gateway(
+pub async fn set_ipv6_gateway(
     handle: &Handle,
     interface_name: &str,
     ipv6_gateway: Ipv6Addr,

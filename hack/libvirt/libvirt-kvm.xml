@@ -5,7 +5,7 @@
       <libosinfo:os id="http://libosinfo.org/linux/2022"/>
     </libosinfo:libosinfo>
   </metadata>
-  <memory unit='MiB'>2048</memory>
+  <memory unit='MiB'>8048</memory>
   <vcpu>4</vcpu>
   <os firmware="efi">
     <type arch="x86_64" machine="q35">hvm</type>
@@ -17,7 +17,7 @@
     <acpi/>
     <apic/>
   </features>
-  <cpu mode="host-passthrough"/>
+  <cpu mode="host-passthrough" check='none' migratable='on'/>
   <clock offset="utc">
     <timer name="rtc" tickpolicy="catchup"/>
     <timer name="pit" tickpolicy="delay"/>

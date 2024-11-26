@@ -16,19 +16,20 @@ use crate::feos_grpc::{
 };
 use crate::host;
 use crate::ringbuffer::*;
-use crate::vm::{self, NetworkMode};
+use crate::vm::{self};
 use crate::vm::{image, Manager};
 use crate::{container, network};
 use hyper_util::rt::TokioIo;
 use nix::libc::VMADDR_CID_ANY;
 use nix::unistd::Uid;
 use std::sync::Arc;
-use tokio::fs::File;
-use tokio::io::AsyncReadExt;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::net::UnixStream;
-use tokio::sync::{mpsc, Mutex};
-use tokio::time::{sleep, Duration};
+use tokio::{
+    fs::File,
+    io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
+    net::UnixStream,
+    sync::{mpsc, Mutex},
+    time::{sleep, Duration},
+};
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_vsock::{VsockAddr, VsockListener};
 use tonic::transport::{Endpoint, Uri};
@@ -249,12 +250,6 @@ impl FeosGrpc for FeOSAPI {
         let id = Uuid::parse_str(&request.get_ref().uuid)
             .map_err(|_| Status::invalid_argument("Failed to parse UUID"))?;
 
-        self.vmm
-            .add_net_device(
-                id,
-                NetworkMode::TAPDeviceName(network::Manager::vm_tap_name(&id)),
-            )
-            .map_err(|e| self.handle_error(e))?;
         self.vmm.boot_vm(id).map_err(|e| self.handle_error(e))?;
         sleep(Duration::from_secs(2)).await;
         self.network

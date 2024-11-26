@@ -9,7 +9,7 @@ use std::{env::args, ffi::CString};
 use tokio::io;
 use tokio::io::{AsyncBufReadExt, BufReader};
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), String> {
     let mut ipv6_address = Ipv6Addr::UNSPECIFIED;
     let mut prefix_length = 64;

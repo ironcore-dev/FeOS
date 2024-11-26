@@ -8,10 +8,12 @@ use hyper_util::rt::TokioIo;
 use isolated_container_service::isolated_container_service_server::IsolatedContainerService;
 use log::info;
 use std::sync::Arc;
+use std::time::Duration;
 use std::{collections::HashMap, sync::Mutex};
 use std::{fmt::Debug, io, path::PathBuf};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixStream;
+use tokio::time::sleep;
 use tonic::transport::{Channel, Endpoint, Uri};
 use tonic::{transport, Request, Response, Status};
 use tower::service_fn;
@@ -117,7 +119,7 @@ impl IsolatedContainerAPI {
                 id,
                 2,
                 // TODO make configurable through container request
-                536870912,
+                4294967296,
                 vm::BootMode::KernelBoot(vm::KernelBootMode {
                     kernel: PathBuf::from("/usr/share/feos/vmlinuz"),
                     initramfs: PathBuf::from("/usr/share/feos/initramfs"),
@@ -129,14 +131,14 @@ impl IsolatedContainerAPI {
             )
             .map_err(Error::VMError)?;
 
-        self.vmm.boot_vm(id).map_err(Error::VMError)?;
-
         self.vmm
             .add_net_device(
                 id,
                 NetworkMode::TAPDeviceName(network::Manager::device_name(&id)),
             )
             .map_err(Error::VMError)?;
+
+        self.vmm.boot_vm(id).map_err(Error::VMError)?;
 
         Ok(())
     }
@@ -191,6 +193,7 @@ impl IsolatedContainerService for IsolatedContainerAPI {
         let id = Uuid::new_v4();
 
         self.prepare_vm(id).map_err(|e| self.handle_error(e))?;
+        sleep(Duration::from_secs(2)).await;
 
         self.network
             .start_dhcp(id)

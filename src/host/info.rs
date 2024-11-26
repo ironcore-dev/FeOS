@@ -33,7 +33,7 @@ fn get_pci_address(interface_name: &str) -> Option<String> {
 fn get_mac_address(interface_name: &str) -> Option<String> {
     let path = format!("/sys/class/net/{}/address", interface_name);
     if let Ok(mac) = fs::read_to_string(path) {
-        return Some(mac.trim().to_string());
+        Some(mac.trim().to_string())
     } else {
         None
     }

@@ -1,3 +1,4 @@
+use crate::fsmount::{fsconfig, fsmount, fsopen, FSCONFIG_CMD_CREATE, FSCONFIG_SET_STRING};
 use nix::{
     fcntl::{openat, OFlag},
     mount::{mount, MsFlags},
@@ -13,8 +14,6 @@ use std::{
     },
     path::Path,
 };
-
-use crate::fsmount::{fsconfig, fsmount, fsopen, FSCONFIG_CMD_CREATE, FSCONFIG_SET_STRING};
 
 #[allow(unsafe_code)]
 pub fn get_root_fstype() -> Result<String, Box<dyn std::error::Error>> {

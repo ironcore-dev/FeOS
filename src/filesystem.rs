@@ -1,5 +1,7 @@
 use log::debug;
 use nix::mount::{mount, MsFlags};
+use std::fs::File;
+use std::io::{Error, Write};
 
 pub fn mount_virtual_filesystems() {
     const NONE: Option<&'static [u8]> = None;
@@ -53,4 +55,17 @@ pub fn mount_virtual_filesystems() {
         NONE,
     )
     .unwrap_or_else(|e| panic!("/sys/fs/cgroup mount failed: {e}"));
+
+    enable_ipv6_forwarding().unwrap_or_else(|e| panic!("Failed to enable ipv6 forwarding: {e}"));
+}
+
+fn enable_ipv6_forwarding() -> Result<(), Error> {
+    let forwarding_paths = ["/proc/sys/net/ipv6/conf/all/forwarding"];
+
+    for path in forwarding_paths {
+        let mut file = File::create(path)?;
+        file.write_all(b"1")?;
+    }
+
+    Ok(())
 }
