@@ -212,9 +212,15 @@ impl IsolatedContainerService for IsolatedContainerAPI {
         let response = client
             .create_container(request)
             .await
-            .map_err(|_| match self.vmm.kill_vm(id) {
-                Ok(_) => Error::Error("failed to create container".to_string()),
-                Err(e) => Error::Error(format!("failed to create container: {:?}", e)),
+            .map_err(|e| {
+                info!("Failed to create container: {:?}", e);
+                match self.vmm.kill_vm(id) {
+                    Ok(_) => Error::Error("failed to create container".to_string()),
+                    Err(kill_error) => Error::Error(format!(
+                        "failed to create container: {:?}, kill VM error: {:?}",
+                        e, kill_error
+                    )),
+                }
             })
             .map_err(|e| self.handle_error(e))?;
 
