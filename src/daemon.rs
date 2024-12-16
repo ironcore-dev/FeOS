@@ -251,6 +251,7 @@ impl FeosGrpc for FeOSAPI {
             .map_err(|_| Status::invalid_argument("Failed to parse UUID"))?;
 
         self.vmm.boot_vm(id).map_err(|e| self.handle_error(e))?;
+        //TODO remove this sleep
         sleep(Duration::from_secs(2)).await;
         self.network
             .start_dhcp(id)

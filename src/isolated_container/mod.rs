@@ -193,6 +193,7 @@ impl IsolatedContainerService for IsolatedContainerAPI {
         let id = Uuid::new_v4();
 
         self.prepare_vm(id).map_err(|e| self.handle_error(e))?;
+        //TODO get rid of sleep
         sleep(Duration::from_secs(2)).await;
 
         self.network

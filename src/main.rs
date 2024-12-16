@@ -9,6 +9,7 @@ use std::{env::args, ffi::CString};
 use tokio::io;
 use tokio::io::{AsyncBufReadExt, BufReader};
 
+//TODO remove this in future, the reason https://github.com/youki-dev/youki/issues/2144
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), String> {
     let mut ipv6_address = Ipv6Addr::UNSPECIFIED;

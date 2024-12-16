@@ -1,5 +1,6 @@
-use std::error::Error;
+use std::fs::File;
 use std::io;
+use std::io::Write;
 
 use crate::network::dhcpv6::*;
 use futures::stream::TryStreamExt;
@@ -32,6 +33,8 @@ pub async fn configure_network_devices() -> Result<Option<(Ipv6Addr, u8)>, Strin
     let mut mac_bytes_option: Option<Vec<u8>> = None;
     let mut delegated_prefix_option: Option<(Ipv6Addr, u8)> = None;
     tokio::spawn(connection);
+
+    enable_ipv6_forwarding().map_err(|e| format!("Failed to enable ipv6 forwarding: {}", e))?;
 
     let mut link_ts = handle
         .link()
@@ -157,12 +160,23 @@ pub async fn configure_network_devices() -> Result<Option<(Ipv6Addr, u8)>, Strin
     Ok(delegated_prefix_option)
 }
 
+pub fn enable_ipv6_forwarding() -> Result<(), std::io::Error> {
+    let forwarding_paths = ["/proc/sys/net/ipv6/conf/all/forwarding"];
+
+    for path in forwarding_paths {
+        let mut file = File::create(path)?;
+        file.write_all(b"1")?;
+    }
+
+    Ok(())
+}
+
 // Keep for debugging purposes
 async fn _print_ipv6_routes(
     handle: &Handle,
     iface_index: u32,
     interface_name: &str,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<(), Box<dyn std::error::Error>> {
     info!("IPv6 Routes:");
 
     let mut route_ts = handle.route().get(IpVersion::V6).execute();
