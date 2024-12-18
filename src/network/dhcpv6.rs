@@ -936,6 +936,7 @@ pub async fn add_ipv6_route(
     prefix_length: u8,
     gateway: Option<Ipv6Addr>,
     metric: u32,
+    route_type: RouteType,
 ) -> Result<(), Error> {
     let mut links = handle
         .link()
@@ -950,13 +951,12 @@ pub async fn add_ipv6_route(
     };
 
     let mut route_add_request = handle.route().add();
-
     let route_msg = route_add_request.message_mut();
 
     route_msg.header.address_family = AddressFamily::Inet6;
     route_msg.header.scope = RouteScope::Universe;
     route_msg.header.protocol = RouteProtocol::Static;
-    route_msg.header.kind = RouteType::Unicast;
+    route_msg.header.kind = route_type;
     route_msg.header.destination_prefix_length = prefix_length;
     route_msg.header.table = RouteHeader::RT_TABLE_MAIN;
 
@@ -964,10 +964,12 @@ pub async fn add_ipv6_route(
         .attributes
         .push(RouteAttribute::Destination(RouteAddress::from(destination)));
 
-    if let Some(gw) = gateway {
-        route_msg
-            .attributes
-            .push(RouteAttribute::Gateway(RouteAddress::from(gw)));
+    if route_type == RouteType::Unicast {
+        if let Some(gw) = gateway {
+            route_msg
+                .attributes
+                .push(RouteAttribute::Gateway(RouteAddress::from(gw)));
+        }
     }
 
     route_msg

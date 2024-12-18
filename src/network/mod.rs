@@ -1,4 +1,5 @@
 use log::{debug, error, info};
+use netlink_packet_route::route::RouteType;
 use rtnetlink::new_connection;
 use std::collections::HashMap;
 use std::net::Ipv6Addr;
@@ -17,7 +18,7 @@ use crate::network::dhcpv6::{
 };
 use radv::start_radv_server;
 pub use utils::_configure_sriov;
-pub use utils::configure_network_devices;
+pub use utils::{configure_network_devices, INTERFACE_NAME};
 
 #[derive(Debug)]
 pub enum Error {
@@ -125,32 +126,31 @@ impl Manager {
             })
         };
 
-        let mut instances = self.instances.lock().unwrap();
-        instances.insert(
-            id,
-            Handles {
-                radv_handle: Arc::new(radv_handle),
-                dhcpv6_handle: Arc::new(dhcpv6_handle),
-            },
-        );
+        {
+            let mut instances = self.instances.lock().unwrap();
+            instances.insert(
+                id,
+                Handles {
+                    radv_handle: Arc::new(radv_handle),
+                    dhcpv6_handle: Arc::new(dhcpv6_handle),
+                },
+            );
+        }
 
         let (connection, handle, _) = new_connection().map_err(|_| Error::Failed)?;
         spawn(connection);
 
-        spawn(async move {
-            if let Err(e) = add_ipv6_route(
-                &handle,
-                &interface_name,
-                adjusted_base_ip,
-                new_prefix_length,
-                None,
-                1024,
-            )
-            .await
-            {
-                error!("Failed to add ipv6 route: {}", e);
-            }
-        });
+        add_ipv6_route(
+            &handle,
+            &interface_name,
+            adjusted_base_ip,
+            new_prefix_length,
+            None,
+            1024,
+            RouteType::Unicast,
+        )
+        .await
+        .map_err(|_| Error::Failed)?;
 
         Ok(())
     }

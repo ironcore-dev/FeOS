@@ -4,7 +4,7 @@ use std::io::Write;
 
 use crate::network::dhcpv6::*;
 use futures::stream::TryStreamExt;
-use log::{debug, info, warn};
+use log::{debug, error, info, warn};
 use rtnetlink::{new_connection, Handle, IpVersion};
 use std::net::Ipv6Addr;
 use tokio::fs::{read_link, OpenOptions};
@@ -22,9 +22,9 @@ use pnet::packet::udp::UdpPacket;
 use pnet::packet::Packet;
 
 use netlink_packet_route::neighbour::*;
-use netlink_packet_route::route::{RouteAddress, RouteAttribute};
+use netlink_packet_route::route::{RouteAddress, RouteAttribute, RouteType};
 
-const INTERFACE_NAME: &str = "eth0";
+pub const INTERFACE_NAME: &str = "eth0";
 
 pub async fn configure_network_devices() -> Result<Option<(Ipv6Addr, u8)>, String> {
     let ignore_ra_flag = true; // Till the RA has the correct flags (O or M), ignore the flag
@@ -124,6 +124,19 @@ pub async fn configure_network_devices() -> Result<Option<(Ipv6Addr, u8)>, Strin
                         delegated_prefix, prefix_length
                     );
                     delegated_prefix_option = Some((delegated_prefix, prefix_length));
+                    if let Err(e) = add_ipv6_route(
+                        &handle,
+                        INTERFACE_NAME,
+                        delegated_prefix,
+                        prefix_length,
+                        None,
+                        1024,
+                        RouteType::Unreachable,
+                    )
+                    .await
+                    {
+                        error!("Failed to add unreachable IPv6 route: {}", e);
+                    }
                 } else {
                     info!("No prefix delegation received.");
                 }
@@ -227,36 +240,35 @@ async fn _print_ipv6_routes(
                     }
                 }
 
-                RouteAttribute::Gateway(gw) => {
-                    match gw {
-                        RouteAddress::Inet6(addr) => {
-                            gateway = Some(addr.to_string());
-                            debug!("Parsed IPv6 Gateway: {}", addr);
-                        }
-                        RouteAddress::Other(v) => {
-                            // Some other form of gateway, handle if needed
-                            if v.is_empty() {
-                                debug!("Parsed Empty Gateway");
-                            } else {
-                                let hex_str = v
-                                    .iter()
-                                    .map(|b| format!("{:02x}", b))
-                                    .collect::<Vec<String>>()
-                                    .join(":");
-                                gateway = Some(format!("unknown({})", hex_str));
-                                debug!("Parsed Unknown Gateway: {}", hex_str);
-                            }
-                        }
-                        _ => {
-                            debug!("Unhandled Gateway variant");
+                RouteAttribute::Gateway(gw) => match gw {
+                    RouteAddress::Inet6(addr) => {
+                        gateway = Some(addr.to_string());
+                        debug!("Parsed IPv6 Gateway: {}", addr);
+                    }
+                    RouteAddress::Other(v) => {
+                        if v.is_empty() {
+                            debug!("Parsed Empty Gateway");
+                        } else {
+                            let hex_str = v
+                                .iter()
+                                .map(|b| format!("{:02x}", b))
+                                .collect::<Vec<String>>()
+                                .join(":");
+                            gateway = Some(format!("unknown({})", hex_str));
+                            debug!("Parsed Unknown Gateway: {}", hex_str);
                         }
                     }
-                }
+                    _ => {
+                        debug!("Unhandled Gateway variant");
+                    }
+                },
                 _ => {}
             }
         }
 
-        if oif != Some(iface_index) {
+        let is_unreachable = route_msg.header.kind == RouteType::Unreachable;
+
+        if !is_unreachable && oif != Some(iface_index) {
             debug!(
                 "Skipping route not associated with interface '{}'",
                 interface_name
@@ -269,12 +281,29 @@ async fn _print_ipv6_routes(
             debug!("Default route detected (no destination attribute)");
         }
 
-        let dest_str = destination.unwrap_or_else(|| "unknown".to_string());
+        let dest_str = destination.unwrap_or_else(|| {
+            if is_unreachable {
+                "unreachable".to_string()
+            } else {
+                "unknown".to_string()
+            }
+        });
+
         let mut route_str = dest_str.to_string();
+
         if let Some(gw) = gateway {
             route_str.push_str(&format!(" via {}", gw));
         }
-        route_str.push_str(&format!(" dev {}", interface_name));
+
+        if oif.is_some() {
+            if is_unreachable {
+                route_str.push_str(&format!(" dev {} [unreachable]", interface_name));
+            } else {
+                route_str.push_str(&format!(" dev {}", interface_name));
+            }
+        } else if is_unreachable {
+            route_str.push_str(" [unreachable]");
+        }
 
         info!("- {}", route_str);
     }
