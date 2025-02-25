@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - master
+      - fix/oci-layout
     tags:
     - '*'
     paths-ignore:
@@ -119,7 +120,7 @@ jobs:
       run: |
         ROOTFS_IMG=${{ env.ROOTFS_IMG }}
         oras push ${{ steps.meta.outputs.tags }} \
-        $ROOTFS_IMG:application/vnd.ironcore.image.rootfs.v1alpha1.rootfs \
-        target/initramfs.zst:application/vnd.ironcore.image.initramfs.v1alpha1.initramfs \
-        target/kernel/vmlinuz:application/vnd.ironcore.image.vmlinuz.v1alpha1.vmlinuz \
-        --config config.json:application/vnd.ironcore.image.config.v1alpha1+json
+        $ROOTFS_IMG:application/io.gardenlinux.squashfs \
+        target/initramfs.zst:application/io.gardenlinux.initrd \
+        target/kernel/vmlinuz:application/io.gardenlinux.kernel \
+        --config config.json:application/vnd.unknown.config.v1+json
