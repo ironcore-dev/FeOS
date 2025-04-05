@@ -6,6 +6,7 @@ include hack/initramfs/make.mk
 include hack/cloud-hypervisor/make.mk
 include hack/cloud-hypervisor-firmware/make.mk
 include hack/uki/make.mk
+include hack/disk/make.mk
 
 container-release:
 #	make cargo index cache

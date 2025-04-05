@@ -2,3 +2,5 @@
 /keys
 /.idea
 /.vscode
+hack/disk/bootloader_util
+hack/disk/mbr.bin

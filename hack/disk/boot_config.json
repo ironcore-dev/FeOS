@@ -1,0 +1,9 @@
+{
+	"boot_entries": [
+		{
+			"partition": 0,
+			"uki_path": "/EFI/BOOT/BOOTX64.EFI",
+			"boot_count_enabled": false
+		}
+	]
+}
