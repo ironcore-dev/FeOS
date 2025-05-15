@@ -238,3 +238,24 @@ impl ContainerService for ContainerAPI {
         Ok(Response::new(container_service::DeleteContainerResponse {}))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn test_container_api_struct() {
+        let api = ContainerAPI::default();
+        assert_eq!(format!("{:?}", api), "ContainerAPI", "ContainerAPI should be instantiable and Debug");
+    }
+
+    #[test]
+    fn test_create_with_invalid_bundle_path() {
+        // This should fail because the bundle path does not exist or is invalid
+        let id = "test_id".to_string();
+        let bundle = PathBuf::from("/invalid/path/to/bundle");
+        let result = super::create(id, bundle, None);
+        assert!(result.is_err(), "create should fail with invalid bundle path");
+    }
+}
