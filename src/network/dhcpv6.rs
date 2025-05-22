@@ -252,11 +252,13 @@ pub fn is_dhcpv6_needed(interface_name: String, ignore_ra_flag: bool) -> Option<
     sender_ipv6_address
 }
 
+#[derive(Debug)]
 pub struct PrefixInfo {
     pub prefix: Ipv6Addr,
     pub prefix_length: u8,
 }
 
+#[derive(Debug)]
 pub struct Dhcpv6Result {
     pub address: Ipv6Addr,
     pub prefix: Option<PrefixInfo>,
@@ -265,6 +267,7 @@ pub struct Dhcpv6Result {
 pub async fn run_dhcpv6_client(
     interface_name: String,
 ) -> Result<Dhcpv6Result, Box<dyn std::error::Error>> {
+    info!("[CLIENT] Starting DHCPv6 client on interface: {}", interface_name);
     let chaddr = vec![
         29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44,
     ];
@@ -274,15 +277,15 @@ pub async fn run_dhcpv6_client(
     let mut ia_pd_confirm: Option<IAPrefix> = None;
 
     let interface_index = get_interface_index(interface_name.clone()).await?;
+    info!("[CLIENT] Got interface index: {}", interface_index);
     let socket = create_multicast_socket(interface_name.clone(), interface_index, 546)?;
+    info!("[CLIENT] Created multicast socket on {}", interface_name);
 
     let mut msg = Message::new(MessageType::Solicit);
     msg.opts_mut().insert(DhcpOption::ClientId(chaddr.clone()));
     msg.opts_mut().insert(DhcpOption::ElapsedTime(0));
     msg.set_xid(random_xid);
-
     msg.opts_mut().insert(DhcpOption::RapidCommit);
-
     let mut oro = ORO { opts: Vec::new() };
     oro.opts.push(OptionCode::DomainNameServers);
     oro.opts.push(OptionCode::DomainSearchList);
@@ -291,28 +294,22 @@ pub async fn run_dhcpv6_client(
     oro.opts.push(OptionCode::RapidCommit);
     oro.opts.push(OptionCode::IAPD);
     oro.opts.push(OptionCode::IAPrefix);
-
     msg.opts_mut().insert(DhcpOption::ORO(oro));
-
     let ia_addr_instance = IAAddr {
         addr: Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 0),
         preferred_life: 3000,
         valid_life: 5000,
         opts: DhcpOptions::default(),
     };
-
     let mut iana_opts = DhcpOptions::default();
     iana_opts.insert(DhcpOption::IAAddr(ia_addr_instance));
-
     let iana_instance = IANA {
         id: 123,
         t1: 3600,
         t2: 7200,
         opts: iana_opts,
     };
-
     msg.opts_mut().insert(DhcpOption::IANA(iana_instance));
-
     // Request Prefix Delegation
     let iaprefix_instance = IAPrefix {
         preferred_lifetime: 0,
@@ -321,35 +318,32 @@ pub async fn run_dhcpv6_client(
         valid_lifetime: 0,
         prefix_ip: Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 0),
     };
-
     let mut iapd_opts = DhcpOptions::default();
     iapd_opts.insert(DhcpOption::IAPrefix(iaprefix_instance));
-
     let iapd_instance = IAPD {
         id: 456,
         t1: 3600,
         t2: 7200,
         opts: iapd_opts,
     };
-
     msg.opts_mut().insert(DhcpOption::IAPD(iapd_instance));
-
     let mut buf = Vec::new();
     let mut encoder = Encoder::new(&mut buf);
     msg.encode(&mut encoder)?;
+    info!("[CLIENT] Sending Solicit message");
     socket.send_to(&buf, multicast_address).await?;
-
     let mut recv_buf = [0; 1500];
     loop {
+        info!("[CLIENT] Waiting for DHCPv6 response...");
         let (size, _) = socket.recv_from(&mut recv_buf).await?;
+        info!("[CLIENT] Received {} bytes", size);
         let response = Message::decode(&mut dhcproto::v6::Decoder::new(&recv_buf[..size]))?;
         let mut serverid: Option<&DhcpOption> = None;
         let mut ia_addr: Option<&DhcpOption> = None;
         let mut ia_pd: Option<&DhcpOption> = None;
-
         match response.msg_type() {
             MessageType::Advertise => {
-                info!("DHCPv6 processing in progress...");
+                info!("[CLIENT] Got Advertise message");
                 if let Some(DhcpOption::IANA(iana)) = response.opts().get(OptionCode::IANA) {
                     if let Some(ia_addr_opt) = iana.opts.get(OptionCode::IAAddr) {
                         ia_addr = Some(ia_addr_opt);
@@ -363,7 +357,6 @@ pub async fn run_dhcpv6_client(
                 if let Some(server_option) = response.opts().get(OptionCode::ServerId) {
                     serverid = Some(server_option);
                 }
-
                 let mut request_msg = Message::new(MessageType::Request);
                 request_msg.set_xid(random_xid);
                 request_msg
@@ -375,9 +368,8 @@ pub async fn run_dhcpv6_client(
                         .opts_mut()
                         .insert(DhcpOption::ServerId((*duid).clone()));
                 } else {
-                    warn!("Server ID was not found or not a ServerId type.");
+                    warn!("[CLIENT] Server ID was not found or not a ServerId type.");
                 }
-
                 if let Some(DhcpOption::IAAddr(ia_a)) = ia_addr {
                     let ia_addr_instance = IAAddr {
                         addr: ia_a.addr,
@@ -387,7 +379,6 @@ pub async fn run_dhcpv6_client(
                     };
                     let mut iana_opts = DhcpOptions::default();
                     iana_opts.insert(DhcpOption::IAAddr(ia_addr_instance));
-
                     let iana_instance = IANA {
                         id: 123,
                         t1: 3600,
@@ -398,9 +389,8 @@ pub async fn run_dhcpv6_client(
                         .opts_mut()
                         .insert(DhcpOption::IANA(iana_instance));
                 } else {
-                    warn!("No IP was found in Advertise message");
+                    warn!("[CLIENT] No IP was found in Advertise message");
                 }
-
                 if let Some(DhcpOption::IAPrefix(iaprefix)) = ia_pd {
                     let iapd_instance = IAPD {
                         id: 456,
@@ -416,12 +406,13 @@ pub async fn run_dhcpv6_client(
                         .opts_mut()
                         .insert(DhcpOption::IAPD(iapd_instance));
                 }
-
                 buf.clear();
                 request_msg.encode(&mut Encoder::new(&mut buf))?;
+                info!("[CLIENT] Sending Request message");
                 socket.send_to(&buf, multicast_address).await?;
             }
             MessageType::Reply => {
+                info!("[CLIENT] Got Reply message");
                 if let Some(DhcpOption::IANA(iana)) = response.opts().get(OptionCode::IANA) {
                     if let Some(ia_addr_opt) = iana.opts.get(OptionCode::IAAddr) {
                         ia_addr_confirm = Some((*ia_addr_opt).clone());
@@ -434,52 +425,40 @@ pub async fn run_dhcpv6_client(
                         ia_pd_confirm = Some((*iaprefix).clone());
                     }
                 }
-
                 let mut confirm_msg = Message::new(MessageType::Confirm);
                 confirm_msg.set_xid(random_xid);
                 buf.clear();
                 confirm_msg.encode(&mut Encoder::new(&mut buf))?;
+                info!("[CLIENT] Sending Confirm message");
                 socket.send_to(&buf, multicast_address).await?;
-
                 break;
             }
             _ => {
-                // Ignore other message types
+                info!("[CLIENT] Ignoring message type: {:?}", response.msg_type());
                 continue;
             }
         }
     }
-
     if let Some(DhcpOption::IAAddr(ia_a)) = ia_addr_confirm {
         let (connection, handle, _) = new_connection()?;
         tokio::spawn(connection);
-
         set_ipv6_address(&handle, &interface_name, ia_a.addr, 128).await?;
-        info!(
-            "DHCPv6 processing finished, setting IPv6 address {}",
-            ia_a.addr
-        );
-
+        info!("[CLIENT] DHCPv6 processing finished, setting IPv6 address {}", ia_a.addr);
         let prefix_info = ia_pd_confirm.map(|iaprefix| PrefixInfo {
             prefix: iaprefix.prefix_ip,
             prefix_length: iaprefix.prefix_len,
         });
-
         if let Some(ref pfx) = prefix_info {
-            info!(
-                "Received delegated prefix {} with length {}",
-                pfx.prefix, pfx.prefix_length
-            );
+            info!("[CLIENT] Received delegated prefix {} with length {}", pfx.prefix, pfx.prefix_length);
         } else {
-            info!("No prefix delegation received.");
+            info!("[CLIENT] No prefix delegation received.");
         }
-
         return Ok(Dhcpv6Result {
             address: ia_a.addr,
             prefix: prefix_info,
         });
     }
-
+    error!("[CLIENT] No valid address received");
     Err("No valid address received".into())
 }
 
