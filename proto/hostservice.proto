@@ -1,0 +1,342 @@
+syntax = "proto3";
+
+package feos.host.vmm.api.v1;
+
+
+import "google/protobuf/any.proto";
+import "google/protobuf/empty.proto";
+
+// The host service definition.
+service HostService {
+  rpc CPUInfo(google.protobuf.Empty) returns (CPUInfoResponse);
+  rpc DiskStats(google.protobuf.Empty) returns (DiskStatsResponse);
+  rpc Dmesg(DmesgRequest) returns (stream DmesgResponse);
+  rpc Events(EventsRequest) returns (stream Event);
+  rpc Hostname(google.protobuf.Empty) returns (HostnameResponse);
+  rpc Memory(google.protobuf.Empty) returns (MemoryResponse);
+  rpc Mounts(google.protobuf.Empty) returns (MountsResponse);
+  rpc NetworkDeviceStats(google.protobuf.Empty) returns (NetworkDeviceStatsResponse);
+  rpc Processes(google.protobuf.Empty) returns (ProcessesResponse);
+  rpc Reboot(RebootRequest) returns (RebootResponse);
+  rpc Shutdown(ShutdownRequest) returns (ShutdownResponse);
+  rpc SystemStat(google.protobuf.Empty) returns (SystemStatResponse);
+}
+
+// rpc reboot
+message RebootRequest {
+}
+
+message RebootResponse {
+  repeated string message = 1;
+}
+
+// Events to be defined
+
+message EventsRequest {
+  // 1. Get the last N events
+  int32 tail_events = 1;
+  // 2. Get all events that have occurred since a specific event ID
+  string tail_id = 2;
+  // 3. Get all events from the last N seconds
+  int32 tail_seconds = 3;
+  // 4. Filter the stream to only include events from a specific "component"
+  string with_component_id = 4;
+}
+
+message Event {
+  google.protobuf.Any data = 1;
+  string id = 2;
+}
+
+// rpc shutdown
+// The messages message containing the shutdown status.
+message Shutdown {
+    string message = 1;
+}
+
+message ShutdownRequest {
+}
+
+message ShutdownResponse {
+  repeated Shutdown messages = 1;
+}
+
+// rpc Mounts
+// The messages message containing the requested df stats.
+message Mounts {
+  repeated MountStat stats = 1;
+}
+
+message MountsResponse {
+  repeated Mounts messages = 1;
+}
+
+// The messages message containing the requested processes.
+message MountStat {
+  string filesystem = 1;
+  uint64 size = 2;
+  uint64 available = 3;
+  string mounted_on = 4;
+}
+
+
+// dmesg
+message DmesgRequest {
+  bool follow = 1;
+  bool tail = 2;
+}
+
+message DmesgResponse {
+  string message = 1;
+}
+
+// rpc processes
+message ProcessesResponse {
+  repeated Process messages = 1;
+}
+
+message Process {
+  repeated ProcessInfo processes = 1;
+}
+
+message ProcessInfo {
+  int32 pid = 1;
+  int32 ppid = 2;
+  string state = 3;
+  int32 threads = 4;
+  double cpu_time = 5;
+  uint64 virtual_memory = 6;
+  uint64 resident_memory = 7;
+  string command = 8;
+  string executable = 9;
+  string args = 10;
+  string label = 11;
+}
+
+message Restart {}
+
+// The messages message containing the requested stats.
+message Stats {
+  repeated Stat stats = 1;
+}
+
+// The messages message containing the requested stat.
+message Stat {
+  string namespace = 1;
+  string id = 2;
+  uint64 memory_usage = 3;
+  uint64 cpu_usage = 4;
+  string pod_id = 5;
+  string name = 6;
+}
+
+// rpc Memory
+message Memory {
+  MemInfo meminfo = 1;
+}
+
+message MemoryResponse {
+  repeated Memory messages = 1;
+}
+
+message MemInfo {
+  uint64 memtotal = 1;
+  uint64 memfree = 2;
+  uint64 memavailable = 3;
+  uint64 buffers = 4;
+  uint64 cached = 5;
+  uint64 swapcached = 6;
+  uint64 active = 7;
+  uint64 inactive = 8;
+  uint64 activeanon = 9;
+  uint64 inactiveanon = 10;
+  uint64 activefile = 11;
+  uint64 inactivefile = 12;
+  uint64 unevictable = 13;
+  uint64 mlocked = 14;
+  uint64 swaptotal = 15;
+  uint64 swapfree = 16;
+  uint64 dirty = 17;
+  uint64 writeback = 18;
+  uint64 anonpages = 19;
+  uint64 mapped = 20;
+  uint64 shmem = 21;
+  uint64 slab = 22;
+  uint64 sreclaimable = 23;
+  uint64 sunreclaim = 24;
+  uint64 kernelstack = 25;
+  uint64 pagetables = 26;
+  uint64 nfsunstable = 27;
+  uint64 bounce = 28;
+  uint64 writebacktmp = 29;
+  uint64 commitlimit = 30;
+  uint64 committedas = 31;
+  uint64 vmalloctotal = 32;
+  uint64 vmallocused = 33;
+  uint64 vmallocchunk = 34;
+  uint64 hardwarecorrupted = 35;
+  uint64 anonhugepages = 36;
+  uint64 shmemhugepages = 37;
+  uint64 shmempmdmapped = 38;
+  uint64 cmatotal = 39;
+  uint64 cmafree = 40;
+  uint64 hugepagestotal = 41;
+  uint64 hugepagesfree = 42;
+  uint64 hugepagesrsvd = 43;
+  uint64 hugepagessurp = 44;
+  uint64 hugepagesize = 45;
+  uint64 directmap4k = 46;
+  uint64 directmap2m = 47;
+  uint64 directmap1g = 48;
+}
+
+// rpc Hostname
+message HostnameResponse {
+  repeated Hostname messages = 1;
+}
+
+message Hostname {
+  string hostname = 1;
+}
+
+// rpc SystemStat
+message SystemStatResponse {
+  repeated SystemStat messages = 1;
+}
+
+message SystemStat {
+  uint64 boot_time = 1;
+  CPUStat cpu_total = 2;
+  repeated CPUStat cpu = 3;
+  uint64 irq_total = 4;
+  repeated uint64 irq = 5;
+  uint64 context_switches = 6;
+  uint64 process_created = 7;
+  uint64 process_running = 8;
+  uint64 process_blocked = 9;
+  uint64 soft_irq_total = 10;
+  SoftIRQStat soft_irq = 11;
+}
+
+message CPUStat {
+  double user = 1;
+  double nice = 2;
+  double system = 3;
+  double idle = 4;
+  double iowait = 5;
+  double irq = 6;
+  double soft_irq = 7;
+  double steal = 8;
+  double guest = 9;
+  double guest_nice = 10;
+}
+
+message SoftIRQStat {
+  uint64 hi = 1;
+  uint64 timer = 2;
+  uint64 net_tx = 3;
+  uint64 net_rx = 4;
+  uint64 block = 5;
+  uint64 block_io_poll = 6;
+  uint64 tasklet = 7;
+  uint64 sched = 8;
+  uint64 hrtimer = 9;
+  uint64 rcu = 10;
+}
+
+// rpc CPUInfo
+message CPUInfoResponse {
+  repeated CPUsInfo messages = 1;
+}
+
+message CPUsInfo {
+  repeated CPUInfo cpu_info = 1;
+}
+
+message CPUInfo {
+  uint32 processor = 1;
+  string vendor_id = 2;
+  string cpu_family = 3;
+  string model = 4;
+  string model_name = 5;
+  string stepping = 6;
+  string microcode = 7;
+  double cpu_mhz = 8;
+  string cache_size = 9;
+  string physical_id = 10;
+  uint32 siblings = 11;
+  string core_id = 12;
+  uint32 cpu_cores = 13;
+  string apic_id = 14;
+  string initial_apic_id = 15;
+  string fpu = 16;
+  string fpu_exception = 17;
+  uint32 cpu_id_level = 18;
+  string wp = 19;
+  repeated string flags = 20;
+  repeated string bugs = 21;
+  double bogo_mips = 22;
+  uint32 cl_flush_size = 23;
+  uint32 cache_alignment = 24;
+  string address_sizes = 25;
+  string power_management = 26;
+}
+
+// rpc NetworkDeviceStats
+message NetworkDeviceStatsResponse {
+  repeated NetworkDeviceStats messages = 1;
+}
+
+message NetworkDeviceStats {
+  NetDev total = 1;
+  repeated NetDev devices = 2;
+}
+
+message NetDev {
+  string name = 1;
+  uint64 rx_bytes = 2;
+  uint64 rx_packets = 3;
+  uint64 rx_errors = 4;
+  uint64 rx_dropped = 5;
+  uint64 rx_fifo = 6;
+  uint64 rx_frame = 7;
+  uint64 rx_compressed = 8;
+  uint64 rx_multicast = 9;
+  uint64 tx_bytes = 10;
+  uint64 tx_packets = 11;
+  uint64 tx_errors = 12;
+  uint64 tx_dropped = 13;
+  uint64 tx_fifo = 14;
+  uint64 tx_collisions = 15;
+  uint64 tx_carrier = 16;
+  uint64 tx_compressed = 17;
+}
+
+// rpc DiskStats
+message DiskStatsResponse {
+  repeated DiskStats messages = 1;
+}
+
+message DiskStats {
+  DiskStat total = 1;
+  repeated DiskStat devices = 2;
+}
+
+message DiskStat {
+  string name = 1;
+  uint64 read_completed = 2;
+  uint64 read_merged = 3;
+  uint64 read_sectors = 4;
+  uint64 read_time_ms = 5;
+  uint64 write_completed = 6;
+  uint64 write_merged = 7;
+  uint64 write_sectors = 8;
+  uint64 write_time_ms = 9;
+  uint64 io_in_progress = 10;
+  uint64 io_time_ms = 11;
+  uint64 io_time_weighted_ms = 12;
+  uint64 discard_completed = 13;
+  uint64 discard_merged = 14;
+  uint64 discard_sectors = 15;
+  uint64 discard_time_ms = 16;
+}

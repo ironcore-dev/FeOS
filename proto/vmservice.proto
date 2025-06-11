@@ -1,0 +1,225 @@
+syntax = "proto3";
+
+package feos.vm.vmm.api.v1;
+
+import "google/protobuf/empty.proto";
+import "google/protobuf/any.proto";
+
+// VMService is a service that manages multiple Cloud Hypervisor
+// instances. It abstracts the underlying REST API of each individual VMM process,
+// allowing a client to create, control, and delete virtual machines and their
+// devices without dealing with process management or API sockets.
+service VMService {
+  // Creates a new Virtual Machine but does not boot it.
+  // This starts a cloud-hypervisor process, sets up its initial resources,
+  // and makes it ready for booting. The returned 'vm_id' must be used for
+  // all subsequent operations on this VM.
+  rpc CreateVm(CreateVmRequest) returns (CreateVmResponse);
+
+  // Boots a previously created Virtual Machine.
+  rpc BootVm(BootVmRequest) returns (google.protobuf.Empty);
+
+  // Deletes a Virtual Machine.
+  // This terminates the backing cloud-hypervisor process and cleans up
+  // any associated resources managed by the service.
+  rpc DeleteVm(DeleteVmRequest) returns (google.protobuf.Empty);
+
+  // Retrieves detailed information about a specific Virtual Machine.
+  rpc GetVmInfo(GetVmInfoRequest) returns (VmInfo);
+
+  // Lists all Virtual Machines currently managed by this service.
+  rpc ListVms(ListVmsRequest) returns (ListVmsResponse);
+  
+  // Pings the VMM process for a specific VM to check for liveness.
+  rpc PingVm(PingVmRequest) returns (PingVmResponse);
+
+  // Shuts down a running Virtual Machine by sending an ACPI shutdown signal.
+  rpc ShutdownVm(ShutdownVmRequest) returns (google.protobuf.Empty);
+
+  // Pauses a running Virtual Machine.
+  rpc PauseVm(PauseVmRequest) returns (google.protobuf.Empty);
+
+  // Resumes a paused Virtual Machine.
+  rpc ResumeVm(ResumeVmRequest) returns (google.protobuf.Empty);
+
+  // Connects to the console of a Virtual Machine.
+  // This is a bi-directional stream where the client can send input
+  // (e.g., keyboard events) and receive output (e.g., console logs).
+  rpc ConsoleVM (stream ConsoleVMRequest) returns (stream ConsoleVMResponse);
+
+  // Retrieves the events stream for a specific Virtual Machine.
+  rpc EventsVM(EventsVMRequest) returns (stream EventVM);
+
+  // --- Disk Hotplug RPCs ---
+
+  // Hot-plugs a new disk to a running VM.
+  rpc AttachDisk(AttachDiskRequest) returns (AttachDiskResponse);
+
+  // Hot-unplugs a diskfrom a running VM.
+  rpc RemoveDisk(RemoveDiskRequest) returns (google.protobuf.Empty);
+}
+
+// ===================================================================
+// Core Configuration and State Messages
+// ===================================================================
+
+message VmConfig {
+  CpuConfig cpus = 1;
+  MemoryConfig memory = 2;
+  // The full reference to the OCI image, including the registry and tag.
+  string image_ref = 3;
+  // Additional data disks to attach to the VM. The root filesystem is
+  // expected to be part of the OCI image specified by vm_image_uuid.
+  repeated DiskConfig disks = 4;
+  repeated NetConfig net = 5;
+  optional string ignition = 6;
+}
+
+message CpuConfig {
+  uint32 boot_vcpus = 1;
+  uint32 max_vcpus = 2;
+}
+
+message MemoryConfig {
+  uint64 size_mib = 1; // Memory size in Megabytes (MiB).
+}
+
+message DiskConfig {
+  string device_id = 1;
+  oneof backend {
+    string path = 2; // Path on the host to the disk image file.
+    VfioPciConfig vfio_pci = 3;
+  }
+  bool readonly = 4;
+}
+
+message NetConfig {
+  string device_id = 1;
+  oneof backend {
+    TapConfig tap = 2;
+    VfioPciConfig vfio_pci = 3;
+  }
+  string mac_address = 4;
+}
+
+message TapConfig {
+  string tap_name = 1;
+}
+
+message VfioPciConfig {
+  string bdf = 1; // e.g., "0000:03:00.0"
+}
+
+enum VmState {
+  STATE_UNSPECIFIED = 0;
+  IMAGE_DOWNLOADING = 1;
+  CREATED = 2;
+  RUNNING = 3;
+  PAUSED = 4;
+  SHUTDOWN = 5;
+  FAILED = 6;
+  IMAGE_DOWNLOAD_FAILED = 7;
+}
+
+message VmInfo {
+  string vm_id = 1;
+  VmState state = 2;
+  VmConfig config = 3;
+}
+
+// ===================================================================
+// RPC Request and Response Messages
+// ===================================================================
+
+message EventsVMRequest {
+  // The ID of the Virtual Machine for which to retrieve events.
+  string vm_id = 1;
+  // 1. Get the last N events
+  int32 tail_events = 2;
+  // 2. Get all events that have occurred since a specific event ID
+  string tail_id = 3;
+  // 3. Get all events from the last N seconds
+  int32 tail_seconds = 4;
+  // 4. Filter the stream to only include events from a specific "component" in VM
+  string with_component_id = 5;
+}
+
+message EventVM {
+  string vm_id = 1;
+  google.protobuf.Any data = 2;
+  // A unique identifier for the event within the VM context.
+  string id = 3;
+  // The ID of the component that generated this event.
+  string component_id = 4;
+}
+
+message ConsoleVMRequest {
+  string vm_id = 1;
+  string input = 2;
+}
+
+message ConsoleVMResponse {
+  string message = 1;
+}
+
+message CreateVmRequest {
+  VmConfig config = 1;
+}
+
+message CreateVmResponse {
+  string vm_id = 1;
+}
+
+message BootVmRequest {
+  string vm_id = 1;
+}
+
+message DeleteVmRequest {
+  string vm_id = 1;
+}
+
+message GetVmInfoRequest {
+  string vm_id = 1;
+}
+
+message ListVmsRequest {}
+
+message ListVmsResponse {
+  repeated VmInfo vms = 1;
+}
+
+message PingVmRequest {
+  string vm_id = 1;
+}
+
+message PingVmResponse {
+  string cloud_hypervisor_version = 1;
+}
+
+message ShutdownVmRequest {
+  string vm_id = 1;
+}
+
+message PauseVmRequest {
+  string vm_id = 1;
+}
+
+message ResumeVmRequest {
+  string vm_id = 1;
+}
+
+// --- Hotplug Requests/Responses ---
+
+message AttachDiskRequest {
+  string vm_id = 1;
+  DiskConfig disk = 2;
+}
+
+message AttachDiskResponse {
+  string device_id = 1;
+}
+
+message RemoveDiskRequest {
+  string vm_id = 1;
+  string device_id = 2;
+}
