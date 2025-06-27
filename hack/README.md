@@ -6,6 +6,7 @@ This directory includes scripts to run FeOS as the pid 1 process within a VM.
     make build-container
     make kernel
     make initramfs
+    make ucode
     make uki
 
     # create `vm-br0` bridge on your machine:
@@ -48,5 +49,3 @@ If you want to run FeOS within a [cloud-hypervisor](https://www.cloudhypervisor.
         --kernel target/kernel/vmlinuz \
         --initramfs target/initramfs.zst \
         --cmdline "`cat target/cmdline`"
-
-
