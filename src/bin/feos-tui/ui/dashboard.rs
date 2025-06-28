@@ -22,7 +22,7 @@ fn render_left_column(f: &mut Frame, area: Rect, app: &App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(9), // Host info (increased for IPv6 info)
+            Constraint::Length(9), // Host info with IPv6 info and network interfaces
             Constraint::Min(0),    // VMs overview
         ])
         .split(area);
@@ -47,15 +47,18 @@ fn render_right_column(f: &mut Frame, area: Rect, app: &App) {
 }
 
 fn render_host_info(f: &mut Frame, area: Rect, host_info: &HostInfo) {
-    let info_lines = vec![
+    let mut info_lines = vec![
         format!("Uptime: {}", format_uptime(host_info.uptime)),
         format!("CPU Cores: {}", host_info.num_cores),
         format!("Total RAM: {}", crate::mock_data::format_bytes(host_info.ram_total)),
-        format!("Free RAM: {}", crate::mock_data::format_bytes(host_info.ram_unused)),
-        format!("Used RAM: {}", crate::mock_data::format_bytes(host_info.ram_total - host_info.ram_unused)),
         format!("IPv6 Address: {}", host_info.ipv6_address),
         format!("Delegated Prefix: {}", host_info.delegated_prefix),
     ];
+
+    // Add network interface information
+    for interface in &host_info.net_interfaces {
+        info_lines.push(format!("{}: {} ({})", interface.name, interface.ipv6_address, interface.mac_address));
+    }
 
     let info_text = info_lines.join("\n");
     let paragraph = Paragraph::new(info_text)
@@ -115,10 +118,18 @@ fn render_cpu_sparkline(f: &mut Frame, area: Rect, cpu_history: &[u64]) {
     // Render the block
     f.render_widget(block, area);
     
+    // Right-align the sparkline by taking only the most recent values that fit
+    let max_data_points = inner_area.width as usize;
+    let data_to_show = if cpu_history.len() <= max_data_points {
+        cpu_history
+    } else {
+        &cpu_history[cpu_history.len() - max_data_points..]
+    };
+    
     // Render sparkline in the inner area to maximize space usage
     // Note: mock data already includes 0-100% anchor points for proper scaling
     let sparkline = Sparkline::default()
-        .data(cpu_history)
+        .data(data_to_show)
         .max(100)
         .style(Style::default().fg(Color::Blue));
 
@@ -128,7 +139,11 @@ fn render_cpu_sparkline(f: &mut Frame, area: Rect, cpu_history: &[u64]) {
 fn render_memory_sparkline(f: &mut Frame, area: Rect, memory_history: &[u64], host_info: &HostInfo) {
     // Get current memory usage percentage
     let current_memory = get_ram_usage_percentage(host_info) as u64;
-    let title = format!("Memory Usage: {}%", current_memory);
+    let used_memory = host_info.ram_total - host_info.ram_unused;
+    let title = format!("Memory Usage: {}% ({} / {})", 
+                       current_memory, 
+                       crate::mock_data::format_bytes(used_memory),
+                       crate::mock_data::format_bytes(host_info.ram_total));
     
     // Create block with border
     let block = Block::default().title(title).borders(Borders::ALL);
@@ -137,10 +152,18 @@ fn render_memory_sparkline(f: &mut Frame, area: Rect, memory_history: &[u64], ho
     // Render the block
     f.render_widget(block, area);
     
+    // Right-align the sparkline by taking only the most recent values that fit
+    let max_data_points = inner_area.width as usize;
+    let data_to_show = if memory_history.len() <= max_data_points {
+        memory_history
+    } else {
+        &memory_history[memory_history.len() - max_data_points..]
+    };
+    
     // Render sparkline in the inner area to maximize space usage
     // Note: mock data already includes 0-100% anchor points for proper scaling
     let sparkline = Sparkline::default()
-        .data(memory_history)
+        .data(data_to_show)
         .max(100)
         .style(Style::default().fg(Color::Green));
 

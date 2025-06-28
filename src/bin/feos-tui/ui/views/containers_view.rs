@@ -43,7 +43,7 @@ pub fn render_containers_view(f: &mut Frame, area: Rect, app: &App) {
 }
 
 fn render_container_table(f: &mut Frame, area: Rect, app: &App) {
-    let header = Row::new(vec!["Name", "Status", "Image", "Ports", "Uptime"])
+    let header = Row::new(vec!["Name", "Status", "Image", "Uptime"])
         .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
 
     let rows: Vec<Row> = app.containers
@@ -65,17 +65,10 @@ fn render_container_table(f: &mut Frame, area: Rect, app: &App) {
                 Style::default()
             };
 
-            let ports_display = if container.ports.is_empty() {
-                "-".to_string()
-            } else {
-                container.ports.join(", ")
-            };
-
             Row::new(vec![
                 Cell::from(container.name.as_str()),
                 Cell::from(container.status.as_str()).style(status_style),
                 Cell::from(container.image.as_str()),
-                Cell::from(ports_display),
                 Cell::from(format_uptime_from_created(container.created)),
             ]).style(row_style)
         })
@@ -87,7 +80,6 @@ fn render_container_table(f: &mut Frame, area: Rect, app: &App) {
             Constraint::Min(20),    // Name
             Constraint::Length(10), // Status
             Constraint::Min(15),    // Image
-            Constraint::Min(12),    // Ports
             Constraint::Length(10), // Uptime
         ],
     )
@@ -111,12 +103,6 @@ fn render_selected_container_info(f: &mut Frame, area: Rect, app: &App) {
     let selected_container = app.get_selected_container();
 
     let content = if let Some(container) = selected_container {
-        let ports_text = if container.ports.is_empty() {
-            "None".to_string()
-        } else {
-            container.ports.join("\n   ")
-        };
-
         format!(
             "Name: {}\n\
              ID: {}\n\
@@ -125,11 +111,9 @@ fn render_selected_container_info(f: &mut Frame, area: Rect, app: &App) {
              Created: {}\n\
              Memory Limit: {}\n\
              CPU Limit: {}\n\n\
-             Port Mappings:\n\
-             {}\n\n\
              Container Configuration:\n\
              • Runtime: containerd/runc\n\
-             • Network: Bridge mode\n\
+             • Network: Host mode\n\
              • Restart policy: Unless stopped\n\
              • Security: Non-privileged",
             container.name,
@@ -138,8 +122,7 @@ fn render_selected_container_info(f: &mut Frame, area: Rect, app: &App) {
             container.image,
             format_uptime_from_created(container.created),
             format_memory(container.memory_limit),
-            format_cpu_limit(container.cpu_limit),
-            ports_text
+            format_cpu_limit(container.cpu_limit)
         )
     } else {
         "No containers available".to_string()

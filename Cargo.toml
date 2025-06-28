@@ -7,6 +7,10 @@ edition = "2021"
 name = "feos-cli"
 path = "src/bin/feos_cli/main.rs"
 
+[[bin]]
+name = "feos-tui"
+path = "src/bin/feos-tui/main.rs"
+
 [lints.rust]
 unsafe_code = "deny"
 
@@ -55,6 +59,12 @@ libc = "0.2"
 pelite = "0.10"
 regex = "1.10"
 structopt = "0.3.26"
+
+# TUI Dependencies
+ratatui = { version = "0.29.0", features = ["crossterm"] }
+crossterm = "0.29.0"
+color-eyre = "0.6"
+clap = { version = "4.4", features = ["derive"] }
 
 [build-dependencies]
 tonic-build = "0.12.3"

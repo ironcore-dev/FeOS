@@ -10,8 +10,8 @@ static UPDATE_COUNTER: AtomicU64 = AtomicU64::new(0);
 #[derive(Debug, Clone)]
 pub struct NetInterface {
     pub name: String,
-    pub pci_address: String,
     pub mac_address: String,
+    pub ipv6_address: String,
 }
 
 #[derive(Debug, Clone)]
@@ -123,13 +123,13 @@ pub fn get_mock_host_info() -> HostInfo {
         net_interfaces: vec![
             NetInterface {
                 name: "eth0".to_string(),
-                pci_address: "0000:00:03.0".to_string(),
                 mac_address: "52:54:00:12:34:56".to_string(),
+                ipv6_address: "2001:db8:1::10".to_string(),
             },
             NetInterface {
                 name: "eth1".to_string(),
-                pci_address: "0000:00:04.0".to_string(),
                 mac_address: "52:54:00:12:34:57".to_string(),
+                ipv6_address: "2001:db8:1::11".to_string(),
             },
         ],
     }
@@ -571,8 +571,8 @@ mod tests {
         // Check network interfaces have valid data
         for interface in &host_info.net_interfaces {
             assert!(!interface.name.is_empty());
-            assert!(!interface.pci_address.is_empty());
             assert!(!interface.mac_address.is_empty());
+            assert!(!interface.ipv6_address.is_empty());
         }
     }
 
