@@ -4,9 +4,9 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem, Paragraph, Sparkline},
     Frame,
 };
-use chrono::{DateTime, Utc};
 use crate::app::App;
-use crate::mock_data::{HostInfo, VmInfo, LogEntry, format_uptime, get_ram_usage_percentage};
+use crate::mock_data::{HostInfo, VmInfo, format_uptime, get_ram_usage_percentage};
+use super::log_components;
 
 pub fn render_dashboard(f: &mut Frame, area: Rect, app: &App) {
     let chunks = Layout::default()
@@ -169,40 +169,12 @@ fn render_memory_sparkline(f: &mut Frame, area: Rect, memory_history: &[u64], ho
     f.render_widget(sparkline, inner_area);
 }
 
-fn render_feos_logs(f: &mut Frame, area: Rect, logs: &[LogEntry]) {
-    let available_height = area.height.saturating_sub(2) as usize; // Fit within the area
-    
-    // Show most recent logs in chronological order (old to new)
-    let logs_to_show = if logs.len() <= available_height {
-        logs
-    } else {
-        // Show the most recent logs that fit in the area
-        &logs[logs.len() - available_height..]
-    };
-    
-    let log_items: Vec<ListItem> = logs_to_show
-        .iter()
-        .map(|log| {
-            let level_color = match log.level.as_str() {
-                "ERROR" => Color::Red,
-                "WARN" => Color::Yellow,
-                "INFO" => Color::Green,
-                _ => Color::White,
-            };
-            
-            // Format timestamp as HH:MM:SS
-            let dt = std::time::UNIX_EPOCH + std::time::Duration::from_secs(log.timestamp);
-            let datetime = DateTime::<Utc>::from(dt);
-            let time_str = datetime.format("%H:%M:%S").to_string();
-            
-            ListItem::new(format!("[{}] {}: {}", time_str, log.level, log.message))
-                .style(Style::default().fg(level_color))
-        })
-        .collect();
-
-    let logs_list = List::new(log_items)
-        .block(Block::default().title("Latest FeOS Logs").borders(Borders::ALL))
-        .style(Style::default().fg(Color::White));
-
-    f.render_widget(logs_list, area);
+fn render_feos_logs(f: &mut Frame, area: Rect, logs: &[crate::mock_data::LogEntry]) {
+    log_components::render_compact_log_view(
+        f,
+        area,
+        logs,
+        "Latest FeOS Logs",
+        false, // Not kernel mode
+    );
 } 

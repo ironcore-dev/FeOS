@@ -1,28 +1,32 @@
 # FeOS TUI Development Rules
 
 ## Project Overview
-This is the Terminal User Interface (TUI) for FeOS, built with Rust and ratatui. The TUI provides a comprehensive interface for managing FeOS instances, including VMs, logs, and system monitoring.
+This is the Terminal User Interface (TUI) for FeOS, built with Rust and ratatui. The TUI provides a comprehensive interface for managing FeOS containers, virtual machines, isolated pods, and system monitoring with a modern, modular architecture.
 
 ## Architecture Guidelines
 
 ### Module Structure
-- **`main.rs`**: Entry point, argument parsing, and main application loop only
+- **`main.rs`**: Entry point and main application loop only (test functionality removed)
 - **`app.rs`**: Application state management and business logic
 - **`events.rs`**: Keyboard input handling and navigation logic
 - **`terminal.rs`**: Terminal setup/teardown and low-level terminal operations
-- **`mock_data.rs`**: Mock data generation and dynamic simulation
+- **`mock_data.rs`**: Centralized mock data generation with shared container log functions
 - **`ui/`**: All UI rendering logic, organized by concern:
   - **`mod.rs`**: Main UI coordination and layout
-  - **`components.rs`**: Reusable UI components (header, footer, tabs)
+  - **`components.rs`**: Reusable UI components (header, help modal, system actions)
   - **`dashboard.rs`**: Dashboard view rendering
-  - **`views.rs`**: Other view implementations (VMs, Logs, etc.)
+  - **`log_components.rs`**: Shared log rendering components with scrolling and wrapping
+  - **`utils.rs`**: Common formatting utilities (memory, CPU, uptime)
+  - **`views/`**: Specific view implementations (VMs, containers, isolated pods, logs)
 
 ### Design Principles
 1. **Separation of Concerns**: Keep UI rendering, business logic, and data separate
 2. **Single Responsibility**: Each module should have one clear purpose
 3. **Modular Views**: New views should be easy to add without modifying existing code
 4. **Component Reuse**: UI components should be reusable across different views
-5. **Error Handling**: Use `color-eyre` for comprehensive error handling
+5. **DRY (Don't Repeat Yourself)**: Shared components eliminate code duplication
+6. **Consistent Log Display**: All logs show chronological order (old to new) with bounded scrolling
+7. **Error Handling**: Use `color-eyre` for comprehensive error handling
 
 ## Coding Standards
 
@@ -90,68 +94,8 @@ This is the Terminal User Interface (TUI) for FeOS, built with Rust and ratatui.
 - Verify UI components render without panics
 - Test keyboard navigation and state changes
 
-### CLI Test Views (Automated Testing)
-The TUI includes comprehensive CLI testing capabilities to avoid blocking interactive sessions:
-
-#### General Mock Data Testing
-```bash
-# Run comprehensive mock data tests
-cargo run --bin feos-tui -- --test
-
-# Run with verbose output for debugging
-cargo run --bin feos-tui -- --test --verbose
-```
-
-#### View-Specific Testing
-```bash
-# Test individual views (default 2 seconds)
-cargo run --bin feos-tui -- --test-view dashboard
-cargo run --bin feos-tui -- --test-view vms
-cargo run --bin feos-tui -- --test-view logs
-cargo run --bin feos-tui -- --test-view system
-
-# Test with custom duration and verbose output
-cargo run --bin feos-tui -- --test-view dashboard --duration 5 --verbose
-cargo run --bin feos-tui -- --test-view vms --duration 1
-```
-
-#### Testing Workflow
-1. **During Development**: Use view-specific tests to quickly verify changes
-   ```bash
-   # Quick 1-second test after making dashboard changes
-   cargo run --bin feos-tui -- --test-view dashboard --duration 1
-   ```
-
-2. **Before Commits**: Run comprehensive test to verify all functionality
-   ```bash
-   cargo run --bin feos-tui -- --test --verbose
-   ```
-
-3. **Debugging UI Issues**: Use longer durations to observe behavior
-   ```bash
-   # 10-second test to observe dynamic updates
-   cargo run --bin feos-tui -- --test-view dashboard --duration 10 --verbose
-   ```
-
-4. **CI/CD Integration**: All test modes exit cleanly for automation
-   ```bash
-   # Perfect for automated testing pipelines
-   cargo run --bin feos-tui -- --test-view dashboard --duration 2
-   ```
-
-#### Available CLI Options
-- `--test`: Run comprehensive mock data tests and exit
-- `--test-view <VIEW>`: Test specific view (dashboard, vms, logs, system)
-- `--duration <SECONDS>`: Duration to show test view (default: 2)
-- `--verbose`: Enable detailed output for debugging
-- `--help`: Show all available options
-
-#### Testing Best Practices
-- **Always test views after UI changes** using `--test-view <view> --duration 1`
-- **Use verbose mode** when debugging: `--verbose` provides detailed progress
-- **Test dynamic behavior** with longer durations (5-10 seconds) to see data changes
-- **Verify all views** before major commits using the general `--test` mode
-- **Keep tests fast** - use short durations (1-2 seconds) for quick verification
+### Development Testing
+Use `cargo run --bin feos-tui` for interactive testing with mock data during development.
 
 ## Error Handling
 
@@ -180,6 +124,49 @@ cargo run --bin feos-tui -- --test-view vms --duration 1
 - Use `Vec::with_capacity()` when size is known
 - Prefer borrowing over cloning when possible
 - Clean up resources properly
+
+## Shared Components
+
+### Log Components (`ui/log_components.rs`)
+The TUI provides shared log rendering components to ensure consistency across all views:
+
+#### Usage Patterns
+```rust
+// For compact log display (dashboard, sidebar logs)
+log_components::render_compact_log_view(f, area, logs, "Title", kernel_mode);
+
+// For full-screen log display with scrolling and wrapping
+let config = LogConfig {
+    title: "Log Title",
+    scroll_offset: app.scroll_offset,
+    line_wrap: app.line_wrap,
+    kernel_mode: false, // true for kernel logs (blue INFO), false for app logs (green INFO)
+};
+log_components::render_log_view(f, area, logs, config);
+```
+
+#### Features
+- **Chronological ordering**: All logs display from old (top) to new (bottom)
+- **Bounded scrolling**: Prevents scrolling past available log content
+- **Line wrapping**: Toggle between wrapped and truncated display modes
+- **Color coding**: Level-based coloring with kernel vs application differentiation
+- **Consistent formatting**: Unified timestamp and message formatting
+
+### Utilities (`ui/utils.rs`)
+Shared formatting functions eliminate code duplication:
+
+```rust
+use super::super::utils;
+
+// Format memory limits with "No limit" for zero values
+let memory_str = utils::format_memory_limit(container.memory_limit);
+
+// Format CPU limits with "No limit" for zero values  
+let cpu_str = utils::format_cpu_limit(container.cpu_limit);
+
+// Format uptime from creation timestamp
+let uptime_str = utils::format_uptime_from_created(container.created);
+```
 
 ## Future Development
 

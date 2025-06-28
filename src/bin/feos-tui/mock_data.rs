@@ -1804,6 +1804,100 @@ pub fn get_mock_kernel_logs() -> Vec<LogEntry> {
     ]
 }
 
+/// Generate mock container logs based on container type
+pub fn generate_container_logs(container_name: &str, image: &str) -> Vec<LogEntry> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    
+    // Generate logs based on container type
+    let logs = if image.contains("nginx") {
+        vec![
+            format!("{}: starting nginx", container_name),
+            format!("{}: nginx configuration loaded", container_name),
+            format!("{}: listening on port 80", container_name),
+            format!("{}: GET /health 200", container_name),
+            format!("{}: worker process started", container_name),
+            format!("{}: GET /api/status 200", container_name),
+            format!("{}: access log rotated", container_name),
+            format!("{}: POST /api/data 201", container_name),
+        ]
+    } else if image.contains("postgres") {
+        vec![
+            format!("{}: PostgreSQL init process complete", container_name),
+            format!("{}: database system is ready to accept connections", container_name),
+            format!("{}: listening on port 5432", container_name),
+            format!("{}: checkpoint starting", container_name),
+            format!("{}: connection received: host=app port=34567", container_name),
+            format!("{}: SELECT query executed in 2.4ms", container_name),
+            format!("{}: transaction committed", container_name),
+        ]
+    } else if image.contains("redis") {
+        vec![
+            format!("{}: Redis server started", container_name),
+            format!("{}: ready to accept connections", container_name),
+            format!("{}: DB loaded from disk", container_name),
+            format!("{}: RDB: 0 keys in 0 databases", container_name),
+            format!("{}: client connected", container_name),
+            format!("{}: SET key executed", container_name),
+        ]
+    } else if image.contains("node") {
+        vec![
+            format!("{}: npm start", container_name),
+            format!("{}: server listening on port 3000", container_name),
+            format!("{}: connected to database", container_name),
+            format!("{}: middleware loaded", container_name),
+            format!("{}: API routes configured", container_name),
+            format!("{}: user authentication successful", container_name),
+        ]
+    } else if image.contains("python") {
+        vec![
+            format!("{}: starting Python application", container_name),
+            format!("{}: loading configuration", container_name),
+            format!("{}: connecting to data source", container_name),
+            format!("{}: ETL pipeline initialized", container_name),
+            format!("{}: processing batch job", container_name),
+            format!("{}: data transformation complete", container_name),
+        ]
+    } else if image.contains("jupyter") {
+        vec![
+            format!("{}: starting Jupyter server", container_name),
+            format!("{}: notebook server is running", container_name),
+            format!("{}: kernel started", container_name),
+            format!("{}: loading ML libraries", container_name),
+        ]
+    } else if image.contains("tensorflow") {
+        vec![
+            format!("{}: TensorFlow serving started", container_name),
+            format!("{}: model loaded successfully", container_name),
+            format!("{}: serving on port 8501", container_name),
+            format!("{}: prediction request processed", container_name),
+        ]
+    } else {
+        vec![
+            format!("{}: container started", container_name),
+            format!("{}: application initialized", container_name),
+            format!("{}: ready to serve requests", container_name),
+            format!("{}: health check passed", container_name),
+            format!("{}: processing request", container_name),
+        ]
+    };
+
+    let logs_len = logs.len();
+    logs.into_iter().enumerate().map(|(i, message)| {
+        LogEntry {
+            timestamp: now - (logs_len - i) as u64 * 10, // Space logs 10 seconds apart
+            level: match i % 5 {
+                0 => "INFO".to_string(),
+                4 => "WARN".to_string(),
+                _ => "INFO".to_string(),
+            },
+            message,
+        }
+    }).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

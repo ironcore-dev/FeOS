@@ -1,12 +1,9 @@
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Style},
-    text::{Line, Span, Text},
-    widgets::{Block, Borders, List, ListItem, Paragraph, Wrap},
     Frame,
 };
-use chrono::{DateTime, Utc};
 use crate::app::App;
+use super::super::log_components::{self, LogConfig};
 
 pub fn render_logs_view(f: &mut Frame, area: Rect, app: &App) {
     if app.global_logs_expanded {
@@ -49,255 +46,43 @@ fn render_full_screen_logs(f: &mut Frame, area: Rect, app: &App) {
 }
 
 fn render_feos_logs(f: &mut Frame, area: Rect, logs: &[crate::mock_data::LogEntry]) {
-    let available_height = area.height.saturating_sub(2) as usize; // Fit within the area
-    
-    // Show most recent logs in chronological order (old to new)
-    let logs_to_show = if logs.len() <= available_height {
-        logs
-    } else {
-        // Show the most recent logs that fit in the area
-        &logs[logs.len() - available_height..]
-    };
-    
-    let log_items: Vec<ListItem> = logs_to_show
-        .iter()
-        .map(|log| {
-            let level_style = match log.level.as_str() {
-                "ERROR" => Style::default().fg(Color::Red),
-                "WARN" => Style::default().fg(Color::Yellow),
-                "INFO" => Style::default().fg(Color::Green),
-                _ => Style::default().fg(Color::White),
-            };
-
-            // Format timestamp as HH:MM:SS
-            let dt = std::time::UNIX_EPOCH + std::time::Duration::from_secs(log.timestamp);
-            let datetime = DateTime::<Utc>::from(dt);
-            let time_str = datetime.format("%H:%M:%S").to_string();
-
-            ListItem::new(format!("[{}] {}: {}", time_str, log.level, log.message))
-                .style(level_style)
-        })
-        .collect();
-
-    let logs_list = List::new(log_items)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(format!("FeOS Logs")),
-        )
-        .style(Style::default().fg(Color::White));
-
-    f.render_widget(logs_list, area);
+    log_components::render_compact_log_view(
+        f,
+        area,
+        logs,
+        "FeOS Logs",
+        false, // Not kernel mode
+    );
 }
 
 fn render_kernel_logs(f: &mut Frame, area: Rect, logs: &[crate::mock_data::LogEntry]) {
-    let available_height = area.height.saturating_sub(2) as usize; // Fit within the area
-    
-    // Show most recent logs in chronological order (old to new)
-    let logs_to_show = if logs.len() <= available_height {
-        logs
-    } else {
-        // Show the most recent logs that fit in the area
-        &logs[logs.len() - available_height..]
-    };
-    
-    let log_items: Vec<ListItem> = logs_to_show
-        .iter()
-        .map(|log| {
-            let level_style = match log.level.as_str() {
-                "ERROR" => Style::default().fg(Color::Red),
-                "WARN" => Style::default().fg(Color::Yellow), 
-                "INFO" => Style::default().fg(Color::Blue),
-                _ => Style::default().fg(Color::White),
-            };
-
-            // Format timestamp as HH:MM:SS
-            let dt = std::time::UNIX_EPOCH + std::time::Duration::from_secs(log.timestamp);
-            let datetime = DateTime::<Utc>::from(dt);
-            let time_str = datetime.format("%H:%M:%S").to_string();
-
-            ListItem::new(format!("[{}] {}: {}", time_str, log.level, log.message))
-                .style(level_style)
-        })
-        .collect();
-
-    let logs_list = List::new(log_items)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(format!("Kernel Logs")),
-        )
-        .style(Style::default().fg(Color::White));
-
-    f.render_widget(logs_list, area);
+    log_components::render_compact_log_view(
+        f,
+        area,
+        logs,
+        "Kernel Logs",
+        true, // Kernel mode (blue INFO)
+    );
 }
 
 fn render_full_screen_feos_logs(f: &mut Frame, area: Rect, app: &App, title: &str) {
-    if app.log_line_wrap {
-        // Use Text with colored spans for proper line wrap support with colors
-        let log_lines: Vec<Line> = app.feos_logs
-            .iter()
-            .map(|log| {
-                let level_color = match log.level.as_str() {
-                    "ERROR" => Color::Red,
-                    "WARN" => Color::Yellow,
-                    "INFO" => Color::Green,
-                    _ => Color::White,
-                };
-
-                // Format timestamp as HH:MM:SS
-                let dt = std::time::UNIX_EPOCH + std::time::Duration::from_secs(log.timestamp);
-                let datetime = DateTime::<Utc>::from(dt);
-                let time_str = datetime.format("%H:%M:%S").to_string();
-                
-                Line::from(vec![
-                    Span::styled(
-                        format!("[{}] {}: {}", time_str, log.level, log.message),
-                        Style::default().fg(level_color)
-                    )
-                ])
-            })
-            .collect();
-
-        let text = Text::from(log_lines);
-        
-        let paragraph = Paragraph::new(text)
-            .block(Block::default().title(title).borders(Borders::ALL))
-            .wrap(Wrap { trim: true })
-            .scroll((app.log_scroll_offset as u16, 0));
-
-        f.render_widget(paragraph, area);
-    } else {
-        // Use List without wrapping (with truncation)
-        let available_height = area.height.saturating_sub(2) as usize; // Fit within the area
-        
-        // Calculate which logs to show with scrolling in chronological order
-        let start_idx = app.log_scroll_offset.min(app.feos_logs.len().saturating_sub(1));
-        let end_idx = (start_idx + available_height).min(app.feos_logs.len());
-        
-        let logs_to_show = if start_idx < end_idx {
-            &app.feos_logs[start_idx..end_idx]
-        } else {
-            &[]
-        };
-        
-        let log_items: Vec<ListItem> = logs_to_show
-            .iter()
-            .map(|log| {
-                let level_color = match log.level.as_str() {
-                    "ERROR" => Color::Red,
-                    "WARN" => Color::Yellow,
-                    "INFO" => Color::Green,
-                    _ => Color::White,
-                };
-                
-                // Format timestamp as HH:MM:SS
-                let dt = std::time::UNIX_EPOCH + std::time::Duration::from_secs(log.timestamp);
-                let datetime = DateTime::<Utc>::from(dt);
-                let time_str = datetime.format("%H:%M:%S").to_string();
-                
-                let line = format!("[{}] {}: {}", time_str, log.level, log.message);
-                
-                // Truncate long lines if wrapping is disabled
-                let max_width = area.width.saturating_sub(4) as usize; // Account for borders
-                let truncated = if line.len() > max_width {
-                    format!("{}...", &line[..max_width.saturating_sub(3)])
-                } else {
-                    line
-                };
-                ListItem::new(truncated).style(Style::default().fg(level_color))
-            })
-            .collect();
-
-        let logs_list = List::new(log_items)
-            .block(Block::default().title(title).borders(Borders::ALL))
-            .style(Style::default().fg(Color::White));
-
-        f.render_widget(logs_list, area);
-    }
+    let config = LogConfig {
+        title,
+        scroll_offset: app.log_scroll_offset,
+        line_wrap: app.log_line_wrap,
+        kernel_mode: false, // Not kernel mode
+    };
+    
+    log_components::render_log_view(f, area, &app.feos_logs, config);
 }
 
 fn render_full_screen_kernel_logs(f: &mut Frame, area: Rect, app: &App, title: &str) {
-    if app.log_line_wrap {
-        // Use Text with colored spans for proper line wrap support with colors
-        let log_lines: Vec<Line> = app.kernel_logs
-            .iter()
-            .map(|log| {
-                let level_color = match log.level.as_str() {
-                    "ERROR" => Color::Red,
-                    "WARN" => Color::Yellow,
-                    "INFO" => Color::Blue,
-                    _ => Color::White,
-                };
-
-                // Format timestamp as HH:MM:SS
-                let dt = std::time::UNIX_EPOCH + std::time::Duration::from_secs(log.timestamp);
-                let datetime = DateTime::<Utc>::from(dt);
-                let time_str = datetime.format("%H:%M:%S").to_string();
-                
-                Line::from(vec![
-                    Span::styled(
-                        format!("[{}] {}: {}", time_str, log.level, log.message),
-                        Style::default().fg(level_color)
-                    )
-                ])
-            })
-            .collect();
-
-        let text = Text::from(log_lines);
-        
-        let paragraph = Paragraph::new(text)
-            .block(Block::default().title(title).borders(Borders::ALL))
-            .wrap(Wrap { trim: true })
-            .scroll((app.log_scroll_offset as u16, 0));
-
-        f.render_widget(paragraph, area);
-    } else {
-        // Use List without wrapping (with truncation)
-        let available_height = area.height.saturating_sub(2) as usize; // Fit within the area
-        
-        // Calculate which logs to show with scrolling in chronological order
-        let start_idx = app.log_scroll_offset.min(app.kernel_logs.len().saturating_sub(1));
-        let end_idx = (start_idx + available_height).min(app.kernel_logs.len());
-        
-        let logs_to_show = if start_idx < end_idx {
-            &app.kernel_logs[start_idx..end_idx]
-        } else {
-            &[]
-        };
-        
-        let log_items: Vec<ListItem> = logs_to_show
-            .iter()
-            .map(|log| {
-                let level_color = match log.level.as_str() {
-                    "ERROR" => Color::Red,
-                    "WARN" => Color::Yellow,
-                    "INFO" => Color::Blue,
-                    _ => Color::White,
-                };
-                
-                // Format timestamp as HH:MM:SS
-                let dt = std::time::UNIX_EPOCH + std::time::Duration::from_secs(log.timestamp);
-                let datetime = DateTime::<Utc>::from(dt);
-                let time_str = datetime.format("%H:%M:%S").to_string();
-                
-                let line = format!("[{}] {}: {}", time_str, log.level, log.message);
-                
-                // Truncate long lines if wrapping is disabled
-                let max_width = area.width.saturating_sub(4) as usize; // Account for borders
-                let truncated = if line.len() > max_width {
-                    format!("{}...", &line[..max_width.saturating_sub(3)])
-                } else {
-                    line
-                };
-                ListItem::new(truncated).style(Style::default().fg(level_color))
-            })
-            .collect();
-
-        let logs_list = List::new(log_items)
-            .block(Block::default().title(title).borders(Borders::ALL))
-            .style(Style::default().fg(Color::White));
-
-        f.render_widget(logs_list, area);
-    }
+    let config = LogConfig {
+        title,
+        scroll_offset: app.log_scroll_offset,
+        line_wrap: app.log_line_wrap,
+        kernel_mode: true, // Kernel mode (blue INFO)
+    };
+    
+    log_components::render_log_view(f, area, &app.kernel_logs, config);
 } 

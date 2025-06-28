@@ -1,5 +1,7 @@
 pub mod components;
 pub mod dashboard;
+pub mod log_components;
+pub mod utils;
 pub mod views;
 
 use ratatui::{

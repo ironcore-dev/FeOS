@@ -1,6 +1,6 @@
-# FeOS TUI
+# FeOS TUI - Terminal User Interface
 
-This is the terminal user interface for FeOS.
+A modern, interactive terminal user interface for monitoring and managing FeOS containers, virtual machines, and isolated pods. Built with Rust and [Ratatui](https://github.com/ratatui-org/ratatui).
 
 ## User Experience
 
@@ -69,46 +69,59 @@ For server management operations, now fully implemented with:
 - **Actions**: The `Enter` key is used to trigger the primary action for a selected item. Other actions have dedicated character keybindings.
 - **Exiting**: The `q` key is used to quit the application. `Esc` cancels confirmation dialogs.
 
+## Architecture
+
+The TUI is built with a modular architecture for maintainability and reusability:
+
+### Core Components
+
+- `main.rs` - Application entry point and setup
+- `app.rs` - Main application state and logic  
+- `events.rs` - Event handling and user input processing
+- `terminal.rs` - Terminal setup and restoration
+
+### UI Modules
+
+- `ui/components.rs` - Reusable UI components (header, help modal, system actions)
+- `ui/dashboard.rs` - Main dashboard view with system overview
+- `ui/log_components.rs` - Shared log rendering components with scrolling and wrapping
+- `ui/utils.rs` - Common formatting utilities
+- `ui/views/` - Specific view implementations (VMs, containers, isolated pods, logs)
+
+### Mock Data
+
+- `mock_data.rs` - Centralized mock data generation with shared container log functions
+
+### Key Design Principles
+
+- **Modularity**: Shared components eliminate code duplication
+- **Reusability**: Common log rendering and formatting utilities
+- **Consistency**: Unified log display with chronological ordering (old to new)
+- **Performance**: Bounded scrolling and efficient rendering
+
 ## Development
 
-The TUI is built using [ratatui](https://ratatui.rs).
+The TUI is built using [ratatui](https://ratatui.rs) with a focus on maintainable, modular code.
 
-At the moment, the TUI is in a very early stage of development and uses mocked data.
-The goal is to provide a comprehensive and easy-to-use interface to manage and monitor a FeOS instance.
+Mock data is used throughout for development, making it easy to test various scenarios and UI states without requiring a full FeOS environment.
 
-### Running the TUI
+### Building and Running
 
-**Interactive Mode:**
 ```bash
+# Build the TUI
+cargo build --bin feos-tui
+
+# Run the TUI
 cargo run --bin feos-tui
+
+# Build in release mode
+cargo build --release --bin feos-tui
 ```
-
-**Testing Mode:**
-```bash
-# Run comprehensive mock data tests
-cargo run --bin feos-tui -- --test --verbose
-
-# Test a specific view for 2 seconds (default)
-cargo run --bin feos-tui -- --test-view dashboard
-cargo run --bin feos-tui -- --test-view vms
-cargo run --bin feos-tui -- --test-view logs
-cargo run --bin feos-tui -- --test-view system
-
-# Test with custom duration and verbose output
-cargo run --bin feos-tui -- --test-view dashboard --duration 5 --verbose
-```
-
-**CLI Options:**
-- `--test`: Run automated mock data tests and exit
-- `--test-view <VIEW>`: Test a specific view (dashboard, vms, logs, system)
-- `--duration <SECONDS>`: Duration to show test view (default: 2 seconds)
-- `--verbose`: Enable verbose output in test modes
-- `--help`: Show all available options
 
 ### Features Status
 
 - [x] **Dashboard view** - Complete with system overview, resource monitoring, VM status, and network interfaces
-- [x] **Virtual Machine management** - Complete VM listing, details, selection, and action interface
+- [x] **Virtual Machine management** - Complete VM listing, details, selection
 - [x] **System management** - Complete server control interface with restart/shutdown operations
 - [x] **System information** - Host info, resource gauges, and real-time monitoring
 - [x] **Logs viewer** - Dual-pane log display with color-coding and real-time updates
@@ -117,4 +130,3 @@ cargo run --bin feos-tui -- --test-view dashboard --duration 5 --verbose
 - [x] **Dynamic mock data** - Realistic simulation with state changes and streaming updates
 - [ ] **Backend integration** - gRPC API connection (planned)
 - [ ] **System actions** - Actual server control operations (planned)
-- [ ] **VM actions** - Actual VM control operations (planned) 
