@@ -302,7 +302,57 @@ impl App {
     }
     
     pub fn scroll_logs_down(&mut self) {
-        self.log_scroll_offset += 1;
+        // Get the current log count based on the active view
+        let log_count = match self.current_view {
+            CurrentView::Logs => {
+                match self.selected_global_log_tab {
+                    0 => self.feos_logs.len(),
+                    1 => self.kernel_logs.len(),
+                    _ => self.feos_logs.len(),
+                }
+            }
+            CurrentView::Containers => {
+                // For container logs, we need to generate them to get the count
+                if let Some(container) = self.get_selected_container() {
+                    // Estimate container log count (from generate_container_logs)
+                    if container.image.contains("nginx") { 8 }
+                    else if container.image.contains("postgres") { 7 }
+                    else if container.image.contains("redis") { 6 }
+                    else if container.image.contains("node") { 6 }
+                    else if container.image.contains("python") { 6 }
+                    else { 5 }
+                } else { 0 }
+            }
+            CurrentView::IsolatedPods => {
+                if let Some(pod) = self.get_selected_isolated_pod() {
+                    match self.selected_pod_log_tab {
+                        0 => pod.kernel_logs.len(),
+                        1 => {
+                            // Estimate container log count (from generate_container_logs)
+                            if let Some(container) = self.get_selected_pod_container() {
+                                if container.image.contains("nginx") { 6 }
+                                else if container.image.contains("postgres") { 5 }
+                                else if container.image.contains("redis") { 4 }
+                                else if container.image.contains("node") { 5 }
+                                else if container.image.contains("python") { 5 }
+                                else if container.image.contains("jupyter") { 4 }
+                                else if container.image.contains("tensorflow") { 4 }
+                                else { 3 }
+                            } else { 0 }
+                        }
+                        _ => pod.kernel_logs.len(),
+                    }
+                } else { 0 }
+            }
+            _ => 0,
+        };
+        
+        // Only scroll if there are more logs to see
+        // We want to ensure we can see the newest logs, so we limit scrolling
+        let max_scroll = log_count.saturating_sub(1);
+        if self.log_scroll_offset < max_scroll {
+            self.log_scroll_offset += 1;
+        }
     }
     
     pub fn scroll_logs_page_up(&mut self) {
@@ -310,7 +360,50 @@ impl App {
     }
     
     pub fn scroll_logs_page_down(&mut self) {
-        self.log_scroll_offset += 10;
+        // Get the current log count based on the active view (same logic as scroll_logs_down)
+        let log_count = match self.current_view {
+            CurrentView::Logs => {
+                match self.selected_global_log_tab {
+                    0 => self.feos_logs.len(),
+                    1 => self.kernel_logs.len(),
+                    _ => self.feos_logs.len(),
+                }
+            }
+            CurrentView::Containers => {
+                if let Some(container) = self.get_selected_container() {
+                    if container.image.contains("nginx") { 8 }
+                    else if container.image.contains("postgres") { 7 }
+                    else if container.image.contains("redis") { 6 }
+                    else if container.image.contains("node") { 6 }
+                    else if container.image.contains("python") { 6 }
+                    else { 5 }
+                } else { 0 }
+            }
+            CurrentView::IsolatedPods => {
+                if let Some(pod) = self.get_selected_isolated_pod() {
+                    match self.selected_pod_log_tab {
+                        0 => pod.kernel_logs.len(),
+                        1 => {
+                            if let Some(container) = self.get_selected_pod_container() {
+                                if container.image.contains("nginx") { 6 }
+                                else if container.image.contains("postgres") { 5 }
+                                else if container.image.contains("redis") { 4 }
+                                else if container.image.contains("node") { 5 }
+                                else if container.image.contains("python") { 5 }
+                                else if container.image.contains("jupyter") { 4 }
+                                else if container.image.contains("tensorflow") { 4 }
+                                else { 3 }
+                            } else { 0 }
+                        }
+                        _ => pod.kernel_logs.len(),
+                    }
+                } else { 0 }
+            }
+            _ => 0,
+        };
+        
+        let max_scroll = log_count.saturating_sub(1);
+        self.log_scroll_offset = (self.log_scroll_offset + 10).min(max_scroll);
     }
     
     pub fn toggle_log_line_wrap(&mut self) {

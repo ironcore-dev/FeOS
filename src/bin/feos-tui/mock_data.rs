@@ -1221,14 +1221,14 @@ pub fn format_uptime(seconds: u64) -> String {
 pub fn get_mock_cpu_history() -> Vec<u64> {
     let update_count = UPDATE_COUNTER.load(Ordering::Relaxed);
     
-    // Generate 60 data points for better sparkline density
-    let mut history = Vec::with_capacity(60);
+    // Generate 120 data points for much denser sparkline visualization
+    let mut history = Vec::with_capacity(120);
     
     // Always include baseline values to ensure proper 0-100% scaling
     history.push(0);  // First point at 0% to anchor the scale
     
     // Create a more complex pattern with multiple waves for the middle points
-    for i in 1..59 {
+    for i in 1..119 {
         let base_wave1 = 40.0 + 20.0 * ((i as f64 * 0.2).sin()); // Primary wave
         let base_wave2 = 15.0 * ((i as f64 * 0.5).sin()); // Secondary wave  
         let base_wave3 = 8.0 * ((i as f64 * 1.2).cos()); // Tertiary wave
@@ -1249,14 +1249,14 @@ pub fn get_mock_cpu_history() -> Vec<u64> {
 pub fn get_mock_memory_history() -> Vec<u64> {
     let update_count = UPDATE_COUNTER.load(Ordering::Relaxed);
     
-    // Generate 60 data points for better sparkline density
-    let mut history = Vec::with_capacity(60);
+    // Generate 120 data points for much denser sparkline visualization
+    let mut history = Vec::with_capacity(120);
     
     // Always include baseline values to ensure proper 0-100% scaling
     history.push(0);  // First point at 0% to anchor the scale
     
     // Create a different pattern for memory (generally higher, more stable)
-    for i in 1..59 {
+    for i in 1..119 {
         let base_wave1 = 55.0 + 15.0 * ((i as f64 * 0.15).sin()); // Primary wave
         let base_wave2 = 8.0 * ((i as f64 * 0.7).cos()); // Secondary wave
         let base_wave3 = 5.0 * ((i as f64 * 2.1).sin()); // Tertiary wave

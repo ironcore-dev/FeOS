@@ -1,7 +1,8 @@
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
-    widgets::{Block, Borders, Paragraph, Table, Row, Cell},
+    text::{Line, Span, Text},
+    widgets::{Block, Borders, Paragraph, Table, Row, Cell, Wrap},
     Frame,
 };
 use crate::app::App;
@@ -162,10 +163,18 @@ fn render_container_logs_section(f: &mut Frame, area: Rect, app: &App) {
         // Generate mock container logs for the selected container
         let container_logs = generate_container_logs(&container.name, &container.image);
         
-        let log_items: Vec<ratatui::widgets::ListItem> = container_logs
+        let available_height = area.height.saturating_sub(2) as usize; // Fit within the area
+        
+        // Show most recent logs in chronological order (old to new)
+        let logs_to_show = if container_logs.len() <= available_height {
+            &container_logs[..]
+        } else {
+            // Show the most recent logs that fit in the area
+            &container_logs[container_logs.len() - available_height..]
+        };
+        
+        let log_items: Vec<ratatui::widgets::ListItem> = logs_to_show
             .iter()
-            .rev() // Show newest logs first
-            .take(area.height.saturating_sub(2) as usize) // Fit within the area
             .map(|log| {
                 let level_color = match log.level.as_str() {
                     "ERROR" => Color::Red,
@@ -217,30 +226,71 @@ fn render_full_screen_container_logs(f: &mut Frame, area: Rect, app: &App) {
         // Generate mock container logs for the selected container
         let container_logs = generate_container_logs(&container.name, &container.image);
         
-        let log_items: Vec<ratatui::widgets::ListItem> = container_logs
-            .iter()
-            .rev() // Show newest logs first
-            .skip(app.log_scroll_offset) // Apply scroll offset
-            .take(area.height.saturating_sub(2) as usize) // Fit within the area
-            .map(|log| {
-                let level_color = match log.level.as_str() {
-                    "ERROR" => Color::Red,
-                    "WARN" => Color::Yellow,
-                    "INFO" => Color::Green,
-                    _ => Color::White,
-                };
-                
-                // Format timestamp as HH:MM:SS
-                let dt = std::time::UNIX_EPOCH + std::time::Duration::from_secs(log.timestamp);
-                let datetime = chrono::DateTime::<chrono::Utc>::from(dt);
-                let time_str = datetime.format("%H:%M:%S").to_string();
-                
-                let line = format!("[{}] {}: {}", time_str, log.level, log.message);
-                
-                // Apply line wrapping if enabled
-                if app.log_line_wrap {
-                    ratatui::widgets::ListItem::new(line)
-                } else {
+        if app.log_line_wrap {
+            // Use Text with colored spans for proper line wrap support with colors
+            let log_lines: Vec<Line> = container_logs
+                .iter()
+                .map(|log| {
+                    let level_color = match log.level.as_str() {
+                        "ERROR" => Color::Red,
+                        "WARN" => Color::Yellow,
+                        "INFO" => Color::Green,
+                        _ => Color::White,
+                    };
+
+                    // Format timestamp as HH:MM:SS
+                    let dt = std::time::UNIX_EPOCH + std::time::Duration::from_secs(log.timestamp);
+                    let datetime = chrono::DateTime::<chrono::Utc>::from(dt);
+                    let time_str = datetime.format("%H:%M:%S").to_string();
+                    
+                    Line::from(vec![
+                        Span::styled(
+                            format!("[{}] {}: {}", time_str, log.level, log.message),
+                            Style::default().fg(level_color)
+                        )
+                    ])
+                })
+                .collect();
+
+            let text = Text::from(log_lines);
+            
+            let paragraph = Paragraph::new(text)
+                .block(Block::default().title(title).borders(Borders::ALL))
+                .wrap(Wrap { trim: true })
+                .scroll((app.log_scroll_offset as u16, 0));
+
+            f.render_widget(paragraph, area);
+        } else {
+            // Use List without wrapping (with truncation)
+            let available_height = area.height.saturating_sub(2) as usize; // Fit within the area
+            
+            // Calculate which logs to show with scrolling in chronological order
+            let start_idx = app.log_scroll_offset.min(container_logs.len().saturating_sub(1));
+            let end_idx = (start_idx + available_height).min(container_logs.len());
+            
+            let logs_to_show = if start_idx < end_idx {
+                &container_logs[start_idx..end_idx]
+            } else {
+                &[]
+            };
+            
+            let log_items: Vec<ratatui::widgets::ListItem> = logs_to_show
+                .iter()
+                .map(|log| {
+                    let level_color = match log.level.as_str() {
+                        "ERROR" => Color::Red,
+                        "WARN" => Color::Yellow,
+                        "INFO" => Color::Green,
+                        _ => Color::White,
+                    };
+                    
+                    // Format timestamp as HH:MM:SS
+                    let dt = std::time::UNIX_EPOCH + std::time::Duration::from_secs(log.timestamp);
+                    let datetime = chrono::DateTime::<chrono::Utc>::from(dt);
+                    let time_str = datetime.format("%H:%M:%S").to_string();
+                    
+                    let line = format!("[{}] {}: {}", time_str, log.level, log.message);
+                    
                     // Truncate long lines if wrapping is disabled
                     let max_width = area.width.saturating_sub(4) as usize; // Account for borders
                     let truncated = if line.len() > max_width {
@@ -248,17 +298,16 @@ fn render_full_screen_container_logs(f: &mut Frame, area: Rect, app: &App) {
                     } else {
                         line
                     };
-                    ratatui::widgets::ListItem::new(truncated)
-                }
-                .style(Style::default().fg(level_color))
-            })
-            .collect();
+                    ratatui::widgets::ListItem::new(truncated).style(Style::default().fg(level_color))
+                })
+                .collect();
 
-        let logs_list = ratatui::widgets::List::new(log_items)
-            .block(Block::default().title(title).borders(Borders::ALL))
-            .style(Style::default().fg(Color::White));
+            let logs_list = ratatui::widgets::List::new(log_items)
+                .block(Block::default().title(title).borders(Borders::ALL))
+                .style(Style::default().fg(Color::White));
 
-        f.render_widget(logs_list, area);
+            f.render_widget(logs_list, area);
+        }
     } else {
         let placeholder = Paragraph::new("No container selected")
             .block(

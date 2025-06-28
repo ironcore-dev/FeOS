@@ -170,10 +170,18 @@ fn render_memory_sparkline(f: &mut Frame, area: Rect, memory_history: &[u64], ho
 }
 
 fn render_feos_logs(f: &mut Frame, area: Rect, logs: &[LogEntry]) {
-    let log_items: Vec<ListItem> = logs
+    let available_height = area.height.saturating_sub(2) as usize; // Fit within the area
+    
+    // Show most recent logs in chronological order (old to new)
+    let logs_to_show = if logs.len() <= available_height {
+        logs
+    } else {
+        // Show the most recent logs that fit in the area
+        &logs[logs.len() - available_height..]
+    };
+    
+    let log_items: Vec<ListItem> = logs_to_show
         .iter()
-        .rev() // Show newest logs first
-        .take(area.height.saturating_sub(2) as usize) // Fit within the area
         .map(|log| {
             let level_color = match log.level.as_str() {
                 "ERROR" => Color::Red,
