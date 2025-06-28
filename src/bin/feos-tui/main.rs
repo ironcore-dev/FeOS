@@ -40,8 +40,8 @@ enum TestView {
     Dashboard,
     Vms,
     Containers,
+    IsolatedPods,
     Logs,
-    System,
 }
 
 fn main() -> Result<()> {
@@ -98,6 +98,7 @@ fn run_test_mode(verbose: bool) -> Result<()> {
              mock_data::format_bytes(app.host_info.ram_total));
     println!("✓ Found {} VMs", app.vms.len());
     println!("✓ Found {} containers", app.containers.len());
+    println!("✓ Found {} isolated pods", app.isolated_pods.len());
     println!("✓ CPU history data points: {}", app.cpu_history.len());
     println!("✓ Memory history data points: {}", app.memory_history.len());
     println!("✓ Network interfaces: {}", app.host_info.net_interfaces.len());
@@ -122,6 +123,11 @@ fn run_test_mode(verbose: bool) -> Result<()> {
         // Show container status changes  
         for container in &app.containers {
             println!("  Container {}: {}", container.name, container.status.as_str());
+        }
+        
+        // Show isolated pod status changes
+        for pod in &app.isolated_pods {
+            println!("  Isolated Pod {}: {} ({} containers)", pod.name, pod.status.as_str(), pod.containers.len());
         }
         
         // Show RAM usage changes
@@ -158,8 +164,8 @@ fn run_view_test(test_view: TestView, duration: u64, verbose: bool) -> Result<()
         TestView::Dashboard => CurrentView::Dashboard,
         TestView::Vms => CurrentView::VMs,
         TestView::Containers => CurrentView::Containers,
+        TestView::IsolatedPods => CurrentView::IsolatedPods,
         TestView::Logs => CurrentView::Logs,
-        TestView::System => CurrentView::System,
     };
     
     // Create terminal
@@ -185,8 +191,8 @@ fn run_view_test(test_view: TestView, duration: u64, verbose: bool) -> Result<()
                      TestView::Dashboard => "Dashboard",
                      TestView::Vms => "VMs",
                      TestView::Containers => "Containers",
+                     TestView::IsolatedPods => "Isolated Pods",
                      TestView::Logs => "Logs", 
-                     TestView::System => "System",
                  }, duration.as_secs());
     }
     

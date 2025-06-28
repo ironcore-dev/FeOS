@@ -15,7 +15,6 @@ pub fn render_ui(f: &mut Frame, app: &App) {
             Constraint::Length(1), // Header
             Constraint::Length(3), // Tabs
             Constraint::Min(0),    // Main content
-            Constraint::Length(3), // Footer
         ])
         .split(f.area());
 
@@ -30,10 +29,17 @@ pub fn render_ui(f: &mut Frame, app: &App) {
         CurrentView::Dashboard => dashboard::render_dashboard(f, chunks[2], app),
         CurrentView::VMs => views::render_vms_view(f, chunks[2], app),
         CurrentView::Containers => views::render_containers_view(f, chunks[2], app),
+        CurrentView::IsolatedPods => views::render_isolated_pods_view(f, chunks[2], app),
         CurrentView::Logs => views::render_logs_view(f, chunks[2], app),
-        CurrentView::System => views::render_system_view(f, chunks[2], app),
     }
-
-    // Footer
-    components::render_footer(f, chunks[3], app.current_view);
+    
+    // Render system modal if open
+    if app.system_modal_open {
+        components::render_system_modal(f, f.area(), app);
+    }
+    
+    // Render help modal if open
+    if app.help_modal_open {
+        components::render_help_modal(f, f.area(), app);
+    }
 } 

@@ -51,7 +51,6 @@ fn render_host_info(f: &mut Frame, area: Rect, host_info: &HostInfo) {
         format!("Uptime: {}", format_uptime(host_info.uptime)),
         format!("CPU Cores: {}", host_info.num_cores),
         format!("Total RAM: {}", crate::mock_data::format_bytes(host_info.ram_total)),
-        format!("IPv6 Address: {}", host_info.ipv6_address),
         format!("Delegated Prefix: {}", host_info.delegated_prefix),
     ];
 
@@ -140,7 +139,7 @@ fn render_memory_sparkline(f: &mut Frame, area: Rect, memory_history: &[u64], ho
     // Get current memory usage percentage
     let current_memory = get_ram_usage_percentage(host_info) as u64;
     let used_memory = host_info.ram_total - host_info.ram_unused;
-    let title = format!("Memory Usage: {}% ({} / {})", 
+    let title = format!("Memory Usage: {}% ({}/{})", 
                        current_memory, 
                        crate::mock_data::format_bytes(used_memory),
                        crate::mock_data::format_bytes(host_info.ram_total));
