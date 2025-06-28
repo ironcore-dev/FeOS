@@ -1,0 +1,242 @@
+# FeOS TUI Development Rules
+
+## Project Overview
+This is the Terminal User Interface (TUI) for FeOS, built with Rust and ratatui. The TUI provides a comprehensive interface for managing FeOS instances, including VMs, logs, and system monitoring.
+
+## Architecture Guidelines
+
+### Module Structure
+- **`main.rs`**: Entry point, argument parsing, and main application loop only
+- **`app.rs`**: Application state management and business logic
+- **`events.rs`**: Keyboard input handling and navigation logic
+- **`terminal.rs`**: Terminal setup/teardown and low-level terminal operations
+- **`mock_data.rs`**: Mock data generation and dynamic simulation
+- **`ui/`**: All UI rendering logic, organized by concern:
+  - **`mod.rs`**: Main UI coordination and layout
+  - **`components.rs`**: Reusable UI components (header, footer, tabs)
+  - **`dashboard.rs`**: Dashboard view rendering
+  - **`views.rs`**: Other view implementations (VMs, Logs, etc.)
+
+### Design Principles
+1. **Separation of Concerns**: Keep UI rendering, business logic, and data separate
+2. **Single Responsibility**: Each module should have one clear purpose
+3. **Modular Views**: New views should be easy to add without modifying existing code
+4. **Component Reuse**: UI components should be reusable across different views
+5. **Error Handling**: Use `color-eyre` for comprehensive error handling
+
+## Coding Standards
+
+### Rust Style
+- Follow standard Rust naming conventions (snake_case for functions/variables, PascalCase for types)
+- Use `#[derive(Debug, Clone, Copy, PartialEq)]` for enums when appropriate
+- Prefer explicit type annotations for public APIs
+- Use `pub` visibility only when necessary for module boundaries
+
+### UI Development
+- Always use `ratatui` widgets and avoid custom drawing when possible
+- Use consistent color schemes:
+  - **Cyan**: Headers and titles
+  - **Yellow**: Highlighted/selected items
+  - **Green**: Success states, RAM usage
+  - **Blue**: CPU usage, sparklines
+  - **Red**: Error states, stopped VMs
+  - **Gray**: Placeholder text, help text
+- Maintain consistent spacing and layout constraints
+- Use `Block::default().borders(Borders::ALL).title("Title")` for consistent styling
+
+### State Management
+- Keep all mutable state in the `App` struct
+- Use private fields with public accessors when needed
+- Implement `Default` for structs that need initialization
+- Use `Instant` for time-based operations, not system time
+
+### Event Handling
+- Handle all keyboard events in the `events.rs` module
+- Use clear, intuitive key bindings:
+  - `q`: Quit application
+  - `d`, `v`, `l`: Direct navigation to Dashboard, VMs, Logs
+  - `←`, `→`: Tab navigation
+  - `↑`, `↓`: List navigation (when implemented)
+  - `Enter`: Primary action
+  - `Esc`: Cancel/back
+
+## Mock Data Guidelines
+
+### Dynamic Behavior
+- Simulate realistic data changes over time
+- Use atomic counters for thread-safe state updates
+- Implement different update frequencies for different data types:
+  - **Polling data** (host info, VM status): Every 2 seconds
+  - **Streaming data** (logs): Every 3 seconds
+- Keep log history bounded (max 50 entries) to prevent memory growth
+
+### Data Realism
+- VM status transitions should follow realistic patterns
+- Resource usage should vary within reasonable bounds
+- Log messages should be realistic and varied
+- Network interfaces should have valid MAC/PCI addresses
+
+## Testing Requirements
+
+### Unit Tests
+- Test all utility functions (formatting, calculations)
+- Test mock data generation and validation
+- Test state transitions and business logic
+- Maintain test coverage for all public APIs
+
+### Integration Testing
+- Use `--test` mode for non-interactive testing
+- Test dynamic data updates and timing
+- Verify UI components render without panics
+- Test keyboard navigation and state changes
+
+### CLI Test Views (Automated Testing)
+The TUI includes comprehensive CLI testing capabilities to avoid blocking interactive sessions:
+
+#### General Mock Data Testing
+```bash
+# Run comprehensive mock data tests
+cargo run --bin feos-tui -- --test
+
+# Run with verbose output for debugging
+cargo run --bin feos-tui -- --test --verbose
+```
+
+#### View-Specific Testing
+```bash
+# Test individual views (default 2 seconds)
+cargo run --bin feos-tui -- --test-view dashboard
+cargo run --bin feos-tui -- --test-view vms
+cargo run --bin feos-tui -- --test-view logs
+cargo run --bin feos-tui -- --test-view system
+
+# Test with custom duration and verbose output
+cargo run --bin feos-tui -- --test-view dashboard --duration 5 --verbose
+cargo run --bin feos-tui -- --test-view vms --duration 1
+```
+
+#### Testing Workflow
+1. **During Development**: Use view-specific tests to quickly verify changes
+   ```bash
+   # Quick 1-second test after making dashboard changes
+   cargo run --bin feos-tui -- --test-view dashboard --duration 1
+   ```
+
+2. **Before Commits**: Run comprehensive test to verify all functionality
+   ```bash
+   cargo run --bin feos-tui -- --test --verbose
+   ```
+
+3. **Debugging UI Issues**: Use longer durations to observe behavior
+   ```bash
+   # 10-second test to observe dynamic updates
+   cargo run --bin feos-tui -- --test-view dashboard --duration 10 --verbose
+   ```
+
+4. **CI/CD Integration**: All test modes exit cleanly for automation
+   ```bash
+   # Perfect for automated testing pipelines
+   cargo run --bin feos-tui -- --test-view dashboard --duration 2
+   ```
+
+#### Available CLI Options
+- `--test`: Run comprehensive mock data tests and exit
+- `--test-view <VIEW>`: Test specific view (dashboard, vms, logs, system)
+- `--duration <SECONDS>`: Duration to show test view (default: 2)
+- `--verbose`: Enable detailed output for debugging
+- `--help`: Show all available options
+
+#### Testing Best Practices
+- **Always test views after UI changes** using `--test-view <view> --duration 1`
+- **Use verbose mode** when debugging: `--verbose` provides detailed progress
+- **Test dynamic behavior** with longer durations (5-10 seconds) to see data changes
+- **Verify all views** before major commits using the general `--test` mode
+- **Keep tests fast** - use short durations (1-2 seconds) for quick verification
+
+## Error Handling
+
+### Terminal Safety
+- Always restore terminal state on panic or error
+- Use `color-eyre` for better error messages and stack traces
+- Set up panic hooks to ensure terminal cleanup
+- Handle all `Result` types explicitly
+
+### Graceful Degradation
+- Continue operation when non-critical errors occur
+- Log errors appropriately without crashing
+- Provide meaningful error messages to users
+- Validate input data before processing
+
+## Performance Guidelines
+
+### Rendering Efficiency
+- Avoid unnecessary re-renders by checking if data has changed
+- Use efficient data structures for large lists
+- Minimize string allocations in hot paths
+- Cache computed values when appropriate
+
+### Memory Management
+- Bound collection sizes (logs, history data)
+- Use `Vec::with_capacity()` when size is known
+- Prefer borrowing over cloning when possible
+- Clean up resources properly
+
+## Future Development
+
+### Adding New Views
+1. Create new file in `ui/` directory (e.g., `ui/settings.rs`)
+2. Add view enum variant to `app.rs`
+3. Add rendering call to `ui/mod.rs`
+4. Add keyboard shortcut to `events.rs`
+5. Update footer help text in `ui/components.rs`
+
+### Adding New Components
+1. Add to `ui/components.rs` if reusable across views
+2. Add to specific view file if view-specific
+3. Follow consistent styling patterns
+4. Include proper error handling
+
+### Mock Data Extensions
+1. Add new data types to `mock_data.rs`
+2. Implement realistic generation patterns
+3. Add appropriate unit tests
+4. Update dynamic simulation if needed
+
+## Dependencies
+
+### Core Dependencies
+- **`ratatui`**: TUI framework - prefer latest stable version
+- **`crossterm`**: Cross-platform terminal manipulation
+- **`color-eyre`**: Enhanced error handling and reporting
+
+### Development Dependencies
+- **`serial_test`**: For tests that need sequential execution
+- Standard Rust testing framework for unit tests
+
+## Documentation
+
+### Code Comments
+- Document complex algorithms and business logic
+- Explain non-obvious design decisions
+- Use doc comments (`///`) for public APIs
+- Keep comments up-to-date with code changes
+
+### README Updates
+- Keep feature lists current
+- Document new keyboard shortcuts
+- Update screenshots when UI changes significantly
+- Maintain installation and usage instructions
+
+## Git Workflow
+
+### Commit Messages
+- Use conventional commit format: `feat:`, `fix:`, `refactor:`, etc.
+- Be specific about what changed and why
+- Reference issues when applicable
+
+### Branch Strategy
+- Create feature branches for new views or major changes
+- Keep commits focused and atomic
+- Test thoroughly before merging
+
+Remember: The TUI should feel responsive, intuitive, and professional. Always prioritize user experience and code maintainability. 

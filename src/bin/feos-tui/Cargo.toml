@@ -1,0 +1,15 @@
+[package]
+name = "feos-tui"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "feos-tui"
+path = "main.rs"
+
+[dependencies]
+ratatui = { version = "0.29.0", features = ["crossterm"] }
+crossterm = "0.29.0"
+color-eyre = "0.6"
+clap = { version = "4.4", features = ["derive"] }
+chrono = "0.4" 
