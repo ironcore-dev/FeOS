@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            INSERT OR REPLACE INTO vms (vm_id, image_uuid, state, last_msg, pid, config_blob)\n            VALUES (?1, ?2, ?3, ?4, ?5, ?6)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 6
+    },
+    "nullable": []
+  },
+  "hash": "370675f1c72e8dd9d6cfbd3aa2a0813dba1f31bc9b727972523fd17f9607dbbc"
+}

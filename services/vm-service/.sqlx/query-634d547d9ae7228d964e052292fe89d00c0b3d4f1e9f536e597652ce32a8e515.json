@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            UPDATE vms\n            SET state = ?1, last_msg = ?2\n            WHERE vm_id = ?3\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "634d547d9ae7228d964e052292fe89d00c0b3d4f1e9f536e597652ce32a8e515"
+}

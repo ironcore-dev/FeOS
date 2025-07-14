@@ -1,0 +1,39 @@
+syntax = "proto3";
+
+package feos.host.v1;
+
+
+message Empty {
+}
+
+// HostService provides information about the host system.
+service HostService {
+  // Retrieves the hostname of the machine running the service.
+  rpc Hostname(Empty) returns (HostnameResponse);
+
+  // Upgrades the running FeOS binary. This is a client-streaming RPC.
+  // The first message MUST contain the UpgradeMetadata, and subsequent messages
+  // MUST contain the binary data chunks.
+  rpc UpgradeFeosBinary(stream UpgradeRequest) returns (UpgradeResponse);
+}
+
+message HostnameResponse {
+  string hostname = 1;
+}
+
+message UpgradeRequest {
+  oneof payload {
+    UpgradeMetadata metadata = 1;
+    bytes chunk = 2;
+  }
+}
+
+message UpgradeMetadata {
+  // The SHA256 checksum of the binary file, hex-encoded.
+  string sha256_sum = 1;
+}
+
+message UpgradeResponse {
+  // A message indicating the result of the upgrade attempt.
+  string message = 1;
+}

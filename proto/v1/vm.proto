@@ -1,0 +1,239 @@
+syntax = "proto3";
+
+package feos.vm.vmm.api.v1;
+
+import "google/protobuf/any.proto";
+
+// VMService is a service that manages multiple Cloud Hypervisor
+// instances. It abstracts the underlying REST API of each individual VMM process,
+// allowing a client to create, control, and delete virtual machines and their
+// devices without dealing with process management or API sockets.
+service VMService {
+  // Creates a new Virtual Machine but does not boot it.
+  // This starts a cloud-hypervisor process, sets up its initial resources,
+  // and makes it ready for booting. The returned 'vm_id' must be used for
+  // all subsequent operations on this VM.
+  rpc CreateVm(CreateVmRequest) returns (CreateVmResponse);
+  // Starts a previously created Virtual Machine.
+  rpc StartVm(StartVmRequest) returns (StartVmResponse);
+  // Retrieves detailed information about a specific Virtual Machine.
+  rpc GetVm(GetVmRequest) returns (VmInfo);
+  // Retrieves the events stream for a specific Virtual Machine.
+  rpc StreamVmEvents(StreamVmEventsRequest) returns (stream VmEvent);
+  // Deletes an existing Virtual Machine and frees up its resources.
+  rpc DeleteVm(DeleteVmRequest) returns (DeleteVmResponse);
+  // Provides an interactive console to a running VM.
+  // This is a bidirectional stream. The client first sends an 'attach' message
+  // with the VM ID, then streams user input. The server streams back the
+  // VM's console output.
+  rpc StreamVmConsole (stream StreamVmConsoleRequest) returns (stream StreamVmConsoleResponse);
+  // Lists all Virtual Machines currently managed by this service.
+  rpc ListVms(ListVmsRequest) returns (ListVmsResponse);
+  // Pings the VMM process for a specific VM to check for liveness.
+  rpc PingVm(PingVmRequest) returns (PingVmResponse);
+  // Shuts down a running Virtual Machine by sending an ACPI shutdown signal.
+  rpc ShutdownVm(ShutdownVmRequest) returns (ShutdownVmResponse);
+  // Pauses a running Virtual Machine.
+  rpc PauseVm(PauseVmRequest) returns (PauseVmResponse);
+  // Resumes a paused Virtual Machine.
+  rpc ResumeVm(ResumeVmRequest) returns (ResumeVmResponse);
+  // Hot-plugs a new disk to a running VM.
+  rpc AttachDisk(AttachDiskRequest) returns (AttachDiskResponse);
+  // Hot-unplugs a disk from a running VM.
+  rpc RemoveDisk(RemoveDiskRequest) returns (RemoveDiskResponse);
+}
+
+// Request stream from client to server for StreamVmConsole
+message StreamVmConsoleRequest {
+  // The first message from the client MUST be an 'attach' message.
+  // All subsequent messages MUST be 'data' messages.
+  oneof payload {
+    AttachConsoleMessage attach = 1;
+    ConsoleData data = 2;
+  }
+}
+
+// Initial message to specify which VM to connect to.
+message AttachConsoleMessage {
+  string vm_id = 1;
+}
+
+// Subsequent messages carrying user input.
+message ConsoleData {
+  bytes input = 1;
+}
+
+// Response stream from server to client for StreamVmConsole
+message StreamVmConsoleResponse {
+  bytes output = 1;
+}
+
+message VmStateChangedEvent {
+  VmState new_state = 1;
+  // An optional human-readable reason for the state change.
+  // e.g., "VM booted successfully" or "Shutdown signal received"
+  string reason = 2;
+}
+
+message StreamVmEventsRequest {
+  // The ID of the Virtual Machine for which to retrieve events.
+  string vm_id = 1;
+  // Filter the stream to only include events from a specific "component" in VM
+  string with_component_id = 5;
+
+  oneof streaming_mode {
+    // 1. Get the last N events
+    int32 tail_events = 2;
+    // 2. Get all events that have occurred since a specific event ID
+    string tail_id = 3;
+    // 3. Get all events from the last N seconds
+    int32 tail_seconds = 4;
+  }
+}
+
+message VmEvent {
+  string vm_id = 1;
+  google.protobuf.Any data = 2;
+  // A unique identifier for the event within the VM context.
+  string id = 3;
+  // The ID of the component that generated this event.
+  string component_id = 4;
+}
+
+message CreateVmRequest {
+    VmConfig config = 1;
+}
+
+message CreateVmResponse {
+    string vm_id = 1;
+}
+
+message GetVmRequest {
+    string vm_id = 1;
+}
+
+message VmConfig {
+  CpuConfig cpus = 1;
+  MemoryConfig memory = 2;
+  // The full reference to the OCI image, including the registry and tag.
+  string image_ref = 3;
+  // Additional data disks to attach to the VM. The root filesystem is
+  // expected to be part of the OCI image specified by vm_image_uuid.
+  repeated DiskConfig disks = 4;
+  repeated NetConfig net = 5;
+  optional string ignition = 6;
+}
+
+message CpuConfig {
+  uint32 boot_vcpus = 1;
+  uint32 max_vcpus = 2;
+}
+
+message MemoryConfig {
+  uint64 size_mib = 1; // Memory size in Megabytes (MiB).
+}
+
+message DiskConfig {
+  string device_id = 1;
+  oneof backend {
+    string path = 2; // Path on the host to the disk image file.
+    VfioPciConfig vfio_pci = 3;
+  }
+  bool readonly = 4;
+}
+
+message NetConfig {
+  string device_id = 1;
+  oneof backend {
+    TapConfig tap = 2;
+    VfioPciConfig vfio_pci = 3;
+  }
+  string mac_address = 4;
+}
+
+message TapConfig {
+  string tap_name = 1;
+}
+
+message VfioPciConfig {
+  string bdf = 1; // e.g., "0000:03:00.0"
+}
+
+enum VmState {
+  VM_STATE_UNSPECIFIED = 0;
+  VM_STATE_CREATING = 1;
+  VM_STATE_CREATED = 2;
+  VM_STATE_RUNNING = 3;
+  VM_STATE_PAUSED = 4;
+  VM_STATE_STOPPED = 5;
+  VM_STATE_CRASHED = 6;
+}
+
+message VmInfo {
+  string vm_id = 1;
+  VmState state = 2;
+  VmConfig config = 3;
+}
+
+message PingVmRequest {
+  string vm_id = 1;
+}
+
+message PingVmResponse {
+  string build_version = 1;
+  string version = 2;
+  int64 pid = 3;
+  repeated string features = 4;
+}
+
+message DeleteVmRequest {
+  string vm_id = 1;
+}
+
+message StartVmRequest {
+  string vm_id = 1;
+}
+
+message ListVmsRequest {}
+
+message ListVmsResponse {
+  repeated VmInfo vms = 1;
+}
+
+message ShutdownVmRequest {
+  string vm_id = 1;
+}
+
+message PauseVmRequest {
+  string vm_id = 1;
+}
+
+message ResumeVmRequest {
+  string vm_id = 1;
+}
+
+message AttachDiskRequest {
+  string vm_id = 1;
+  DiskConfig disk = 2;
+}
+
+message AttachDiskResponse {
+  string device_id = 1;
+}
+
+message RemoveDiskRequest {
+  string vm_id = 1;
+  string device_id = 2;
+}
+
+message StartVmResponse {}
+
+message DeleteVmResponse {}
+
+message ShutdownVmResponse {}
+
+message PauseVmResponse {}
+
+message ResumeVmResponse {}
+
+message RemoveDiskResponse {}

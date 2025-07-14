@@ -1,0 +1,88 @@
+syntax = "proto3";
+
+package feos.image.vmm.api.v1;
+
+message Empty {
+}
+
+// ===================================================================
+// Image Service
+// ===================================================================
+
+// ImageService handles the lifecycle of OCI images used for booting VMs.
+service ImageService {
+  // Initiates the pull of an OCI image from a remote registry.
+  // This call is non-blocking. It returns a UUID for the image immediately,
+  // which can then be used to track the download status.
+  rpc PullImage(PullImageRequest) returns (PullImageResponse);
+
+  // Watches the status of an image pull operation. This is a server-streaming
+  // call that will send updates as the image's state changes. The stream
+  // closes when the image pull reaches a terminal state (READY or PULL_FAILED).
+  rpc WatchImageStatus(WatchImageStatusRequest) returns (stream ImageStatusResponse);
+
+  // Lists all images available locally in the service's cache.
+  rpc ListImages(ListImagesRequest) returns (ListImagesResponse);
+
+  // Removes a locally cached image.
+  rpc DeleteImage(DeleteImageRequest) returns (Empty);
+}
+
+// ===================================================================
+// Image Manager Messages
+// ===================================================================
+
+enum ImageState {
+  IMAGE_STATE_UNSPECIFIED = 0;
+  // The requested image UUID is not known to the service.
+  NOT_FOUND = 1;
+  // The image pull is in progress.
+  DOWNLOADING = 2;
+  // The image is downloaded, unpacked, and ready for use.
+  READY = 3;
+  // The image pull failed. The 'message' field in ImageStatusResponse will have details.
+  PULL_FAILED = 4;
+}
+
+message ImageInfo {
+  // Server-generated unique ID for the image.
+  string image_uuid = 1;
+  // The original reference used to pull the image (e.g., "alpine:latest").
+  string image_ref = 2;
+  // The current state of the image.
+  ImageState state = 3;
+}
+
+message PullImageRequest {
+  // The full reference to the OCI image, including the registry and tag.
+  // e.g., "docker.io/library/alpine:latest"
+  string image_ref = 1;
+}
+
+message PullImageResponse {
+  // The server-generated unique ID for the image being pulled.
+  // Use this UUID to watch the download status and to create a VM.
+  string image_uuid = 1;
+}
+
+message WatchImageStatusRequest {
+  string image_uuid = 1;
+}
+
+message ImageStatusResponse {
+  ImageState state = 1;
+  // Optional: Progress percentage (0-100) when state is DOWNLOADING.
+  uint32 progress_percent = 2;
+  // Optional: A human-readable message, especially useful for PULL_FAILED state.
+  string message = 3;
+}
+
+message ListImagesRequest {}
+
+message ListImagesResponse {
+  repeated ImageInfo images = 1;
+}
+
+message DeleteImageRequest {
+  string image_uuid = 1;
+}

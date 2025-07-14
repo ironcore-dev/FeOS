@@ -1,5 +1,7 @@
 IPAM ?=
 
+.PHONY: all clippy release run clean cli test
+
 clippy:
 	cargo clippy
 
@@ -21,7 +23,7 @@ test: clippy
 include hack/hack.mk
 
 cli:
-	 cargo build --bin feos-cli
+	cargo build --package feos-cli --release
 
 nginx: uki
 	@echo "Building nginx container with FeOS UKI..."

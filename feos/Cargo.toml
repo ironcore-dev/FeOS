@@ -1,0 +1,50 @@
+[package]
+name = "feos"
+version = "0.2.0"
+edition = "2021"
+
+[[bin]]
+name = "feos"
+path = "src/main.rs"
+
+[lib]
+name = "main_server"
+path = "src/lib.rs"
+
+[dependencies]
+vm-service = { path = "../services/vm-service" }
+host-service = { path = "../services/host-service" }
+image-service = { path = "../services/image-service" }
+proto-definitions = { path = "../proto-definitions" }
+
+host = { path = "../host" }
+network = { path = "../network" }
+filesystem = { path = "../filesystem" }
+
+# Workspace dependencies
+tokio = { workspace = true }
+tokio-stream = { workspace = true }
+tonic = { workspace = true }
+anyhow = { workspace = true }
+log = { workspace = true }
+env_logger = { workspace = true }
+nix = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+dotenvy = { workspace = true }
+
+[dev-dependencies]
+vm-service = { path = "../services/vm-service" }
+image-service = { path = "../services/image-service"}
+host-service = { path = "../services/host-service"}
+proto-definitions = { path = "../proto-definitions" }
+anyhow = { workspace = true }
+nix = { workspace = true }
+tokio = { workspace = true }
+tonic = { workspace = true }
+log = { workspace = true }
+env_logger = { workspace = true }
+tokio-stream = { workspace = true }
+prost = { workspace = true }
+once_cell = "1.19"
+regex = "1.10"
+tower = { workspace = true }
