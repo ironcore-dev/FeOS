@@ -3,12 +3,13 @@ use image_service::{IMAGE_DIR, IMAGE_SERVICE_SOCKET};
 use log::{error, info, warn};
 use nix::sys::signal::{kill, Signal};
 use nix::unistd::{self, Pid};
+use once_cell::sync::OnceCell as SyncOnceCell;
 use prost::Message;
 use proto_definitions::{
-    host_service::{host_service_client::HostServiceClient, Empty},
+    host_service::{host_service_client::HostServiceClient, HostnameRequest},
     image_service::{
-        image_service_client::ImageServiceClient, DeleteImageRequest, DeleteImageResponse,
-        ImageState, ListImagesRequest, PullImageRequest, WatchImageStatusRequest,
+        image_service_client::ImageServiceClient, DeleteImageRequest, ImageState,
+        ListImagesRequest, PullImageRequest, WatchImageStatusRequest,
     },
     vm_service::{
         vm_service_client::VmServiceClient, CpuConfig, CreateVmRequest, DeleteVmRequest,
@@ -16,12 +17,13 @@ use proto_definitions::{
         VmEvent, VmState, VmStateChangedEvent,
     },
 };
+use std::env;
 use std::path::Path;
 use std::process::Command;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::UnixStream;
-use tokio::sync::OnceCell;
+use tokio::sync::OnceCell as TokioOnceCell;
 use tokio::time::timeout;
 use tokio_stream::StreamExt;
 use tonic::transport::{Channel, Endpoint, Uri};
@@ -31,7 +33,8 @@ use vm_service::{VM_API_SOCKET_DIR, VM_CH_BIN};
 const PUBLIC_SERVER_ADDRESS: &str = "http://[::1]:1337";
 const TEST_IMAGE_REF: &str = "ghcr.io/ironcore-dev/os-images/gardenlinux-ch-dev";
 
-static SERVER_RUNTIME: OnceCell<Arc<tokio::runtime::Runtime>> = OnceCell::const_new();
+static SERVER_RUNTIME: TokioOnceCell<Arc<tokio::runtime::Runtime>> = TokioOnceCell::const_new();
+static TEMP_DIR_GUARD: SyncOnceCell<tempfile::TempDir> = SyncOnceCell::new();
 
 async fn ensure_server() {
     SERVER_RUNTIME
@@ -41,6 +44,20 @@ async fn ensure_server() {
 
 async fn setup_server() -> Arc<tokio::runtime::Runtime> {
     let _ = env_logger::builder().is_test(true).try_init();
+
+    let temp_dir = TEMP_DIR_GUARD.get_or_init(|| {
+        tempfile::Builder::new()
+            .prefix("feos-test-")
+            .tempdir()
+            .expect("Failed to create temp dir")
+    });
+
+    let db_path = temp_dir.path().join("vms.db");
+    let db_url = format!("sqlite:{}", db_path.to_str().unwrap());
+
+    env::set_var("DATABASE_URL", &db_url);
+    info!("Using temporary database for tests: {}", db_url);
+
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
@@ -48,13 +65,17 @@ async fn setup_server() -> Arc<tokio::runtime::Runtime> {
 
     runtime.spawn(async {
         if let Err(e) = main_server::run_server(false).await {
-            error!("Test server failed to run: {}", e);
+            panic!("Test server failed to run: {}", e);
         }
     });
 
     info!("Waiting for the server to start...");
     for _ in 0..20 {
-        if let Ok(_) = Channel::from_static(PUBLIC_SERVER_ADDRESS).connect().await {
+        if Channel::from_static(PUBLIC_SERVER_ADDRESS)
+            .connect()
+            .await
+            .is_ok()
+        {
             info!("Server is up and running at {}", PUBLIC_SERVER_ADDRESS);
             return Arc::new(runtime);
         }
@@ -267,7 +288,7 @@ async fn test_hostname_retrieval() -> Result<()> {
     ensure_server().await;
     let (_, mut host_client) = get_public_clients().await?;
 
-    let response = host_client.hostname(Empty {}).await?;
+    let response = host_client.hostname(HostnameRequest {}).await?;
     let remote_hostname = response.into_inner().hostname;
     let local_hostname = unistd::gethostname()?
         .into_string()

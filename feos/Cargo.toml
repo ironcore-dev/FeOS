@@ -48,3 +48,4 @@ prost = { workspace = true }
 once_cell = "1.19"
 regex = "1.10"
 tower = { workspace = true }
+tempfile = "3.10.1"
