@@ -25,7 +25,7 @@ service ImageService {
   rpc ListImages(ListImagesRequest) returns (ListImagesResponse);
 
   // Removes a locally cached image.
-  rpc DeleteImage(DeleteImageRequest) returns (Empty);
+  rpc DeleteImage(DeleteImageRequest) returns (DeleteImageResponse);
 }
 
 // ===================================================================
@@ -86,3 +86,5 @@ message ListImagesResponse {
 message DeleteImageRequest {
   string image_uuid = 1;
 }
+
+message DeleteImageResponse {}

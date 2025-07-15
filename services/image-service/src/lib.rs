@@ -1,6 +1,7 @@
 use proto_definitions::image_service::{
-    DeleteImageRequest, Empty, ImageInfo, ImageState, ImageStatusResponse, ListImagesRequest,
-    ListImagesResponse, PullImageRequest, PullImageResponse, WatchImageStatusRequest,
+    DeleteImageRequest, DeleteImageResponse, ImageInfo, ImageState, ImageStatusResponse,
+    ListImagesRequest, ListImagesResponse, PullImageRequest, PullImageResponse,
+    WatchImageStatusRequest,
 };
 use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
@@ -34,7 +35,10 @@ pub enum Command {
         ListImagesRequest,
         oneshot::Sender<Result<ListImagesResponse, Status>>,
     ),
-    DeleteImage(DeleteImageRequest, oneshot::Sender<Result<Empty, Status>>),
+    DeleteImage(
+        DeleteImageRequest,
+        oneshot::Sender<Result<DeleteImageResponse, Status>>,
+    ),
 }
 
 #[derive(Debug)]
@@ -61,7 +65,7 @@ pub enum OrchestratorCommand {
     },
     DeleteImage {
         image_uuid: String,
-        responder: oneshot::Sender<Result<Empty, Status>>,
+        responder: oneshot::Sender<Result<DeleteImageResponse, Status>>,
     },
 }
 

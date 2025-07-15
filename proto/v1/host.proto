@@ -9,13 +9,15 @@ message Empty {
 // HostService provides information about the host system.
 service HostService {
   // Retrieves the hostname of the machine running the service.
-  rpc Hostname(Empty) returns (HostnameResponse);
+  rpc Hostname(HostnameRequest) returns (HostnameResponse);
 
   // Upgrades the running FeOS binary. This is a client-streaming RPC.
   // The first message MUST contain the UpgradeMetadata, and subsequent messages
   // MUST contain the binary data chunks.
   rpc UpgradeFeosBinary(stream UpgradeRequest) returns (UpgradeResponse);
 }
+
+message HostnameRequest {}
 
 message HostnameResponse {
   string hostname = 1;

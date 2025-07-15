@@ -7,8 +7,8 @@ use prost::Message;
 use proto_definitions::{
     host_service::{host_service_client::HostServiceClient, Empty},
     image_service::{
-        image_service_client::ImageServiceClient, DeleteImageRequest, ImageState,
-        ListImagesRequest, PullImageRequest, WatchImageStatusRequest,
+        image_service_client::ImageServiceClient, DeleteImageRequest, DeleteImageResponse,
+        ImageState, ListImagesRequest, PullImageRequest, WatchImageStatusRequest,
     },
     vm_service::{
         vm_service_client::VmServiceClient, CpuConfig, CreateVmRequest, DeleteVmRequest,

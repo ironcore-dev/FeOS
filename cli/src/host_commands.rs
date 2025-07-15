@@ -2,7 +2,8 @@ use anyhow::{Context, Result};
 use clap::{Args, Subcommand};
 use digest::Digest;
 use proto_definitions::host_service::{
-    host_service_client::HostServiceClient, upgrade_request, Empty, UpgradeMetadata, UpgradeRequest,
+    host_service_client::HostServiceClient, upgrade_request, HostnameRequest, UpgradeMetadata,
+    UpgradeRequest,
 };
 use sha2::Sha256;
 use std::path::PathBuf;
@@ -50,7 +51,7 @@ pub async fn handle_host_command(args: HostArgs) -> Result<()> {
 }
 
 async fn get_hostname(client: &mut HostServiceClient<Channel>) -> Result<()> {
-    let request = Empty {};
+    let request = HostnameRequest {};
     let response = client.hostname(request).await?.into_inner();
     println!("{}", response.hostname);
     Ok(())

@@ -1,7 +1,8 @@
 use crate::Command;
 use log::info;
 use proto_definitions::host_service::{
-    host_service_server::HostService, Empty, HostnameResponse, UpgradeRequest, UpgradeResponse,
+    host_service_server::HostService, HostnameRequest, HostnameResponse, UpgradeRequest,
+    UpgradeResponse,
 };
 use tokio::sync::{mpsc, oneshot};
 use tonic::{Request, Response, Status, Streaming};
@@ -20,7 +21,7 @@ impl HostApiHandler {
 impl HostService for HostApiHandler {
     async fn hostname(
         &self,
-        _request: Request<Empty>,
+        _request: Request<HostnameRequest>,
     ) -> Result<Response<HostnameResponse>, Status> {
         info!("HOST_API_HANDLER: Received Hostname request.");
         let (resp_tx, resp_rx) = oneshot::channel();

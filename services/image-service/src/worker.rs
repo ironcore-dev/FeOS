@@ -6,7 +6,8 @@ use oci_distribution::{
     secrets, Client, ParseError, Reference,
 };
 use proto_definitions::image_service::{
-    Empty, ImageInfo, ImageState, ImageStatusResponse, ListImagesResponse, PullImageResponse,
+    DeleteImageResponse, ImageInfo, ImageState, ImageStatusResponse, ListImagesResponse,
+    PullImageResponse,
 };
 use std::collections::HashMap;
 use tokio::sync::{broadcast, mpsc, oneshot};
@@ -157,7 +158,7 @@ impl Orchestrator {
                 }
 
                 self.broadcast_state_change(image_uuid, ImageState::NotFound);
-                let _ = responder.send(Ok(Empty {}));
+                let _ = responder.send(Ok(DeleteImageResponse {}));
             }
             OrchestratorCommand::WatchImageStatus {
                 image_uuid,
