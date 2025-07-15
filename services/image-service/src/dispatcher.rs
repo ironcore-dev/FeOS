@@ -41,10 +41,12 @@ impl ImageServiceDispatcher {
                 image_uuid: req.image_uuid,
                 responder,
             },
-            Command::WatchImageStatus(req, stream_sender) => OrchestratorCommand::WatchImageStatus {
-                image_uuid: req.image_uuid,
-                stream_sender,
-            },
+            Command::WatchImageStatus(req, stream_sender) => {
+                OrchestratorCommand::WatchImageStatus {
+                    image_uuid: req.image_uuid,
+                    stream_sender,
+                }
+            }
         };
 
         if self.orchestrator_tx.send(orchestrator_cmd).await.is_err() {

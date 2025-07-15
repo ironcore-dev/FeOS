@@ -11,24 +11,25 @@ use vm_service::VM_CONSOLE_DIR;
 
 use log::{error, info, warn};
 use network::configure_network_devices;
+use nix::libc;
 use nix::unistd::Uid;
 use proto_definitions::{
     host_service::host_service_server::HostServiceServer,
     image_service::image_service_server::ImageServiceServer,
     vm_service::vm_service_server::VmServiceServer,
 };
-use std::path::Path;
-use tokio::fs::{self, File};
 use std::env;
-use nix::libc;
 use std::ffi::CString;
 use std::os::unix::ffi::OsStringExt;
 use std::os::unix::fs::PermissionsExt;
+use std::path::Path;
+use tokio::fs::{self, File};
 use tokio::{net::UnixListener, sync::mpsc};
 use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::Server;
 use vm_service::{
-    api::VmApiHandler, dispatcher::VmServiceDispatcher, Command as VmCommand, VM_API_SOCKET_DIR, DEFAULT_VM_DB_URL
+    api::VmApiHandler, dispatcher::VmServiceDispatcher, Command as VmCommand, DEFAULT_VM_DB_URL,
+    VM_API_SOCKET_DIR,
 };
 
 pub async fn run_server(restarted_after_upgrade: bool) -> Result<()> {
@@ -76,11 +77,17 @@ pub async fn run_server(restarted_after_upgrade: bool) -> Result<()> {
     if let Some(db_path_str) = db_url.strip_prefix("sqlite:") {
         let db_path = Path::new(db_path_str);
         if let Some(db_dir) = db_path.parent() {
-            info!("MAIN: Ensuring database directory '{}' exists...", db_dir.display());
+            info!(
+                "MAIN: Ensuring database directory '{}' exists...",
+                db_dir.display()
+            );
             fs::create_dir_all(db_dir).await?;
         }
         if !db_path.exists() {
-            info!("MAIN: Database file does not exist, creating at '{}'...", db_path.display());
+            info!(
+                "MAIN: Database file does not exist, creating at '{}'...",
+                db_path.display()
+            );
             File::create(db_path).await?;
         }
     }

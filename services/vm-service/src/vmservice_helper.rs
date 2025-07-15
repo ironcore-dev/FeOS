@@ -128,7 +128,10 @@ pub(crate) async fn bridge_console_streams(
                     }
                 },
                 Err(e) => {
-                    warn!("VMM_HELPER (Console {}): Error reading from gRPC client stream: {}", &write_task_vm_id, e);
+                    warn!(
+                        "VMM_HELPER (Console {}): Error reading from gRPC client stream: {}",
+                        &write_task_vm_id, e
+                    );
                     break;
                 }
             }

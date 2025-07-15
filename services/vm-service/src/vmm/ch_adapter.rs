@@ -1,13 +1,7 @@
 use super::{broadcast_state_change_event, Hypervisor, VmmError};
-use crate::{
-    vmservice_helper, VmEventWrapper, IMAGE_DIR, VM_API_SOCKET_DIR, VM_CONSOLE_DIR,
-};
+use crate::{vmservice_helper, VmEventWrapper, IMAGE_DIR, VM_API_SOCKET_DIR, VM_CONSOLE_DIR};
 use cloud_hypervisor_client::{
-    apis::{
-        configuration::Configuration,
-        DefaultApi,
-        DefaultApiClient,
-    },
+    apis::{configuration::Configuration, DefaultApi, DefaultApiClient},
     models::{
         self, console_config::Mode as ConsoleMode, vm_info::State as ChVmState,
         VmmPingResponse as ChPingResponse,
@@ -23,12 +17,11 @@ use proto_definitions::{
         WatchImageStatusRequest,
     },
     vm_service::{
-        AttachDiskRequest, AttachDiskResponse, CreateVmRequest, DeleteVmRequest,
-        DeleteVmResponse, GetVmRequest, PauseVmRequest, PauseVmResponse, PingVmRequest,
-        PingVmResponse, RemoveDiskRequest, RemoveDiskResponse, ResumeVmRequest,
-        ResumeVmResponse, ShutdownVmRequest, ShutdownVmResponse, StartVmRequest,
-        StartVmResponse, StreamVmEventsRequest, VmEvent, VmInfo, VmState,
-        VmStateChangedEvent,
+        AttachDiskRequest, AttachDiskResponse, CreateVmRequest, DeleteVmRequest, DeleteVmResponse,
+        GetVmRequest, PauseVmRequest, PauseVmResponse, PingVmRequest, PingVmResponse,
+        RemoveDiskRequest, RemoveDiskResponse, ResumeVmRequest, ResumeVmResponse,
+        ShutdownVmRequest, ShutdownVmResponse, StartVmRequest, StartVmResponse,
+        StreamVmEventsRequest, VmEvent, VmInfo, VmState, VmStateChangedEvent,
     },
 };
 use std::io;
@@ -166,9 +159,7 @@ impl Hypervisor for CloudHypervisorAdapter {
             TokioCommand::new(&self.ch_binary_path)
                 .arg("--api-socket")
                 .arg(&api_socket_path)
-                .pre_exec(|| {
-                    unistd::setsid().map(|_pid| ()).map_err(io::Error::other)
-                })
+                .pre_exec(|| unistd::setsid().map(|_pid| ()).map_err(io::Error::other))
                 .spawn()
         }
         .map_err(|e| VmmError::ProcessSpawnFailed(e.to_string()))?;
@@ -419,9 +410,7 @@ impl Hypervisor for CloudHypervisorAdapter {
                         }
                     }
                     Err(broadcast::error::RecvError::Lagged(n)) => {
-                        warn!(
-                            "Event stream for VM {vm_id_to_watch} lagged by {n} messages."
-                        );
+                        warn!("Event stream for VM {vm_id_to_watch} lagged by {n} messages.");
                     }
                     Err(broadcast::error::RecvError::Closed) => {
                         info!(

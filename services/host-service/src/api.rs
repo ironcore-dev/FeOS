@@ -1,9 +1,7 @@
 use crate::Command;
 use log::info;
-use proto_definitions::{
-    host_service::{
-        host_service_server::HostService, HostnameResponse, UpgradeRequest, UpgradeResponse, Empty,
-    },
+use proto_definitions::host_service::{
+    host_service_server::HostService, Empty, HostnameResponse, UpgradeRequest, UpgradeResponse,
 };
 use tokio::sync::{mpsc, oneshot};
 use tonic::{Request, Response, Status, Streaming};
@@ -27,14 +25,17 @@ impl HostService for HostApiHandler {
         info!("HOST_API_HANDLER: Received Hostname request.");
         let (resp_tx, resp_rx) = oneshot::channel();
         let cmd = Command::GetHostname(resp_tx);
-        self.dispatcher_tx.send(cmd).await.map_err(|e| {
-            Status::internal(format!("Failed to send command to dispatcher: {e}"))
-        })?;
+        self.dispatcher_tx
+            .send(cmd)
+            .await
+            .map_err(|e| Status::internal(format!("Failed to send command to dispatcher: {e}")))?;
 
         match resp_rx.await {
             Ok(Ok(result)) => Ok(Response::new(result)),
             Ok(Err(status)) => Err(status),
-            Err(_) => Err(Status::internal("Dispatcher task dropped response channel.")),
+            Err(_) => Err(Status::internal(
+                "Dispatcher task dropped response channel.",
+            )),
         }
     }
 
@@ -45,14 +46,17 @@ impl HostService for HostApiHandler {
         info!("HOST_API_HANDLER: Received UpgradeFeosBinary request.");
         let (resp_tx, resp_rx) = oneshot::channel();
         let cmd = Command::UpgradeFeosBinary(Box::new(request.into_inner()), resp_tx);
-        self.dispatcher_tx.send(cmd).await.map_err(|e| {
-            Status::internal(format!("Failed to send command to dispatcher: {e}"))
-        })?;
+        self.dispatcher_tx
+            .send(cmd)
+            .await
+            .map_err(|e| Status::internal(format!("Failed to send command to dispatcher: {e}")))?;
 
         match resp_rx.await {
             Ok(Ok(result)) => Ok(Response::new(result)),
             Ok(Err(status)) => Err(status),
-            Err(_) => Err(Status::internal("Dispatcher task dropped response channel.")),
+            Err(_) => Err(Status::internal(
+                "Dispatcher task dropped response channel.",
+            )),
         }
     }
 }

@@ -5,10 +5,10 @@ use crossterm::tty::IsTty;
 use prost::Message;
 use proto_definitions::vm_service::{
     stream_vm_console_request as console_input, vm_service_client::VmServiceClient,
-    AttachConsoleMessage, AttachDiskRequest, ConsoleData, CreateVmRequest, DeleteVmRequest,
-    DiskConfig, GetVmRequest, ListVmsRequest, MemoryConfig, PauseVmRequest, PingVmRequest,
-    RemoveDiskRequest, ResumeVmRequest, ShutdownVmRequest, StartVmRequest, StreamVmConsoleRequest,
-    StreamVmEventsRequest, VmConfig, VmState, VmStateChangedEvent, CpuConfig,
+    AttachConsoleMessage, AttachDiskRequest, ConsoleData, CpuConfig, CreateVmRequest,
+    DeleteVmRequest, DiskConfig, GetVmRequest, ListVmsRequest, MemoryConfig, PauseVmRequest,
+    PingVmRequest, RemoveDiskRequest, ResumeVmRequest, ShutdownVmRequest, StartVmRequest,
+    StreamVmConsoleRequest, StreamVmEventsRequest, VmConfig, VmState, VmStateChangedEvent,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::mpsc;
@@ -149,10 +149,7 @@ async fn create_vm(
         "Use 'feos-cli vm events {}' to watch its progress.",
         response.vm_id
     );
-    println!(
-        "Then 'feos-cli vm start {}' to start it.",
-        response.vm_id
-    );
+    println!("Then 'feos-cli vm start {}' to start it.", response.vm_id);
 
     Ok(())
 }
@@ -429,8 +426,6 @@ async fn remove_disk(
         device_id: device_id.clone(),
     };
     client.remove_disk(request).await?;
-    println!(
-        "Disk remove request sent for device {device_id} on VM {vm_id}"
-    );
+    println!("Disk remove request sent for device {device_id} on VM {vm_id}");
     Ok(())
 }

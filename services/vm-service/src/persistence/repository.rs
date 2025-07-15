@@ -88,8 +88,13 @@ impl VmRepository {
 
         let mut records = Vec::with_capacity(rows.len());
         for row in rows {
-            let config = VmConfig::decode(&*row.config_blob)
-                .map_err(|e| anyhow!("Failed to decode VmConfig blob for vm_id {}: {}", row.vm_id, e))?;
+            let config = VmConfig::decode(&*row.config_blob).map_err(|e| {
+                anyhow!(
+                    "Failed to decode VmConfig blob for vm_id {}: {}",
+                    row.vm_id,
+                    e
+                )
+            })?;
 
             let state = string_to_vm_state(&row.state)?;
 

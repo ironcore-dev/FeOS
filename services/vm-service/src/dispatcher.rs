@@ -5,11 +5,11 @@ use crate::{
 };
 use anyhow::Result;
 use log::{error, info, warn};
+use prost::Message;
 use proto_definitions::{
     image_service::PullImageRequest,
     vm_service::{ListVmsResponse, VmInfo, VmState, VmStateChangedEvent},
 };
-use prost::Message;
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc};
 use tonic::Status;
@@ -67,9 +67,7 @@ impl VmServiceDispatcher {
             })?;
 
         let image_uuid = response.into_inner().image_uuid;
-        info!(
-            "VM_DISPATCHER: Image pull for '{image_ref}' initiated. UUID: {image_uuid}"
-        );
+        info!("VM_DISPATCHER: Image pull for '{image_ref}' initiated. UUID: {image_uuid}");
         Ok(image_uuid)
     }
 
@@ -117,9 +115,7 @@ impl VmServiceDispatcher {
                             .update_vm_status(vm_id_uuid, new_state, &state_change.reason)
                             .await
                         {
-                            error!(
-                                "DB_UPDATE: Failed to update status for VM {vm_id_uuid}: {e}"
-                            );
+                            error!("DB_UPDATE: Failed to update status for VM {vm_id_uuid}: {e}");
                         }
                     }
                     Err(e) => {

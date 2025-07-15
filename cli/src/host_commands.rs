@@ -2,8 +2,7 @@ use anyhow::{Context, Result};
 use clap::{Args, Subcommand};
 use digest::Digest;
 use proto_definitions::host_service::{
-    host_service_client::HostServiceClient, upgrade_request, Empty, UpgradeMetadata,
-    UpgradeRequest,
+    host_service_client::HostServiceClient, upgrade_request, Empty, UpgradeMetadata, UpgradeRequest,
 };
 use sha2::Sha256;
 use std::path::PathBuf;
@@ -79,7 +78,9 @@ async fn upgrade_feos(client: &mut HostServiceClient<Channel>, binary_path: Path
     let request_stream = ReceiverStream::new(rx);
 
     let upload_task = tokio::spawn(async move {
-        let metadata = UpgradeMetadata { sha256_sum: checksum };
+        let metadata = UpgradeMetadata {
+            sha256_sum: checksum,
+        };
         let metadata_req = UpgradeRequest {
             payload: Some(upgrade_request::Payload::Metadata(metadata)),
         };

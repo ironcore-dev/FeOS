@@ -34,10 +34,7 @@ pub enum Command {
         ListImagesRequest,
         oneshot::Sender<Result<ListImagesResponse, Status>>,
     ),
-    DeleteImage(
-        DeleteImageRequest,
-        oneshot::Sender<Result<Empty, Status>>,
-    ),
+    DeleteImage(DeleteImageRequest, oneshot::Sender<Result<Empty, Status>>),
 }
 
 #[derive(Debug)]

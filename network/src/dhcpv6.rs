@@ -1,7 +1,9 @@
 use dhcproto::v6::*;
 use futures::stream::TryStreamExt;
 use log::{error, info, warn};
-use netlink_packet_route::route::{RouteAddress, RouteAttribute, RouteProtocol, RouteScope, RouteType};
+use netlink_packet_route::route::{
+    RouteAddress, RouteAttribute, RouteProtocol, RouteScope, RouteType,
+};
 use netlink_packet_route::AddressFamily;
 use nix::net::if_::if_nametoindex;
 use pnet::packet::icmpv6::Icmpv6Code;
@@ -109,7 +111,10 @@ pub fn send_neigh_solicitation(
 
     ethernet_packet.set_payload(&ipv6_and_icmp_buffer);
 
-    if tx.send_to(ethernet_packet.packet(), Some(interface.clone())).is_none() {
+    if tx
+        .send_to(ethernet_packet.packet(), Some(interface.clone()))
+        .is_none()
+    {
         error!("Failed to send neighbor solicitation");
     }
 }
@@ -146,7 +151,10 @@ fn send_router_solicitation(interface: &NetworkInterface, tx: &mut dyn datalink:
 
     ethernet_packet.set_payload(&ipv6_and_icmp_buffer);
 
-    if tx.send_to(ethernet_packet.packet(), Some(interface.clone())).is_none() {
+    if tx
+        .send_to(ethernet_packet.packet(), Some(interface.clone()))
+        .is_none()
+    {
         error!("Failed to send router solicitation");
     }
 }
@@ -154,7 +162,9 @@ fn send_router_solicitation(interface: &NetworkInterface, tx: &mut dyn datalink:
 pub fn is_dhcpv6_needed(interface_name: String, ignore_ra_flag: bool) -> Option<Ipv6Addr> {
     let mut sender_ipv6_address: Option<Ipv6Addr> = None;
     let interfaces = datalink::interfaces();
-    let interface = interfaces.into_iter().find(|iface| iface.name == interface_name)?;
+    let interface = interfaces
+        .into_iter()
+        .find(|iface| iface.name == interface_name)?;
     let (mut tx, mut rx) = match datalink::channel(&interface, Default::default()) {
         Ok(Ethernet(tx, rx)) => (tx, rx),
         _ => return None,
@@ -171,7 +181,8 @@ pub fn is_dhcpv6_needed(interface_name: String, ignore_ra_flag: bool) -> Option<
                     sender_ipv6_address = Some(ipv6_packet.get_source());
                     if let Some(icmp_packet) = Icmpv6Packet::new(ipv6_packet.payload()) {
                         if icmp_packet.get_icmpv6_type() == Icmpv6Types::RouterAdvert {
-                            if let Some(ra_packet) = RouterAdvertPacket::new(ipv6_packet.payload()) {
+                            if let Some(ra_packet) = RouterAdvertPacket::new(ipv6_packet.payload())
+                            {
                                 if (ra_packet.get_flags() & 0xC0) == 0xC0 || ignore_ra_flag {
                                     break;
                                 }
@@ -424,8 +435,19 @@ pub async fn set_ipv6_address(
     ipv6_addr: Ipv6Addr,
     pfx_len: u8,
 ) -> Result<(), Error> {
-    let link = handle.link().get().match_name(interface_name.to_string()).execute().try_next().await?.ok_or(Error::RequestFailed)?;
-    handle.address().add(link.header.index, ipv6_addr.into(), pfx_len).execute().await
+    let link = handle
+        .link()
+        .get()
+        .match_name(interface_name.to_string())
+        .execute()
+        .try_next()
+        .await?
+        .ok_or(Error::RequestFailed)?;
+    handle
+        .address()
+        .add(link.header.index, ipv6_addr.into(), pfx_len)
+        .execute()
+        .await
 }
 
 pub async fn get_interface_index(interface_name: String) -> io::Result<u32> {
@@ -445,7 +467,12 @@ fn create_multicast_socket(
     socket.set_reuse_address(true)?;
     socket.set_multicast_if_v6(interface_index)?;
     socket.join_multicast_v6(&"ff02::1:2".parse()?, interface_index)?;
-    socket.bind(&SockAddr::from(SocketAddrV6::new(Ipv6Addr::UNSPECIFIED, lport, 0, 0)))?;
+    socket.bind(&SockAddr::from(SocketAddrV6::new(
+        Ipv6Addr::UNSPECIFIED,
+        lport,
+        0,
+        0,
+    )))?;
     socket.bind_device(Some(interface_name.as_bytes()))?;
     socket.set_nonblocking(true)?;
     Ok(UdpSocket::from_std(socket.into())?)
@@ -460,7 +487,14 @@ pub async fn add_ipv6_route(
     metric: u32,
     route_type: RouteType,
 ) -> Result<(), Error> {
-    let link = handle.link().get().match_name(interface_name.to_string()).execute().try_next().await?.ok_or(Error::RequestFailed)?;
+    let link = handle
+        .link()
+        .get()
+        .match_name(interface_name.to_string())
+        .execute()
+        .try_next()
+        .await?
+        .ok_or(Error::RequestFailed)?;
     let mut req = handle.route().add();
     let msg = req.message_mut();
     msg.header.address_family = AddressFamily::Inet6;
@@ -468,10 +502,12 @@ pub async fn add_ipv6_route(
     msg.header.protocol = RouteProtocol::Static;
     msg.header.kind = route_type;
     msg.header.destination_prefix_length = prefix_length;
-    msg.attributes.push(RouteAttribute::Destination(RouteAddress::from(destination)));
+    msg.attributes
+        .push(RouteAttribute::Destination(RouteAddress::from(destination)));
     if route_type == RouteType::Unicast {
         if let Some(gw) = gateway {
-            msg.attributes.push(RouteAttribute::Gateway(RouteAddress::from(gw)));
+            msg.attributes
+                .push(RouteAttribute::Gateway(RouteAddress::from(gw)));
         }
     }
     msg.attributes.push(RouteAttribute::Oif(link.header.index));
@@ -484,7 +520,14 @@ pub async fn set_ipv6_gateway(
     interface_name: &str,
     ipv6_gateway: Ipv6Addr,
 ) -> Result<(), Error> {
-    let link = handle.link().get().match_name(interface_name.to_string()).execute().try_next().await?.ok_or(Error::RequestFailed)?;
+    let link = handle
+        .link()
+        .get()
+        .match_name(interface_name.to_string())
+        .execute()
+        .try_next()
+        .await?
+        .ok_or(Error::RequestFailed)?;
     let mut req = handle.route().add();
     let msg = req.message_mut();
     msg.header.address_family = AddressFamily::Inet6;
@@ -492,7 +535,8 @@ pub async fn set_ipv6_gateway(
     msg.header.protocol = RouteProtocol::Static;
     msg.header.kind = RouteType::Unicast;
     msg.header.destination_prefix_length = 0;
-    msg.attributes.push(RouteAttribute::Gateway(RouteAddress::Inet6(ipv6_gateway)));
+    msg.attributes
+        .push(RouteAttribute::Gateway(RouteAddress::Inet6(ipv6_gateway)));
     msg.attributes.push(RouteAttribute::Oif(link.header.index));
     req.execute().await
 }

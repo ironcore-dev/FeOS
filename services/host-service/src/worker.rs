@@ -25,7 +25,9 @@ pub async fn handle_hostname(responder: oneshot::Sender<Result<HostnameResponse,
     info!("HOST_WORKER: Processing Hostname request.");
     let result = match unistd::gethostname() {
         Ok(host) => {
-            let hostname = host.into_string().unwrap_or_else(|_| "Invalid UTF-8".into());
+            let hostname = host
+                .into_string()
+                .unwrap_or_else(|_| "Invalid UTF-8".into());
             Ok(HostnameResponse { hostname })
         }
         Err(e) => {
@@ -36,7 +38,9 @@ pub async fn handle_hostname(responder: oneshot::Sender<Result<HostnameResponse,
     };
 
     if responder.send(result).is_err() {
-        error!("HOST_WORKER: Failed to send response for Hostname. API handler may have timed out.");
+        error!(
+            "HOST_WORKER: Failed to send response for Hostname. API handler may have timed out."
+        );
     }
 }
 
@@ -50,7 +54,10 @@ pub async fn handle_upgrade(
     let expected_checksum = match stream.next().await {
         Some(Ok(req)) => match req.payload {
             Some(upgrade_request::Payload::Metadata(meta)) => {
-                info!("HOST_WORKER: Received upgrade metadata. Checksum: {}", meta.sha256_sum);
+                info!(
+                    "HOST_WORKER: Received upgrade metadata. Checksum: {}",
+                    meta.sha256_sum
+                );
                 meta.sha256_sum
             }
             _ => {
@@ -123,12 +130,16 @@ pub async fn handle_upgrade(
 
     let mut first_bytes = [0u8; 4];
     if file_to_hash.read_exact(&mut first_bytes).await.is_err() {
-        let _ = responder.send(Err(Status::invalid_argument("Received file is too small to be a valid binary.")));
+        let _ = responder.send(Err(Status::invalid_argument(
+            "Received file is too small to be a valid binary.",
+        )));
         return;
     }
 
     if first_bytes != ELF_MAGIC {
-         let _ = responder.send(Err(Status::invalid_argument("Uploaded file is not a valid ELF binary.")));
+        let _ = responder.send(Err(Status::invalid_argument(
+            "Uploaded file is not a valid ELF binary.",
+        )));
         return;
     }
     hasher.update(first_bytes);
@@ -149,9 +160,8 @@ pub async fn handle_upgrade(
     let actual_checksum = hex::encode(hasher.finalize());
 
     if actual_checksum != expected_checksum {
-        let msg = format!(
-            "Checksum mismatch. Expected: {expected_checksum}, Got: {actual_checksum}",
-        );
+        let msg =
+            format!("Checksum mismatch. Expected: {expected_checksum}, Got: {actual_checksum}",);
         warn!("HOST_WORKER: {msg}");
         let _ = responder.send(Err(Status::invalid_argument(msg)));
         return;

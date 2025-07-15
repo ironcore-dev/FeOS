@@ -4,11 +4,7 @@ use proto_definitions::image_service::ImageState;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
-use tokio::{
-    fs,
-    io::AsyncWriteExt,
-    sync::mpsc,
-};
+use tokio::{fs, io::AsyncWriteExt, sync::mpsc};
 
 #[derive(Serialize, Deserialize)]
 struct ImageMetadata {
@@ -90,8 +86,8 @@ impl FileStore {
         let metadata = ImageMetadata {
             image_ref: image_ref.to_string(),
         };
-        let metadata_json = serde_json::to_string_pretty(&metadata)
-            .map_err(std::io::Error::other)?;
+        let metadata_json =
+            serde_json::to_string_pretty(&metadata).map_err(std::io::Error::other)?;
         fs::write(final_dir.join("metadata.json"), metadata_json).await?;
         Ok(())
     }
@@ -108,7 +104,9 @@ impl FileStore {
 
         while let Some(entry) = entries.next_entry().await.ok().flatten() {
             let path = entry.path();
-            if !path.is_dir() { continue; }
+            if !path.is_dir() {
+                continue;
+            }
 
             if let Some(uuid) = path.file_name().and_then(|s| s.to_str()) {
                 let metadata_path = path.join("metadata.json");
@@ -124,7 +122,7 @@ impl FileStore {
                             };
                             store.insert(uuid.to_string(), image_info);
                         } else {
-                             warn!("FILESTORE_ACTOR: Could not parse metadata for {uuid}");
+                            warn!("FILESTORE_ACTOR: Could not parse metadata for {uuid}");
                         }
                     } else {
                         warn!("FILESTORE_ACTOR: Could not read metadata for {uuid}");
@@ -132,7 +130,10 @@ impl FileStore {
                 }
             }
         }
-        info!("FILESTORE_ACTOR: Filesystem scan complete. Found {} images.", store.len());
+        info!(
+            "FILESTORE_ACTOR: Filesystem scan complete. Found {} images.",
+            store.len()
+        );
         store
     }
 }

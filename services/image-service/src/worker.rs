@@ -1,6 +1,10 @@
 use crate::{FileCommand, ImageStateEvent, OrchestratorCommand};
 use log::{error, info, warn};
-use oci_distribution::{errors::OciDistributionError, secrets, Client, ParseError, Reference, client::{ClientConfig, ClientProtocol}};
+use oci_distribution::{
+    client::{ClientConfig, ClientProtocol},
+    errors::OciDistributionError,
+    secrets, Client, ParseError, Reference,
+};
 use proto_definitions::image_service::{
     Empty, ImageInfo, ImageState, ImageStatusResponse, ListImagesResponse, PullImageResponse,
 };
@@ -41,7 +45,12 @@ impl Orchestrator {
 
     pub async fn run(mut self) {
         let (responder, resp_rx) = oneshot::channel();
-        if self.filestore_tx.send(FileCommand::ScanExistingImages { responder }).await.is_ok() {
+        if self
+            .filestore_tx
+            .send(FileCommand::ScanExistingImages { responder })
+            .await
+            .is_ok()
+        {
             if let Ok(initial_store) = resp_rx.await {
                 self.store = initial_store;
             }
@@ -56,7 +65,10 @@ impl Orchestrator {
 
     async fn handle_command(&mut self, cmd: OrchestratorCommand) {
         match cmd {
-            OrchestratorCommand::PullImage { image_ref, responder } => {
+            OrchestratorCommand::PullImage {
+                image_ref,
+                responder,
+            } => {
                 let image_uuid = Uuid::new_v4().to_string();
                 info!("ORCHESTRATOR: Start pull for '{image_ref}', assigned UUID {image_uuid}");
 
@@ -70,7 +82,9 @@ impl Orchestrator {
                 );
                 self.broadcast_state_change(image_uuid.clone(), ImageState::Downloading);
 
-                let _ = responder.send(Ok(PullImageResponse { image_uuid: image_uuid.clone() }));
+                let _ = responder.send(Ok(PullImageResponse {
+                    image_uuid: image_uuid.clone(),
+                }));
 
                 tokio::spawn(pull_oci_image(
                     self.command_tx.clone(),
@@ -78,7 +92,11 @@ impl Orchestrator {
                     image_ref,
                 ));
             }
-            OrchestratorCommand::FinalizePull { image_uuid, image_ref, image_data } => {
+            OrchestratorCommand::FinalizePull {
+                image_uuid,
+                image_ref,
+                image_data,
+            } => {
                 info!("ORCHESTRATOR: Finalizing pull for {image_uuid}");
                 let (responder, resp_rx) = oneshot::channel();
                 let file_cmd = FileCommand::StoreImage {
@@ -117,7 +135,10 @@ impl Orchestrator {
                 let images = self.store.values().cloned().collect();
                 let _ = responder.send(Ok(ListImagesResponse { images }));
             }
-            OrchestratorCommand::DeleteImage { image_uuid, responder } => {
+            OrchestratorCommand::DeleteImage {
+                image_uuid,
+                responder,
+            } => {
                 info!("ORCHESTRATOR: Deleting image {image_uuid}");
                 self.store.remove(&image_uuid);
 
@@ -138,13 +159,16 @@ impl Orchestrator {
                 self.broadcast_state_change(image_uuid, ImageState::NotFound);
                 let _ = responder.send(Ok(Empty {}));
             }
-            OrchestratorCommand::WatchImageStatus { image_uuid, stream_sender } => {
+            OrchestratorCommand::WatchImageStatus {
+                image_uuid,
+                stream_sender,
+            } => {
                 let initial_state = self
                     .store
                     .get(&image_uuid)
                     .map(|info| ImageState::try_from(info.state).unwrap_or(ImageState::Unspecified))
                     .unwrap_or(ImageState::NotFound);
-                
+
                 tokio::spawn(watch_image_status_stream(
                     image_uuid,
                     initial_state,
@@ -186,11 +210,14 @@ impl From<PullError> for String {
 async fn download_layer_data(image_ref: &str) -> Result<Vec<u8>, PullError> {
     info!("WORKER(pull): fetching image: {image_ref}");
     let reference = Reference::try_from(image_ref.to_string()).map_err(PullError::Parse)?;
-    let accepted_media_types = vec![ROOTFS_MEDIA_TYPE, SQUASHFS_MEDIA_TYPE, INITRAMFS_MEDIA_TYPE, VMLINUZ_MEDIA_TYPE];
-
-    let insecure_registries = vec![
-        "ghcr.io:5000".to_string(),
+    let accepted_media_types = vec![
+        ROOTFS_MEDIA_TYPE,
+        SQUASHFS_MEDIA_TYPE,
+        INITRAMFS_MEDIA_TYPE,
+        VMLINUZ_MEDIA_TYPE,
     ];
+
+    let insecure_registries = vec!["ghcr.io:5000".to_string()];
 
     let config = ClientConfig {
         protocol: ClientProtocol::HttpsExcept(insecure_registries),
@@ -200,7 +227,11 @@ async fn download_layer_data(image_ref: &str) -> Result<Vec<u8>, PullError> {
     let client = Client::new(config);
 
     let image_data = client
-        .pull(&reference, &secrets::RegistryAuth::Anonymous, accepted_media_types)
+        .pull(
+            &reference,
+            &secrets::RegistryAuth::Anonymous,
+            accepted_media_types,
+        )
         .await
         .map_err(PullError::Oci)?;
     info!("WORKER(pull): image data pulled for {image_ref}");
@@ -252,7 +283,11 @@ pub async fn watch_image_status_stream(
 
     let initial_response = ImageStatusResponse {
         state: initial_state as i32,
-        progress_percent: if initial_state == ImageState::Ready { 100 } else { 0 },
+        progress_percent: if initial_state == ImageState::Ready {
+            100
+        } else {
+            0
+        },
         message: format!("Initial state: {initial_state:?}"),
     };
     if stream_sender.send(Ok(initial_response)).await.is_err() {
@@ -260,7 +295,10 @@ pub async fn watch_image_status_stream(
         return;
     }
 
-    if matches!(initial_state, ImageState::Ready | ImageState::PullFailed | ImageState::NotFound) {
+    if matches!(
+        initial_state,
+        ImageState::Ready | ImageState::PullFailed | ImageState::NotFound
+    ) {
         info!("WORKER(watch): Closing stream for {image_uuid_to_watch} due to terminal initial state.");
         return;
     }
@@ -269,10 +307,17 @@ pub async fn watch_image_status_stream(
         match broadcast_rx.recv().await {
             Ok(event) => {
                 if event.image_uuid == image_uuid_to_watch {
-                    info!("WORKER(watch): Got relevant event for {image_uuid_to_watch}: {:?}", event.state);
+                    info!(
+                        "WORKER(watch): Got relevant event for {image_uuid_to_watch}: {:?}",
+                        event.state
+                    );
                     let response = ImageStatusResponse {
                         state: event.state as i32,
-                        progress_percent: if event.state == ImageState::Ready { 100 } else { 0 },
+                        progress_percent: if event.state == ImageState::Ready {
+                            100
+                        } else {
+                            0
+                        },
                         message: format!("New state: {:?}", event.state),
                     };
 
@@ -281,7 +326,10 @@ pub async fn watch_image_status_stream(
                         break;
                     }
 
-                    if matches!(event.state, ImageState::Ready | ImageState::PullFailed | ImageState::NotFound) {
+                    if matches!(
+                        event.state,
+                        ImageState::Ready | ImageState::PullFailed | ImageState::NotFound
+                    ) {
                         info!("WORKER(watch): Reached terminal state. Closing watch for {image_uuid_to_watch}");
                         break;
                     }

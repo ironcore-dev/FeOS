@@ -97,9 +97,7 @@ pub async fn configure_network_devices() -> Result<Option<(Ipv6Addr, u8)>, Strin
                 } else {
                     info!("No prefix delegation received.");
                 }
-                info!(
-                    "Setting IPv6 gateway to {ipv6_gateway} on interface {interface_name}"
-                );
+                info!("Setting IPv6 gateway to {ipv6_gateway} on interface {interface_name}");
                 if let Err(e) = set_ipv6_gateway(&handle, &interface_name, ipv6_gateway).await {
                     warn!("Failed to set IPv6 gateway: {e}");
                 }

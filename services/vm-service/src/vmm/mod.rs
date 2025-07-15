@@ -124,9 +124,7 @@ pub async fn broadcast_state_change_event(
     };
 
     if broadcast_tx.send(VmEventWrapper(event)).is_err() {
-        log::warn!(
-            "Failed to broadcast event for VM '{vm_id}': no active listeners."
-        );
+        log::warn!("Failed to broadcast event for VM '{vm_id}': no active listeners.");
     }
 }
 

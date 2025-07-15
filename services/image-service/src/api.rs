@@ -7,7 +7,7 @@ use proto_definitions::image_service::{
 };
 use std::pin::Pin;
 use tokio::sync::{mpsc, oneshot};
-use tokio_stream::{Stream, wrappers::ReceiverStream};
+use tokio_stream::{wrappers::ReceiverStream, Stream};
 use tonic::{Request, Response, Status};
 
 pub struct ImageApiHandler {
@@ -32,14 +32,17 @@ impl ImageService for ImageApiHandler {
         info!("IMAGE_API_HANDLER: Received PullImage request.");
         let (resp_tx, resp_rx) = oneshot::channel();
         let cmd = Command::PullImage(request.into_inner(), resp_tx);
-        self.dispatcher_tx.send(cmd).await.map_err(|e| {
-            Status::internal(format!("Failed to send command to dispatcher: {e}"))
-        })?;
+        self.dispatcher_tx
+            .send(cmd)
+            .await
+            .map_err(|e| Status::internal(format!("Failed to send command to dispatcher: {e}")))?;
 
         match resp_rx.await {
             Ok(Ok(result)) => Ok(Response::new(result)),
             Ok(Err(status)) => Err(status),
-            Err(_) => Err(Status::internal("Dispatcher task dropped response channel.")),
+            Err(_) => Err(Status::internal(
+                "Dispatcher task dropped response channel.",
+            )),
         }
     }
 
@@ -50,9 +53,10 @@ impl ImageService for ImageApiHandler {
         info!("IMAGE_API_HANDLER: Received WatchImageStatus stream request.");
         let (stream_tx, stream_rx) = mpsc::channel(16);
         let cmd = Command::WatchImageStatus(request.into_inner(), stream_tx);
-        self.dispatcher_tx.send(cmd).await.map_err(|e| {
-            Status::internal(format!("Failed to send command to dispatcher: {e}"))
-        })?;
+        self.dispatcher_tx
+            .send(cmd)
+            .await
+            .map_err(|e| Status::internal(format!("Failed to send command to dispatcher: {e}")))?;
         let output_stream = ReceiverStream::new(stream_rx);
         Ok(Response::new(Box::pin(output_stream)))
     }
@@ -64,14 +68,17 @@ impl ImageService for ImageApiHandler {
         info!("IMAGE_API_HANDLER: Received ListImages request.");
         let (resp_tx, resp_rx) = oneshot::channel();
         let cmd = Command::ListImages(request.into_inner(), resp_tx);
-        self.dispatcher_tx.send(cmd).await.map_err(|e| {
-            Status::internal(format!("Failed to send command to dispatcher: {e}"))
-        })?;
+        self.dispatcher_tx
+            .send(cmd)
+            .await
+            .map_err(|e| Status::internal(format!("Failed to send command to dispatcher: {e}")))?;
 
         match resp_rx.await {
             Ok(Ok(result)) => Ok(Response::new(result)),
             Ok(Err(status)) => Err(status),
-            Err(_) => Err(Status::internal("Dispatcher task dropped response channel.")),
+            Err(_) => Err(Status::internal(
+                "Dispatcher task dropped response channel.",
+            )),
         }
     }
 
@@ -82,14 +89,17 @@ impl ImageService for ImageApiHandler {
         info!("IMAGE_API_HANDLER: Received DeleteImage request.");
         let (resp_tx, resp_rx) = oneshot::channel();
         let cmd = Command::DeleteImage(request.into_inner(), resp_tx);
-        self.dispatcher_tx.send(cmd).await.map_err(|e| {
-            Status::internal(format!("Failed to send command to dispatcher: {e}"))
-        })?;
+        self.dispatcher_tx
+            .send(cmd)
+            .await
+            .map_err(|e| Status::internal(format!("Failed to send command to dispatcher: {e}")))?;
 
         match resp_rx.await {
             Ok(Ok(result)) => Ok(Response::new(result)),
             Ok(Err(status)) => Err(status),
-            Err(_) => Err(Status::internal("Dispatcher task dropped response channel.")),
+            Err(_) => Err(Status::internal(
+                "Dispatcher task dropped response channel.",
+            )),
         }
     }
 }

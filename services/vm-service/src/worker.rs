@@ -2,10 +2,10 @@ use crate::{vmm::Hypervisor, vmservice_helper, VmEventWrapper};
 use log::{error, info};
 use proto_definitions::vm_service::{
     AttachDiskRequest, AttachDiskResponse, CreateVmRequest, CreateVmResponse, DeleteVmRequest,
-    DeleteVmResponse, GetVmRequest, PauseVmRequest, PauseVmResponse, PingVmRequest,
-    PingVmResponse, RemoveDiskRequest, RemoveDiskResponse, ResumeVmRequest, ResumeVmResponse,
-    ShutdownVmRequest, ShutdownVmResponse, StartVmRequest, StartVmResponse,
-    StreamVmConsoleRequest, StreamVmConsoleResponse, StreamVmEventsRequest, VmEvent, VmInfo,
+    DeleteVmResponse, GetVmRequest, PauseVmRequest, PauseVmResponse, PingVmRequest, PingVmResponse,
+    RemoveDiskRequest, RemoveDiskResponse, ResumeVmRequest, ResumeVmResponse, ShutdownVmRequest,
+    ShutdownVmResponse, StartVmRequest, StartVmResponse, StreamVmConsoleRequest,
+    StreamVmConsoleResponse, StreamVmEventsRequest, VmEvent, VmInfo,
 };
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc, oneshot};
@@ -20,7 +20,9 @@ pub async fn handle_create_vm(
     broadcast_tx: broadcast::Sender<VmEventWrapper>,
 ) {
     if responder
-        .send(Ok(CreateVmResponse { vm_id: vm_id.clone() }))
+        .send(Ok(CreateVmResponse {
+            vm_id: vm_id.clone(),
+        }))
         .is_err()
     {
         error!("VM_WORKER ({vm_id}): Client disconnected before immediate response could be sent. Aborting creation.");

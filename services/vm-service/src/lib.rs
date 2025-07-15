@@ -11,9 +11,9 @@ use proto_definitions::vm_service::{
 use tokio::sync::{mpsc, oneshot};
 use tonic::{Status, Streaming};
 
-pub mod persistence;
 pub mod api;
 pub mod dispatcher;
+pub mod persistence;
 pub mod vmservice_helper;
 pub mod worker;
 
@@ -36,10 +36,7 @@ pub enum Command {
         oneshot::Sender<Result<StartVmResponse, Status>>,
     ),
     GetVm(GetVmRequest, oneshot::Sender<Result<VmInfo, Status>>),
-    StreamVmEvents(
-        StreamVmEventsRequest,
-        mpsc::Sender<Result<VmEvent, Status>>,
-    ),
+    StreamVmEvents(StreamVmEventsRequest, mpsc::Sender<Result<VmEvent, Status>>),
     DeleteVm(
         DeleteVmRequest,
         oneshot::Sender<Result<DeleteVmResponse, Status>>,

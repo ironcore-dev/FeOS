@@ -3,6 +3,7 @@ use image_service::{IMAGE_DIR, IMAGE_SERVICE_SOCKET};
 use log::{error, info, warn};
 use nix::sys::signal::{kill, Signal};
 use nix::unistd::{self, Pid};
+use prost::Message;
 use proto_definitions::{
     host_service::{host_service_client::HostServiceClient, Empty},
     image_service::{
@@ -10,12 +11,11 @@ use proto_definitions::{
         ListImagesRequest, PullImageRequest, WatchImageStatusRequest,
     },
     vm_service::{
-        vm_service_client::VmServiceClient, CreateVmRequest, DeleteVmRequest, GetVmRequest,
-        PingVmRequest, StartVmRequest, StreamVmEventsRequest, CpuConfig, MemoryConfig, VmConfig,
+        vm_service_client::VmServiceClient, CpuConfig, CreateVmRequest, DeleteVmRequest,
+        GetVmRequest, MemoryConfig, PingVmRequest, StartVmRequest, StreamVmEventsRequest, VmConfig,
         VmEvent, VmState, VmStateChangedEvent,
     },
 };
-use prost::Message;
 use std::path::Path;
 use std::process::Command;
 use std::sync::Arc;
@@ -24,8 +24,8 @@ use tokio::net::UnixStream;
 use tokio::sync::OnceCell;
 use tokio::time::timeout;
 use tokio_stream::StreamExt;
-use tower::service_fn;
 use tonic::transport::{Channel, Endpoint, Uri};
+use tower::service_fn;
 use vm_service::{VM_API_SOCKET_DIR, VM_CH_BIN};
 
 const PUBLIC_SERVER_ADDRESS: &str = "http://[::1]:1337";
@@ -73,7 +73,9 @@ async fn get_public_clients() -> Result<(VmServiceClient<Channel>, HostServiceCl
 async fn get_image_service_client() -> Result<ImageServiceClient<Channel>> {
     let endpoint = Endpoint::from_static("http://[::1]:50051");
     let channel = endpoint
-        .connect_with_connector(service_fn(|_: Uri| UnixStream::connect(IMAGE_SERVICE_SOCKET)))
+        .connect_with_connector(service_fn(|_: Uri| {
+            UnixStream::connect(IMAGE_SERVICE_SOCKET)
+        }))
         .await?;
     Ok(ImageServiceClient::new(channel))
 }
@@ -146,10 +148,7 @@ async fn wait_for_vm_state(
             }
 
             if new_state == VmState::Crashed {
-                let err_msg = format!(
-                    "VM entered Crashed state. Reason: {}",
-                    state_change.reason
-                );
+                let err_msg = format!("VM entered Crashed state. Reason: {}", state_change.reason);
                 error!("{}", &err_msg);
                 return Err(anyhow::anyhow!(err_msg));
             }
@@ -197,10 +196,7 @@ async fn test_create_and_start_vm() -> Result<()> {
         cleanup_disabled: false,
     };
 
-    info!(
-        "Connecting to StreamVmEvents stream for vm_id: {}",
-        &vm_id
-    );
+    info!("Connecting to StreamVmEvents stream for vm_id: {}", &vm_id);
     let events_req = StreamVmEventsRequest {
         vm_id: vm_id.clone(),
         ..Default::default()
