@@ -1,9 +1,0 @@
-[package]
-name = "filesystem"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-log = { workspace = true }
-nix = { workspace = true, features = ["mount", "fs"] }
-libc = { workspace = true }

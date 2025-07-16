@@ -1,25 +1,21 @@
 [package]
-name = "feos-cli"
+name = "host-service"
 version = "0.2.0"
 edition = "2021"
-description = "A gRPC CLI for the FeOS control plane"
 
 [dependencies]
 feos-proto = { workspace = true }
+tempfile = { workspace = true }
 sha2 = { workspace = true }
 hex = { workspace = true }
 digest = { workspace = true }
 
 # Workspace dependencies
 tokio = { workspace = true }
+tokio-stream = { workspace = true }
 tonic = { workspace = true }
 anyhow = { workspace = true }
+nix = { workspace = true , features = ["hostname"] }
 log = { workspace = true }
-tokio-stream = { workspace = true }
 prost = { workspace = true }
-tower = { workspace = true }
-clap = { workspace = true, features = ["derive", "env"] }
-
-# CLI specific dependencies
-env_logger = { workspace = true }
-crossterm = "0.27"
+prost-types = { workspace = true }

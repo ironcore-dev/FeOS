@@ -1,11 +1,5 @@
 use anyhow::Result;
-use image_service::{IMAGE_DIR, IMAGE_SERVICE_SOCKET};
-use log::{error, info, warn};
-use nix::sys::signal::{kill, Signal};
-use nix::unistd::{self, Pid};
-use once_cell::sync::OnceCell as SyncOnceCell;
-use prost::Message;
-use proto_definitions::{
+use feos_proto::{
     host_service::{host_service_client::HostServiceClient, HostnameRequest},
     image_service::{
         image_service_client::ImageServiceClient, DeleteImageRequest, ImageState,
@@ -17,6 +11,12 @@ use proto_definitions::{
         VmEvent, VmState, VmStateChangedEvent,
     },
 };
+use image_service::{IMAGE_DIR, IMAGE_SERVICE_SOCKET};
+use log::{error, info, warn};
+use nix::sys::signal::{kill, Signal};
+use nix::unistd::{self, Pid};
+use once_cell::sync::OnceCell as SyncOnceCell;
+use prost::Message;
 use std::env;
 use std::path::Path;
 use std::process::Command;
@@ -380,7 +380,7 @@ async fn test_image_lifecycle() -> Result<()> {
 async fn wait_for_image_ready<S>(mut stream: S) -> anyhow::Result<()>
 where
     S: tokio_stream::Stream<
-            Item = Result<proto_definitions::image_service::ImageStatusResponse, tonic::Status>,
+            Item = Result<feos_proto::image_service::ImageStatusResponse, tonic::Status>,
         > + Unpin,
 {
     let mut saw_downloading = false;

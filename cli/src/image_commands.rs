@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use clap::{Args, Subcommand};
-use proto_definitions::image_service::{
+use feos_proto::image_service::{
     image_service_client::ImageServiceClient, DeleteImageRequest, ImageState, ListImagesRequest,
     PullImageRequest, WatchImageStatusRequest,
 };

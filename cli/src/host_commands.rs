@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use clap::{Args, Subcommand};
 use digest::Digest;
-use proto_definitions::host_service::{
+use feos_proto::host_service::{
     host_service_client::HostServiceClient, upgrade_request, HostnameRequest, UpgradeMetadata,
     UpgradeRequest,
 };

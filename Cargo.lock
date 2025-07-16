@@ -661,19 +661,24 @@ version = "0.2.0"
 dependencies = [
  "anyhow",
  "clap",
+ "dhcproto",
  "dotenvy",
  "env_logger",
- "filesystem",
- "host",
+ "feos-proto",
+ "futures",
  "host-service",
  "image-service",
+ "libc",
  "log",
- "network",
+ "netlink-packet-route",
  "nix 0.29.0",
  "once_cell",
+ "pnet",
  "prost",
- "proto-definitions",
+ "prost-types",
  "regex",
+ "rtnetlink",
+ "socket2",
  "tempfile",
  "tokio",
  "tokio-stream",
@@ -691,10 +696,10 @@ dependencies = [
  "crossterm",
  "digest",
  "env_logger",
+ "feos-proto",
  "hex",
  "log",
  "prost",
- "proto-definitions",
  "sha2",
  "tokio",
  "tokio-stream",
@@ -703,12 +708,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "filesystem"
+name = "feos-proto"
 version = "0.1.0"
 dependencies = [
- "libc",
- "log",
- "nix 0.29.0",
+ "prost",
+ "prost-types",
+ "tonic",
+ "tonic-build",
 ]
 
 [[package]]
@@ -1031,23 +1037,17 @@ dependencies = [
 ]
 
 [[package]]
-name = "host"
-version = "0.1.0"
-dependencies = [
- "log",
- "nix 0.29.0",
-]
-
-[[package]]
 name = "host-service"
 version = "0.2.0"
 dependencies = [
  "anyhow",
  "digest",
+ "feos-proto",
  "hex",
  "log",
  "nix 0.29.0",
- "proto-definitions",
+ "prost",
+ "prost-types",
  "sha2",
  "tempfile",
  "tokio",
@@ -1391,9 +1391,11 @@ name = "image-service"
 version = "0.2.0"
 dependencies = [
  "anyhow",
+ "feos-proto",
  "log",
  "oci-distribution",
- "proto-definitions",
+ "prost",
+ "prost-types",
  "serde",
  "serde_json",
  "tempfile",
@@ -1743,21 +1745,6 @@ dependencies = [
  "futures",
  "libc",
  "log",
- "tokio",
-]
-
-[[package]]
-name = "network"
-version = "0.1.0"
-dependencies = [
- "dhcproto",
- "futures",
- "log",
- "netlink-packet-route",
- "nix 0.29.0",
- "pnet",
- "rtnetlink",
- "socket2",
  "tokio",
 ]
 
@@ -2267,16 +2254,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9091c90b0a32608e984ff2fa4091273cbdd755d54935c51d520887f4a1dbd5b0"
 dependencies = [
  "prost",
-]
-
-[[package]]
-name = "proto-definitions"
-version = "0.1.0"
-dependencies = [
- "prost",
- "prost-types",
- "tonic",
- "tonic-build",
 ]
 
 [[package]]
@@ -3468,6 +3445,7 @@ dependencies = [
  "anyhow",
  "cloud-hypervisor-client",
  "dotenvy",
+ "feos-proto",
  "hyper 1.6.0",
  "hyper-util",
  "hyperlocal",
@@ -3478,7 +3456,6 @@ dependencies = [
  "openssl",
  "prost",
  "prost-types",
- "proto-definitions",
  "serde",
  "serde_json",
  "sqlx",

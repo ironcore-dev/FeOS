@@ -2,14 +2,14 @@ use anyhow::{Context, Result};
 use clap::{Args, Subcommand};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use crossterm::tty::IsTty;
-use prost::Message;
-use proto_definitions::vm_service::{
+use feos_proto::vm_service::{
     stream_vm_console_request as console_input, vm_service_client::VmServiceClient,
     AttachConsoleMessage, AttachDiskRequest, ConsoleData, CpuConfig, CreateVmRequest,
     DeleteVmRequest, DiskConfig, GetVmRequest, ListVmsRequest, MemoryConfig, PauseVmRequest,
     PingVmRequest, RemoveDiskRequest, ResumeVmRequest, ShutdownVmRequest, StartVmRequest,
     StreamVmConsoleRequest, StreamVmEventsRequest, VmConfig, VmState, VmStateChangedEvent,
 };
+use prost::Message;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
@@ -402,9 +402,7 @@ async fn attach_disk(
     let request = AttachDiskRequest {
         vm_id: vm_id.clone(),
         disk: Some(DiskConfig {
-            backend: Some(proto_definitions::vm_service::disk_config::Backend::Path(
-                path,
-            )),
+            backend: Some(feos_proto::vm_service::disk_config::Backend::Path(path)),
             ..Default::default()
         }),
     };

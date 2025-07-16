@@ -12,14 +12,10 @@ name = "main_server"
 path = "src/lib.rs"
 
 [dependencies]
-vm-service = { path = "../services/vm-service" }
-host-service = { path = "../services/host-service" }
-image-service = { path = "../services/image-service" }
-proto-definitions = { path = "../proto-definitions" }
-
-host = { path = "../host" }
-network = { path = "../network" }
-filesystem = { path = "../filesystem" }
+vm-service = { path = "services/vm-service" }
+host-service = { path = "services/host-service" }
+image-service = { path = "services/image-service" }
+feos-proto = { workspace = true }
 
 # Workspace dependencies
 tokio = { workspace = true }
@@ -31,12 +27,20 @@ env_logger = { workspace = true }
 nix = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 dotenvy = { workspace = true }
+prost = { workspace = true }
+prost-types = { workspace = true }
+libc = { workspace = true }
+rtnetlink = { workspace = true }
+netlink-packet-route = { workspace = true }
+pnet = { workspace = true }
+dhcproto = { workspace = true }
+socket2 = { workspace = true }
+futures = { workspace = true }
 
 [dev-dependencies]
-vm-service = { path = "../services/vm-service" }
-image-service = { path = "../services/image-service"}
-host-service = { path = "../services/host-service"}
-proto-definitions = { path = "../proto-definitions" }
+vm-service = { path = "services/vm-service" }
+image-service = { path = "services/image-service"}
+host-service = { path = "services/host-service"}
 anyhow = { workspace = true }
 nix = { workspace = true }
 tokio = { workspace = true }

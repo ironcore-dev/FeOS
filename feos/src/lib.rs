@@ -1,5 +1,9 @@
 use anyhow::Result;
-use filesystem::mount_virtual_filesystems;
+use feos_proto::{
+    host_service::host_service_server::HostServiceServer,
+    image_service::image_service_server::ImageServiceServer,
+    vm_service::vm_service_server::VmServiceServer,
+};
 use host_service::{
     api::HostApiHandler, dispatcher::HostServiceDispatcher, Command as HostCommand, RestartSignal,
 };
@@ -7,17 +11,9 @@ use image_service::{
     api::ImageApiHandler, dispatcher::ImageServiceDispatcher, filestore::FileStore,
     worker::Orchestrator, IMAGE_DIR, IMAGE_SERVICE_SOCKET,
 };
-use vm_service::VM_CONSOLE_DIR;
-
 use log::{error, info, warn};
-use network::configure_network_devices;
 use nix::libc;
 use nix::unistd::Uid;
-use proto_definitions::{
-    host_service::host_service_server::HostServiceServer,
-    image_service::image_service_server::ImageServiceServer,
-    vm_service::vm_service_server::VmServiceServer,
-};
 use std::env;
 use std::ffi::CString;
 use std::os::unix::ffi::OsStringExt;
@@ -27,10 +23,14 @@ use tokio::fs::{self, File};
 use tokio::{net::UnixListener, sync::mpsc};
 use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::Server;
+use utils::filesystem::mount_virtual_filesystems;
+use utils::network::configure_network_devices;
 use vm_service::{
     api::VmApiHandler, dispatcher::VmServiceDispatcher, Command as VmCommand, DEFAULT_VM_DB_URL,
-    VM_API_SOCKET_DIR,
+    VM_API_SOCKET_DIR, VM_CONSOLE_DIR,
 };
+
+pub mod utils;
 
 pub async fn run_server(restarted_after_upgrade: bool) -> Result<()> {
     println!(

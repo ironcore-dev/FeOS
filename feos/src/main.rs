@@ -1,7 +1,9 @@
 use anyhow::Result;
 use clap::Parser;
-use filesystem::{get_root_fstype, move_root};
-use main_server::run_server;
+use main_server::{
+    run_server,
+    utils::filesystem::{get_root_fstype, move_root},
+};
 use nix::unistd::execv;
 use std::env;
 use std::ffi::CString;
