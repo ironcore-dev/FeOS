@@ -142,8 +142,24 @@ impl Hypervisor for CloudHypervisorAdapter {
             "CH_ADAPTER ({}): Waiting for image '{}' (uuid: {}) to be ready...",
             vm_id, &config.image_ref, &image_uuid
         );
-        self.wait_for_image_ready(&image_uuid, &config.image_ref)
-            .await?;
+        if let Err(e) = self
+            .wait_for_image_ready(&image_uuid, &config.image_ref)
+            .await
+        {
+            let error_msg = e.to_string();
+            error!("CH_ADAPTER ({}): {}", vm_id, &error_msg);
+            broadcast_state_change_event(
+                &broadcast_tx,
+                vm_id,
+                "vm-service",
+                VmStateChangedEvent {
+                    new_state: VmState::Crashed as i32,
+                    reason: error_msg,
+                },
+            )
+            .await;
+            return Err(e);
+        }
         info!(
             "CH_ADAPTER ({}): Image '{}' (uuid: {}) is ready.",
             vm_id, &config.image_ref, &image_uuid

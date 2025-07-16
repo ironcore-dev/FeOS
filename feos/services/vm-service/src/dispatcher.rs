@@ -6,10 +6,11 @@ use crate::{
 use anyhow::Result;
 use feos_proto::{
     image_service::PullImageRequest,
-    vm_service::{ListVmsResponse, VmInfo, VmState, VmStateChangedEvent},
+    vm_service::{ListVmsResponse, VmEvent, VmInfo, VmState, VmStateChangedEvent},
 };
 use log::{error, info, warn};
 use prost::Message;
+use prost_types::Any;
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc};
 use tonic::Status;
@@ -223,12 +224,59 @@ impl VmServiceDispatcher {
                             }
                         }
                         Command::StreamVmEvents(req, stream_tx) => {
-                            tokio::spawn(worker::handle_stream_vm_events(
-                                req,
-                                stream_tx,
-                                hypervisor,
-                                broadcast_tx,
-                            ));
+                            let vm_id_str = req.vm_id.clone();
+                            let vm_id = match Uuid::parse_str(&vm_id_str) {
+                                Ok(id) => id,
+                                Err(_) => {
+                                    if stream_tx.send(Err(Status::invalid_argument("Invalid VM ID format."))).await.is_err() {
+                                        warn!("STREAM_EVENTS: Client for {vm_id_str} disconnected before error could be sent.");
+                                    }
+                                    continue;
+                                }
+                            };
+
+                            match self.repository.get_vm(vm_id).await {
+                                Ok(Some(record)) => {
+                                    info!("STREAM_EVENTS: Sending initial state for VM {}: {:?}", vm_id_str, record.status.state);
+                                    let state_change_event = VmStateChangedEvent {
+                                        new_state: record.status.state as i32,
+                                        reason: record.status.last_msg
+                                    };
+                                    let initial_event = VmEvent {
+                                        vm_id: vm_id_str.clone(),
+                                        id: Uuid::new_v4().to_string(),
+                                        component_id: "vm-service-db".to_string(),
+                                        data: Some(Any {
+                                            type_url: "type.googleapis.com/feos.vm.vmm.api.v1.VmStateChangedEvent".to_string(),
+                                            value: state_change_event.encode_to_vec(),
+                                        }),
+                                    };
+
+                                    if stream_tx.send(Ok(initial_event)).await.is_err() {
+                                        info!("STREAM_EVENTS: Client for {vm_id_str} disconnected before live events could be streamed.");
+                                        continue;
+                                    }
+
+                                    tokio::spawn(worker::handle_stream_vm_events(
+                                        req,
+                                        stream_tx,
+                                        hypervisor,
+                                        broadcast_tx,
+                                    ));
+                                }
+                                Ok(None) => {
+                                    warn!("STREAM_EVENTS: VM with ID {vm_id_str} not found in database.");
+                                    if stream_tx.send(Err(Status::not_found(format!("VM with ID {vm_id} not found")))).await.is_err() {
+                                        warn!("STREAM_EVENTS: Client for {vm_id_str} disconnected before not-found error could be sent.");
+                                    }
+                                }
+                                Err(e) => {
+                                    error!("STREAM_EVENTS: Failed to get VM {vm_id_str} from database for event stream: {e}");
+                                    if stream_tx.send(Err(Status::internal("Failed to retrieve VM information for event stream."))).await.is_err() {
+                                        warn!("STREAM_EVENTS: Client for {vm_id_str} disconnected before internal-error could be sent.");
+                                    }
+                                }
+                            }
                         }
                         Command::DeleteVm(req, responder) => {
                             let vm_id = match Uuid::parse_str(&req.vm_id) {
