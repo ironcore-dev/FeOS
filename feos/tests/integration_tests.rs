@@ -204,6 +204,7 @@ async fn test_create_and_start_vm() -> Result<()> {
     };
     let create_req = CreateVmRequest {
         config: Some(vm_config),
+        vm_id: None,
     };
 
     info!("Sending CreateVm request");
