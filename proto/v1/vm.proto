@@ -102,6 +102,7 @@ message VmEvent {
 
 message CreateVmRequest {
     VmConfig config = 1;
+    optional string vm_id = 2;
 }
 
 message CreateVmResponse {

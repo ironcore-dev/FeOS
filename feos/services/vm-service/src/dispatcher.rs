@@ -140,11 +140,58 @@ impl VmServiceDispatcher {
                     let broadcast_tx = self.broadcast_tx.clone();
                     match cmd {
                         Command::CreateVm(req, responder) => {
-                            let image_uuid_result = self.initiate_image_pull_for_vm(&req).await;
+                            let vm_id_res: Result<(Uuid, bool), Status> = if let Some(id_str) =
+                                req.vm_id.as_deref().filter(|s| !s.is_empty())
+                            {
+                                match Uuid::parse_str(id_str) {
+                                    Ok(id) if !id.is_nil() => Ok((id, true)),
+                                    Ok(_) => Err(Status::invalid_argument(
+                                        "Provided vm_id cannot be the nil UUID.",
+                                    )),
+                                    Err(_) => Err(Status::invalid_argument(
+                                        "Provided vm_id is not a valid UUID format.",
+                                    )),
+                                }
+                            } else {
+                                Ok((Uuid::new_v4(), false))
+                            };
 
-                            match image_uuid_result {
+                            let (vm_id, is_user_provided) = match vm_id_res {
+                                Ok(val) => val,
+                                Err(status) => {
+                                    if responder.send(Err(status)).is_err() {
+                                        error!("VM_DISPATCHER: Failed to send error response for CreateVm. Responder closed.");
+                                    }
+                                    continue;
+                                }
+                            };
+
+                            if is_user_provided {
+                                match self.repository.get_vm(vm_id).await {
+                                    Ok(Some(_)) => {
+                                        let status = Status::already_exists(format!(
+                                            "VM with ID {vm_id} already exists."
+                                        ));
+                                        if responder.send(Err(status)).is_err() {
+                                            error!("VM_DISPATCHER: Failed to send error response for CreateVm. Responder closed.");
+                                        }
+                                        continue;
+                                    }
+                                    Ok(None) => {}
+                                    Err(e) => {
+                                        let status = Status::internal(format!(
+                                            "Failed to check DB for existing VM: {e}"
+                                        ));
+                                        if responder.send(Err(status)).is_err() {
+                                            error!("VM_DISPATCHER: Failed to send error response for CreateVm. Responder closed.");
+                                        }
+                                        continue;
+                                    }
+                                }
+                            }
+
+                            match self.initiate_image_pull_for_vm(&req).await {
                                 Ok(image_uuid_str) => {
-                                    let vm_id = Uuid::new_v4();
                                     let image_uuid = match Uuid::parse_str(&image_uuid_str) {
                                         Ok(uuid) => uuid,
                                         Err(e) => {

@@ -41,6 +41,9 @@ pub enum VmCommand {
 
         #[arg(long, default_value_t = 1024)]
         memory: u64,
+
+        #[arg(long)]
+        vm_id: Option<String>,
     },
     Start {
         #[arg(required = true)]
@@ -103,7 +106,8 @@ pub async fn handle_vm_command(args: VmArgs) -> Result<()> {
             image_ref,
             vcpus,
             memory,
-        } => create_vm(&mut client, image_ref, vcpus, memory).await?,
+            vm_id,
+        } => create_vm(&mut client, image_ref, vcpus, memory, vm_id).await?,
         VmCommand::Start { vm_id } => start_vm(&mut client, vm_id).await?,
         VmCommand::Info { vm_id } => get_vm_info(&mut client, vm_id).await?,
         VmCommand::List => list_vms(&mut client).await?,
@@ -128,6 +132,7 @@ async fn create_vm(
     image_ref: String,
     vcpus: u32,
     memory: u64,
+    vm_id: Option<String>,
 ) -> Result<()> {
     println!("Requesting VM creation with image: {image_ref}...");
 
@@ -141,6 +146,7 @@ async fn create_vm(
             image_ref,
             ..Default::default()
         }),
+        vm_id,
     };
 
     let response = client.create_vm(request).await?.into_inner();
