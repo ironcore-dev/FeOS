@@ -2,10 +2,6 @@ syntax = "proto3";
 
 package feos.host.v1;
 
-
-message Empty {
-}
-
 // HostService provides information about the host system.
 service HostService {
   // Retrieves the hostname of the machine running the service.
