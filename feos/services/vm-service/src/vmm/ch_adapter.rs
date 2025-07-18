@@ -23,9 +23,10 @@ use feos_proto::{
 use hyper_util::client::legacy::Client;
 use hyperlocal::{UnixClientExt, UnixConnector, Uri as HyperlocalUri};
 use log::{error, info, warn};
-use nix::unistd;
+use nix::sys::signal::{kill, Signal};
+use nix::unistd::{self, Pid};
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::process::Command as TokioCommand;
 use tokio::sync::{broadcast, mpsc};
@@ -110,6 +111,27 @@ impl CloudHypervisorAdapter {
             "Image watch stream for {image_uuid} ended before reaching a terminal state."
         )))
     }
+
+    async fn cleanup_socket_file(&self, vm_id: &str, socket_path: &Path, socket_type: &str) {
+        if let Err(e) = tokio::fs::remove_file(socket_path).await {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                warn!(
+                    "CH_ADAPTER ({}): Failed to remove {} socket {}: {}",
+                    vm_id,
+                    socket_type,
+                    socket_path.display(),
+                    e
+                );
+            }
+        } else {
+            info!(
+                "CH_ADAPTER ({}): Successfully removed {} socket {}",
+                vm_id,
+                socket_type,
+                socket_path.display()
+            );
+        }
+    }
 }
 
 #[tonic::async_trait]
@@ -131,6 +153,7 @@ impl Hypervisor for CloudHypervisorAdapter {
                 new_state: VmState::Creating as i32,
                 reason: "VM creation process started".to_string(),
             },
+            None,
         )
         .await;
 
@@ -156,6 +179,7 @@ impl Hypervisor for CloudHypervisorAdapter {
                     new_state: VmState::Crashed as i32,
                     reason: error_msg,
                 },
+                None,
             )
             .await;
             return Err(e);
@@ -179,6 +203,7 @@ impl Hypervisor for CloudHypervisorAdapter {
                 .spawn()
         }
         .map_err(|e| VmmError::ProcessSpawnFailed(e.to_string()))?;
+        let pid = child.id().map(|id| id as i64);
 
         let vm_id_clone = vm_id.to_string();
         let broadcast_tx_clone = broadcast_tx.clone();
@@ -200,6 +225,7 @@ impl Hypervisor for CloudHypervisorAdapter {
                                 status.code().unwrap_or(-1)
                             ),
                         },
+                        None,
                     )
                     .await;
                 }
@@ -297,6 +323,7 @@ impl Hypervisor for CloudHypervisorAdapter {
                 new_state: VmState::Created as i32,
                 reason: "Hypervisor process started and VM configured".to_string(),
             },
+            pid,
         )
         .await;
 
@@ -322,6 +349,7 @@ impl Hypervisor for CloudHypervisorAdapter {
                 new_state: VmState::Running as i32,
                 reason: "Start command successful".to_string(),
             },
+            None,
         )
         .await;
 
@@ -353,23 +381,58 @@ impl Hypervisor for CloudHypervisorAdapter {
         &self,
         req: DeleteVmRequest,
         image_uuid: String,
+        process_id: Option<i64>,
         _broadcast_tx: broadcast::Sender<VmEventWrapper>,
     ) -> Result<DeleteVmResponse, VmmError> {
-        let api_client = self.get_ch_api_client(&req.vm_id)?;
-        api_client
-            .delete_vm()
-            .await
-            .map_err(|e| VmmError::ApiOperationFailed(e.to_string()))?;
+        if let Ok(api_client) = self.get_ch_api_client(&req.vm_id) {
+            if let Err(e) = api_client.delete_vm().await {
+                warn!(
+                    "CH_ADAPTER ({}): API call to delete VM failed: {}. This might happen if the process is already gone. Continuing cleanup.",
+                    req.vm_id, e
+                );
+            } else {
+                info!(
+                    "CH_ADAPTER ({}): Successfully deleted hypervisor process via API.",
+                    req.vm_id
+                );
+            }
+        }
 
-        info!(
-            "CH_ADAPTER ({}): Successfully deleted hypervisor process.",
-            &req.vm_id
-        );
+        if let Some(pid_val) = process_id {
+            info!(
+                "CH_ADAPTER ({}): Attempting to kill process with PID: {}",
+                req.vm_id, pid_val
+            );
+            let pid = Pid::from_raw(pid_val as i32);
+            match kill(pid, Signal::SIGKILL) {
+                Ok(_) => info!(
+                    "CH_ADAPTER ({}): Successfully sent SIGKILL to process {}.",
+                    req.vm_id, pid_val
+                ),
+                Err(nix::Error::ESRCH) => info!(
+                    "CH_ADAPTER ({}): Process {} already exited.",
+                    req.vm_id, pid_val
+                ),
+                Err(e) => warn!(
+                    "CH_ADAPTER ({}): Failed to kill process {}: {}. It might already be gone.",
+                    req.vm_id, pid_val, e
+                ),
+            }
+        }
+
+        let api_socket_path = PathBuf::from(VM_API_SOCKET_DIR).join(&req.vm_id);
+        self.cleanup_socket_file(&req.vm_id, &api_socket_path, "API")
+            .await;
+
+        let console_socket_path =
+            PathBuf::from(VM_CONSOLE_DIR).join(format!("{}.console", req.vm_id));
+        self.cleanup_socket_file(&req.vm_id, &console_socket_path, "console")
+            .await;
 
         if !image_uuid.is_empty() {
             info!(
                 "CH_ADAPTER ({}): Attempting to delete associated image with UUID: {}",
-                &req.vm_id, &image_uuid
+                req.vm_id, image_uuid
             );
             match self.get_image_service_client().await {
                 Ok(mut client) => {
@@ -379,28 +442,28 @@ impl Hypervisor for CloudHypervisorAdapter {
                     if let Err(status) = client.delete_image(delete_req).await {
                         warn!(
                             "CH_ADAPTER ({}): Failed to delete image {}: {}. This may be expected if the image is shared or already deleted.",
-                            &req.vm_id,
-                            &image_uuid,
+                            req.vm_id,
+                            image_uuid,
                             status.message()
                         );
                     } else {
                         info!(
                             "CH_ADAPTER ({}): Successfully requested deletion of image {}",
-                            &req.vm_id, &image_uuid
+                            req.vm_id, image_uuid
                         );
                     }
                 }
                 Err(e) => {
                     warn!(
                         "CH_ADAPTER ({}): Could not connect to ImageService to delete image {}: {}",
-                        &req.vm_id, &image_uuid, e
+                        req.vm_id, image_uuid, e
                     );
                 }
             }
         } else {
             info!(
                 "CH_ADAPTER ({}): No image UUID provided, skipping image deletion.",
-                &req.vm_id
+                req.vm_id
             );
         }
 
@@ -419,7 +482,7 @@ impl Hypervisor for CloudHypervisorAdapter {
         tokio::spawn(async move {
             loop {
                 match broadcast_rx.recv().await {
-                    Ok(VmEventWrapper(event)) => {
+                    Ok(VmEventWrapper { event, .. }) => {
                         if event.vm_id == vm_id_to_watch && tx.send(Ok(event)).await.is_err() {
                             info!("gRPC event stream for VM {vm_id_to_watch} disconnected.");
                             break;
@@ -486,6 +549,7 @@ impl Hypervisor for CloudHypervisorAdapter {
                 new_state: VmState::Stopped as i32,
                 reason: "Shutdown command successful".to_string(),
             },
+            None,
         )
         .await;
         Ok(ShutdownVmResponse {})
@@ -509,6 +573,7 @@ impl Hypervisor for CloudHypervisorAdapter {
                 new_state: VmState::Paused as i32,
                 reason: "Pause command successful".to_string(),
             },
+            None,
         )
         .await;
         Ok(PauseVmResponse {})
@@ -532,6 +597,7 @@ impl Hypervisor for CloudHypervisorAdapter {
                 new_state: VmState::Running as i32,
                 reason: "Resume command successful".to_string(),
             },
+            None,
         )
         .await;
         Ok(ResumeVmResponse {})

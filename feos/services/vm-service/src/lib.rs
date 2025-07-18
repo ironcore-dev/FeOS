@@ -17,13 +17,16 @@ pub mod vmservice_helper;
 pub mod worker;
 
 pub const DEFAULT_VM_DB_URL: &str = "sqlite:/var/lib/feos/vms.db";
-pub const VM_API_SOCKET_DIR: &str = "/tmp/vm_api_sockets";
+pub const VM_API_SOCKET_DIR: &str = "/tmp/feos/vm_api_sockets";
 pub const VM_CH_BIN: &str = "cloud-hypervisor";
-pub const IMAGE_DIR: &str = "/tmp/images";
-pub const VM_CONSOLE_DIR: &str = "/tmp/consoles";
+pub const IMAGE_DIR: &str = "/tmp/feos/images";
+pub const VM_CONSOLE_DIR: &str = "/tmp/feos/consoles";
 
 #[derive(Debug, Clone)]
-pub struct VmEventWrapper(pub VmEvent);
+pub struct VmEventWrapper {
+    pub event: VmEvent,
+    pub process_id: Option<i64>,
+}
 
 pub enum Command {
     CreateVm(

@@ -77,7 +77,7 @@ impl VmServiceDispatcher {
     }
 
     async fn handle_vm_event(&mut self, event_wrapper: VmEventWrapper) {
-        let event = event_wrapper.0;
+        let event = event_wrapper.event;
         info!(
             "VM_DISPATCHER_LOGGER: Event for VM '{}': ID '{}', Component '{}', Data Type '{}'",
             event.vm_id,
@@ -86,20 +86,28 @@ impl VmServiceDispatcher {
             event.data.as_ref().map_or("None", |d| &d.type_url)
         );
 
+        let vm_id_uuid = match Uuid::parse_str(&event.vm_id) {
+            Ok(id) => id,
+            Err(e) => {
+                error!(
+                    "DB_UPDATE: Could not parse UUID from event vm_id '{}': {}",
+                    &event.vm_id, e
+                );
+                return;
+            }
+        };
+
+        if let Some(pid) = event_wrapper.process_id {
+            info!("DB_UPDATE: Updating pid for VM {vm_id_uuid} to {pid}");
+            if let Err(e) = self.repository.update_vm_pid(vm_id_uuid, pid).await {
+                error!("DB_UPDATE: Failed to update pid for VM {vm_id_uuid}: {e}");
+            }
+        }
+
         if let Some(data) = &event.data {
             if data.type_url.contains("VmStateChangedEvent") {
                 match VmStateChangedEvent::decode(&*data.value) {
                     Ok(state_change) => {
-                        let vm_id_uuid = match Uuid::parse_str(&event.vm_id) {
-                            Ok(id) => id,
-                            Err(e) => {
-                                error!(
-                                    "DB_UPDATE: Could not parse UUID from event vm_id '{}': {}",
-                                    &event.vm_id, e
-                                );
-                                return;
-                            }
-                        };
                         let new_state = match VmState::try_from(state_change.new_state) {
                             Ok(s) => s,
                             Err(e) => {
@@ -444,6 +452,7 @@ impl VmServiceDispatcher {
         match self.repository.get_vm(vm_id).await {
             Ok(Some(record)) => {
                 let image_uuid_to_delete = record.image_uuid.to_string();
+                let process_id_to_kill = record.status.process_id;
 
                 if let Err(e) = self.repository.delete_vm(vm_id).await {
                     error!("Failed to delete VM {vm_id} from database: {e}");
@@ -456,6 +465,7 @@ impl VmServiceDispatcher {
                 tokio::spawn(worker::handle_delete_vm(
                     req,
                     image_uuid_to_delete,
+                    process_id_to_kill,
                     responder,
                     hypervisor,
                     broadcast_tx,
@@ -467,6 +477,7 @@ impl VmServiceDispatcher {
                 tokio::spawn(worker::handle_delete_vm(
                     req,
                     String::new(),
+                    None,
                     responder,
                     hypervisor,
                     broadcast_tx,

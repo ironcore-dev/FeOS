@@ -99,11 +99,14 @@ pub async fn handle_stream_vm_events(
 pub async fn handle_delete_vm(
     req: DeleteVmRequest,
     image_uuid: String,
+    process_id: Option<i64>,
     responder: oneshot::Sender<Result<DeleteVmResponse, Status>>,
     hypervisor: Arc<dyn Hypervisor>,
     broadcast_tx: broadcast::Sender<VmEventWrapper>,
 ) {
-    let result = hypervisor.delete_vm(req, image_uuid, broadcast_tx).await;
+    let result = hypervisor
+        .delete_vm(req, image_uuid, process_id, broadcast_tx)
+        .await;
     if responder.send(result.map_err(Into::into)).is_err() {
         error!("VM_WORKER: Failed to send response for DeleteVm.");
     }

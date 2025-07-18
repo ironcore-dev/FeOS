@@ -11,8 +11,8 @@ pub mod dispatcher;
 pub mod filestore;
 pub mod worker;
 
-pub const IMAGE_DIR: &str = "/tmp/images";
-pub const IMAGE_SERVICE_SOCKET: &str = "/tmp/image_service.sock";
+pub const IMAGE_DIR: &str = "/tmp/feos/images";
+pub const IMAGE_SERVICE_SOCKET: &str = "/tmp/feos/image_service.sock";
 
 #[derive(Debug, Clone)]
 pub struct ImageStateEvent {

@@ -76,6 +76,7 @@ pub trait Hypervisor: Send + Sync {
         &self,
         req: DeleteVmRequest,
         image_uuid: String,
+        process_id: Option<i64>,
         broadcast_tx: broadcast::Sender<VmEventWrapper>,
     ) -> Result<DeleteVmResponse, VmmError>;
 
@@ -112,6 +113,7 @@ pub async fn broadcast_state_change_event(
     vm_id: &str,
     component: &str,
     data: VmStateChangedEvent,
+    process_id: Option<i64>,
 ) {
     let event = VmEvent {
         vm_id: vm_id.to_string(),
@@ -123,7 +125,10 @@ pub async fn broadcast_state_change_event(
         }),
     };
 
-    if broadcast_tx.send(VmEventWrapper(event)).is_err() {
+    if broadcast_tx
+        .send(VmEventWrapper { event, process_id })
+        .is_err()
+    {
         log::warn!("Failed to broadcast event for VM '{vm_id}': no active listeners.");
     }
 }

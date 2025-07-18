@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE vms SET pid = ?1 WHERE vm_id = ?2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "87733e46a88697f25589451e9a1fd11cbb450a9a6b875c0c6fa01bf349a085cd"
+}

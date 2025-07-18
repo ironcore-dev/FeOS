@@ -160,6 +160,13 @@ impl VmRepository {
         Ok(())
     }
 
+    pub async fn update_vm_pid(&self, vm_id: Uuid, pid: i64) -> Result<()> {
+        sqlx::query!("UPDATE vms SET pid = ?1 WHERE vm_id = ?2", pid, vm_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     pub async fn delete_vm(&self, vm_id: Uuid) -> Result<()> {
         let result = sqlx::query!("DELETE FROM vms WHERE vm_id = ?1", vm_id)
             .execute(&self.pool)
