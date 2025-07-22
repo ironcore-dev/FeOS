@@ -220,7 +220,7 @@ async fn test_create_and_start_vm() -> Result<()> {
 
     info!("Connecting to StreamVmEvents stream for vm_id: {}", &vm_id);
     let events_req = StreamVmEventsRequest {
-        vm_id: vm_id.clone(),
+        vm_id: Some(vm_id.clone()),
         ..Default::default()
     };
     let mut stream = vm_client.stream_vm_events(events_req).await?.into_inner();

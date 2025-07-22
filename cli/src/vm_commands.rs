@@ -75,8 +75,8 @@ pub enum VmCommand {
         vm_id: String,
     },
     Events {
-        #[arg(required = true)]
-        vm_id: String,
+        #[arg(long)]
+        vm_id: Option<String>,
     },
     Console {
         #[arg(required = true)]
@@ -267,10 +267,15 @@ async fn delete_vm(client: &mut VmServiceClient<Channel>, vm_id: String) -> Resu
     Ok(())
 }
 
-async fn watch_events(client: &mut VmServiceClient<Channel>, vm_id: String) -> Result<()> {
-    println!("Watching events for VM: {vm_id}. Press Ctrl+C to stop.");
+async fn watch_events(client: &mut VmServiceClient<Channel>, vm_id: Option<String>) -> Result<()> {
+    if let Some(id) = &vm_id {
+        println!("Watching events for VM: {id}. Press Ctrl+C to stop.");
+    } else {
+        println!("Watching events for all VMs. Press Ctrl+C to stop.");
+    }
+
     let request = StreamVmEventsRequest {
-        vm_id: vm_id.clone(),
+        vm_id,
         ..Default::default()
     };
     let mut stream = client.stream_vm_events(request).await?.into_inner();

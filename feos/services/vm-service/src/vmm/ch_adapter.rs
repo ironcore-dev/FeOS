@@ -219,7 +219,7 @@ impl Hypervisor for CloudHypervisorAdapter {
                         &vm_id_clone,
                         "vm-process",
                         VmStateChangedEvent {
-                            new_state: VmState::Stopped as i32,
+                            new_state: VmState::Crashed as i32,
                             reason: format!(
                                 "Process exited with code {}",
                                 status.code().unwrap_or(-1)
@@ -480,20 +480,25 @@ impl Hypervisor for CloudHypervisorAdapter {
         let vm_id_to_watch = req.vm_id;
 
         tokio::spawn(async move {
+            let watcher_desc = vm_id_to_watch
+                .clone()
+                .unwrap_or_else(|| "all VMs".to_string());
             loop {
                 match broadcast_rx.recv().await {
                     Ok(VmEventWrapper { event, .. }) => {
-                        if event.vm_id == vm_id_to_watch && tx.send(Ok(event)).await.is_err() {
-                            info!("gRPC event stream for VM {vm_id_to_watch} disconnected.");
+                        if vm_id_to_watch.as_ref().is_none_or(|id| event.vm_id == *id)
+                            && tx.send(Ok(event)).await.is_err()
+                        {
+                            info!("gRPC event stream for '{watcher_desc}' disconnected.");
                             break;
                         }
                     }
                     Err(broadcast::error::RecvError::Lagged(n)) => {
-                        warn!("Event stream for VM {vm_id_to_watch} lagged by {n} messages.");
+                        warn!("Event stream for '{watcher_desc}' lagged by {n} messages.");
                     }
                     Err(broadcast::error::RecvError::Closed) => {
                         info!(
-                            "Broadcast channel closed. Shutting down stream for VM {vm_id_to_watch}."
+                            "Broadcast channel closed. Shutting down stream for '{watcher_desc}'."
                         );
                         break;
                     }

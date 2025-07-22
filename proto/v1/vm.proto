@@ -77,7 +77,10 @@ message VmStateChangedEvent {
 
 message StreamVmEventsRequest {
   // The ID of the Virtual Machine for which to retrieve events.
-  string vm_id = 1;
+  // If not provided, the stream will start by sending the current state
+  // of all existing VMs, and then continue to stream all subsequent events
+  // from all VMs.
+  optional string vm_id = 1;
   // Filter the stream to only include events from a specific "component" in VM
   string with_component_id = 5;
 
