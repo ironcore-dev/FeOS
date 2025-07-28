@@ -15,7 +15,7 @@ use image_service::{IMAGE_DIR, IMAGE_SERVICE_SOCKET};
 use log::{error, info, warn};
 use nix::sys::signal::{kill, Signal};
 use nix::unistd::{self, Pid};
-use once_cell::sync::OnceCell as SyncOnceCell;
+use once_cell::sync::{Lazy, OnceCell as SyncOnceCell};
 use prost::Message;
 use std::env;
 use std::path::Path;
@@ -31,7 +31,11 @@ use tower::service_fn;
 use vm_service::{VM_API_SOCKET_DIR, VM_CH_BIN};
 
 const PUBLIC_SERVER_ADDRESS: &str = "http://[::1]:1337";
-const TEST_IMAGE_REF: &str = "ghcr.io/ironcore-dev/os-images/gardenlinux-ch-dev";
+const DEFAULT_TEST_IMAGE_REF: &str = "ghcr.io/ironcore-dev/os-images/gardenlinux-ch-dev";
+static TEST_IMAGE_REF: Lazy<String> = Lazy::new(|| {
+    env::var("TEST_IMAGE_REF").unwrap_or_else(|_| DEFAULT_TEST_IMAGE_REF.to_string())
+});
+
 
 static SERVER_RUNTIME: TokioOnceCell<Arc<tokio::runtime::Runtime>> = TokioOnceCell::const_new();
 static TEMP_DIR_GUARD: SyncOnceCell<tempfile::TempDir> = SyncOnceCell::new();
@@ -190,7 +194,7 @@ async fn test_create_and_start_vm() -> Result<()> {
     ensure_server().await;
     let (mut vm_client, _) = get_public_clients().await?;
 
-    let image_ref = TEST_IMAGE_REF.to_string();
+    let image_ref = TEST_IMAGE_REF.clone();
     let vm_config = VmConfig {
         cpus: Some(CpuConfig {
             boot_vcpus: 2,
@@ -315,7 +319,7 @@ async fn test_image_lifecycle() -> Result<()> {
     ensure_server().await;
     let mut image_client = get_image_service_client().await?;
 
-    let image_ref = TEST_IMAGE_REF.to_string();
+    let image_ref = TEST_IMAGE_REF.clone();
     info!("Pulling image: {}", image_ref);
     let pull_req = PullImageRequest {
         image_ref: image_ref.clone(),
