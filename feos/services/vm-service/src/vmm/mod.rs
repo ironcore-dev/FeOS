@@ -75,7 +75,6 @@ pub trait Hypervisor: Send + Sync {
     async fn delete_vm(
         &self,
         req: DeleteVmRequest,
-        image_uuid: String,
         process_id: Option<i64>,
         broadcast_tx: broadcast::Sender<VmEventWrapper>,
     ) -> Result<DeleteVmResponse, VmmError>;

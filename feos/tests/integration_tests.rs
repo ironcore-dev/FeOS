@@ -32,10 +32,8 @@ use vm_service::{VM_API_SOCKET_DIR, VM_CH_BIN};
 
 const PUBLIC_SERVER_ADDRESS: &str = "http://[::1]:1337";
 const DEFAULT_TEST_IMAGE_REF: &str = "ghcr.io/ironcore-dev/os-images/gardenlinux-ch-dev";
-static TEST_IMAGE_REF: Lazy<String> = Lazy::new(|| {
-    env::var("TEST_IMAGE_REF").unwrap_or_else(|_| DEFAULT_TEST_IMAGE_REF.to_string())
-});
-
+static TEST_IMAGE_REF: Lazy<String> =
+    Lazy::new(|| env::var("TEST_IMAGE_REF").unwrap_or_else(|_| DEFAULT_TEST_IMAGE_REF.to_string()));
 
 static SERVER_RUNTIME: TokioOnceCell<Arc<tokio::runtime::Runtime>> = TokioOnceCell::const_new();
 static TEMP_DIR_GUARD: SyncOnceCell<tempfile::TempDir> = SyncOnceCell::new();

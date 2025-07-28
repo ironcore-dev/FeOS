@@ -1,15 +1,60 @@
-use crate::{vmm::Hypervisor, vmservice_helper, VmEventWrapper};
-use feos_proto::vm_service::{
-    AttachDiskRequest, AttachDiskResponse, CreateVmRequest, CreateVmResponse, DeleteVmRequest,
-    DeleteVmResponse, GetVmRequest, PauseVmRequest, PauseVmResponse, PingVmRequest, PingVmResponse,
-    RemoveDiskRequest, RemoveDiskResponse, ResumeVmRequest, ResumeVmResponse, ShutdownVmRequest,
-    ShutdownVmResponse, StartVmRequest, StartVmResponse, StreamVmConsoleRequest,
-    StreamVmConsoleResponse, StreamVmEventsRequest, VmEvent, VmInfo,
+use crate::{vmm::Hypervisor, vmm::VmmError, vmservice_helper, VmEventWrapper};
+use feos_proto::{
+    image_service::{ImageState as OciImageState, WatchImageStatusRequest},
+    vm_service::{
+        AttachDiskRequest, AttachDiskResponse, CreateVmRequest, CreateVmResponse, DeleteVmRequest,
+        DeleteVmResponse, GetVmRequest, PauseVmRequest, PauseVmResponse, PingVmRequest,
+        PingVmResponse, RemoveDiskRequest, RemoveDiskResponse, ResumeVmRequest, ResumeVmResponse,
+        ShutdownVmRequest, ShutdownVmResponse, StartVmRequest, StartVmResponse,
+        StreamVmConsoleRequest, StreamVmConsoleResponse, StreamVmEventsRequest, VmEvent, VmInfo,
+        VmState, VmStateChangedEvent,
+    },
 };
-use log::{error, info};
+use log::{error, info, warn};
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc, oneshot};
+use tokio_stream::StreamExt;
 use tonic::{Status, Streaming};
+
+async fn wait_for_image_ready(image_uuid: &str, image_ref: &str) -> Result<(), VmmError> {
+    let mut client = vmservice_helper::get_image_service_client()
+        .await
+        .map_err(|e| {
+            VmmError::ImageServiceFailed(format!("Failed to connect to ImageService: {e}"))
+        })?;
+
+    let mut stream = client
+        .watch_image_status(WatchImageStatusRequest {
+            image_uuid: image_uuid.to_string(),
+        })
+        .await
+        .map_err(|e| {
+            VmmError::ImageServiceFailed(format!(
+                "WatchImageStatus RPC failed for {image_uuid}: {e}"
+            ))
+        })?
+        .into_inner();
+
+    while let Some(status_res) = stream.next().await {
+        let status = status_res.map_err(|e| {
+            VmmError::ImageServiceFailed(format!("Image stream error for {image_uuid}: {e}"))
+        })?;
+        let state = OciImageState::try_from(status.state).unwrap_or(OciImageState::Unspecified);
+        match state {
+            OciImageState::Ready => return Ok(()),
+            OciImageState::PullFailed => {
+                return Err(VmmError::ImageServiceFailed(format!(
+                    "Image pull failed for {image_ref} (uuid: {image_uuid}): {}",
+                    status.message
+                )))
+            }
+            _ => continue,
+        }
+    }
+    Err(VmmError::ImageServiceFailed(format!(
+        "Image watch stream for {image_uuid} ended before reaching a terminal state."
+    )))
+}
 
 pub async fn handle_create_vm(
     vm_id: String,
@@ -29,23 +74,52 @@ pub async fn handle_create_vm(
         return;
     }
 
-    tokio::spawn(async move {
-        info!("VM_WORKER ({vm_id}): Starting background creation process.");
+    let image_ref = req
+        .config
+        .as_ref()
+        .map(|c| c.image_ref.clone())
+        .unwrap_or_default();
 
-        let result = hypervisor
-            .create_vm(&vm_id, req, image_uuid, broadcast_tx.clone())
-            .await;
+    info!(
+        "VM_WORKER ({}): Waiting for image '{}' (uuid: {}) to be ready...",
+        vm_id, image_ref, image_uuid
+    );
+    if let Err(e) = wait_for_image_ready(&image_uuid, &image_ref).await {
+        let error_msg = e.to_string();
+        error!("VM_WORKER ({}): {}", vm_id, &error_msg);
+        crate::vmm::broadcast_state_change_event(
+            &broadcast_tx,
+            &vm_id,
+            "vm-service",
+            VmStateChangedEvent {
+                new_state: VmState::Crashed as i32,
+                reason: error_msg,
+            },
+            None,
+        )
+        .await;
+        return;
+    }
+    info!(
+        "VM_WORKER ({}): Image '{}' (uuid: {}) is ready.",
+        vm_id, image_ref, image_uuid
+    );
 
-        if let Err(e) = result {
-            let error_msg = e.to_string();
-            error!(
-                "VM_WORKER ({}): Background creation process failed: {}",
-                &vm_id, &error_msg
-            );
-        } else {
-            info!("VM_WORKER ({vm_id}): Background creation process completed successfully.");
-        }
-    });
+    info!("VM_WORKER ({vm_id}): Starting creation process.");
+
+    let result = hypervisor
+        .create_vm(&vm_id, req, image_uuid, broadcast_tx.clone())
+        .await;
+
+    if let Err(e) = result {
+        let error_msg = e.to_string();
+        error!(
+            "VM_WORKER ({}): Background creation process failed: {}",
+            &vm_id, &error_msg
+        );
+    } else {
+        info!("VM_WORKER ({vm_id}): Background creation process completed successfully.");
+    }
 }
 
 pub async fn handle_start_vm(
@@ -104,9 +178,47 @@ pub async fn handle_delete_vm(
     hypervisor: Arc<dyn Hypervisor>,
     broadcast_tx: broadcast::Sender<VmEventWrapper>,
 ) {
-    let result = hypervisor
-        .delete_vm(req, image_uuid, process_id, broadcast_tx)
-        .await;
+    let vm_id = req.vm_id.clone();
+    let result = hypervisor.delete_vm(req, process_id, broadcast_tx).await;
+
+    if !image_uuid.is_empty() {
+        info!(
+            "VM_WORKER ({}): Attempting to delete associated image with UUID: {}",
+            vm_id, image_uuid
+        );
+        match vmservice_helper::get_image_service_client().await {
+            Ok(mut client) => {
+                let delete_req = feos_proto::image_service::DeleteImageRequest {
+                    image_uuid: image_uuid.clone(),
+                };
+                if let Err(status) = client.delete_image(delete_req).await {
+                    warn!(
+                        "VM_WORKER ({}): Failed to delete image {}: {}. This may be expected if the image is shared or already deleted.",
+                        vm_id,
+                        image_uuid,
+                        status.message()
+                    );
+                } else {
+                    info!(
+                        "VM_WORKER ({}): Successfully requested deletion of image {}",
+                        vm_id, image_uuid
+                    );
+                }
+            }
+            Err(e) => {
+                warn!(
+                    "VM_WORKER ({}): Could not connect to ImageService to delete image {}: {}",
+                    vm_id, image_uuid, e
+                );
+            }
+        }
+    } else {
+        info!(
+            "VM_WORKER ({}): No image UUID provided, skipping image deletion.",
+            vm_id
+        );
+    }
+
     if responder.send(result.map_err(Into::into)).is_err() {
         error!("VM_WORKER: Failed to send response for DeleteVm.");
     }

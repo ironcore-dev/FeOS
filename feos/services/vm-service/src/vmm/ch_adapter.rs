@@ -1,5 +1,5 @@
 use super::{broadcast_state_change_event, Hypervisor, VmmError};
-use crate::{vmservice_helper, VmEventWrapper, IMAGE_DIR, VM_API_SOCKET_DIR, VM_CONSOLE_DIR};
+use crate::{VmEventWrapper, IMAGE_DIR, VM_API_SOCKET_DIR, VM_CONSOLE_DIR};
 use cloud_hypervisor_client::{
     apis::{configuration::Configuration, DefaultApi, DefaultApiClient},
     models::{
@@ -7,18 +7,12 @@ use cloud_hypervisor_client::{
         VmmPingResponse as ChPingResponse,
     },
 };
-use feos_proto::{
-    image_service::{
-        image_service_client::ImageServiceClient, ImageState as OciImageState,
-        WatchImageStatusRequest,
-    },
-    vm_service::{
-        AttachDiskRequest, AttachDiskResponse, CreateVmRequest, DeleteVmRequest, DeleteVmResponse,
-        GetVmRequest, PauseVmRequest, PauseVmResponse, PingVmRequest, PingVmResponse,
-        RemoveDiskRequest, RemoveDiskResponse, ResumeVmRequest, ResumeVmResponse,
-        ShutdownVmRequest, ShutdownVmResponse, StartVmRequest, StartVmResponse,
-        StreamVmEventsRequest, VmEvent, VmInfo, VmState, VmStateChangedEvent,
-    },
+use feos_proto::vm_service::{
+    AttachDiskRequest, AttachDiskResponse, CreateVmRequest, DeleteVmRequest, DeleteVmResponse,
+    GetVmRequest, PauseVmRequest, PauseVmResponse, PingVmRequest, PingVmResponse,
+    RemoveDiskRequest, RemoveDiskResponse, ResumeVmRequest, ResumeVmResponse, ShutdownVmRequest,
+    ShutdownVmResponse, StartVmRequest, StartVmResponse, StreamVmEventsRequest, VmEvent, VmInfo,
+    VmState, VmStateChangedEvent,
 };
 use hyper_util::client::legacy::Client;
 use hyperlocal::{UnixClientExt, UnixConnector, Uri as HyperlocalUri};
@@ -31,8 +25,6 @@ use std::sync::Arc;
 use tokio::process::Command as TokioCommand;
 use tokio::sync::{broadcast, mpsc};
 use tokio::time::{timeout, Duration};
-use tokio_stream::StreamExt;
-use tonic::transport::Channel;
 
 pub struct CloudHypervisorAdapter {
     ch_binary_path: PathBuf,
@@ -62,54 +54,6 @@ impl CloudHypervisorAdapter {
         };
 
         Ok(DefaultApiClient::new(Arc::new(configuration)))
-    }
-
-    async fn get_image_service_client(&self) -> Result<ImageServiceClient<Channel>, VmmError> {
-        vmservice_helper::get_image_service_client()
-            .await
-            .map_err(|e| {
-                VmmError::ImageServiceFailed(format!("Failed to connect to ImageService: {e}"))
-            })
-    }
-
-    async fn wait_for_image_ready(
-        &self,
-        image_uuid: &str,
-        image_ref: &str,
-    ) -> Result<(), VmmError> {
-        let mut client = self.get_image_service_client().await?;
-
-        let mut stream = client
-            .watch_image_status(WatchImageStatusRequest {
-                image_uuid: image_uuid.to_string(),
-            })
-            .await
-            .map_err(|e| {
-                VmmError::ImageServiceFailed(format!(
-                    "WatchImageStatus RPC failed for {image_uuid}: {e}"
-                ))
-            })?
-            .into_inner();
-
-        while let Some(status_res) = stream.next().await {
-            let status = status_res.map_err(|e| {
-                VmmError::ImageServiceFailed(format!("Image stream error for {image_uuid}: {e}"))
-            })?;
-            let state = OciImageState::try_from(status.state).unwrap_or(OciImageState::Unspecified);
-            match state {
-                OciImageState::Ready => return Ok(()),
-                OciImageState::PullFailed => {
-                    return Err(VmmError::ImageServiceFailed(format!(
-                        "Image pull failed for {image_ref} (uuid: {image_uuid}): {}",
-                        status.message
-                    )))
-                }
-                _ => continue,
-            }
-        }
-        Err(VmmError::ImageServiceFailed(format!(
-            "Image watch stream for {image_uuid} ended before reaching a terminal state."
-        )))
     }
 
     async fn cleanup_socket_file(&self, vm_id: &str, socket_path: &Path, socket_type: &str) {
@@ -143,7 +87,7 @@ impl Hypervisor for CloudHypervisorAdapter {
         image_uuid: String,
         broadcast_tx: broadcast::Sender<VmEventWrapper>,
     ) -> Result<(), VmmError> {
-        info!("CH_ADAPTER: Creating VM with provided ID: {}", vm_id);
+        info!("CH_ADAPTER: Creating VM with provided ID: {vm_id}");
 
         broadcast_state_change_event(
             &broadcast_tx,
@@ -160,34 +104,6 @@ impl Hypervisor for CloudHypervisorAdapter {
         let config = req
             .config
             .ok_or_else(|| VmmError::InvalidConfig("VmConfig is required".to_string()))?;
-
-        info!(
-            "CH_ADAPTER ({}): Waiting for image '{}' (uuid: {}) to be ready...",
-            vm_id, &config.image_ref, &image_uuid
-        );
-        if let Err(e) = self
-            .wait_for_image_ready(&image_uuid, &config.image_ref)
-            .await
-        {
-            let error_msg = e.to_string();
-            error!("CH_ADAPTER ({}): {}", vm_id, &error_msg);
-            broadcast_state_change_event(
-                &broadcast_tx,
-                vm_id,
-                "vm-service",
-                VmStateChangedEvent {
-                    new_state: VmState::Crashed as i32,
-                    reason: error_msg,
-                },
-                None,
-            )
-            .await;
-            return Err(e);
-        }
-        info!(
-            "CH_ADAPTER ({}): Image '{}' (uuid: {}) is ready.",
-            vm_id, &config.image_ref, &image_uuid
-        );
 
         let api_socket_path = PathBuf::from(VM_API_SOCKET_DIR).join(vm_id);
 
@@ -380,7 +296,6 @@ impl Hypervisor for CloudHypervisorAdapter {
     async fn delete_vm(
         &self,
         req: DeleteVmRequest,
-        image_uuid: String,
         process_id: Option<i64>,
         _broadcast_tx: broadcast::Sender<VmEventWrapper>,
     ) -> Result<DeleteVmResponse, VmmError> {
@@ -428,44 +343,6 @@ impl Hypervisor for CloudHypervisorAdapter {
             PathBuf::from(VM_CONSOLE_DIR).join(format!("{}.console", req.vm_id));
         self.cleanup_socket_file(&req.vm_id, &console_socket_path, "console")
             .await;
-
-        if !image_uuid.is_empty() {
-            info!(
-                "CH_ADAPTER ({}): Attempting to delete associated image with UUID: {}",
-                req.vm_id, image_uuid
-            );
-            match self.get_image_service_client().await {
-                Ok(mut client) => {
-                    let delete_req = feos_proto::image_service::DeleteImageRequest {
-                        image_uuid: image_uuid.clone(),
-                    };
-                    if let Err(status) = client.delete_image(delete_req).await {
-                        warn!(
-                            "CH_ADAPTER ({}): Failed to delete image {}: {}. This may be expected if the image is shared or already deleted.",
-                            req.vm_id,
-                            image_uuid,
-                            status.message()
-                        );
-                    } else {
-                        info!(
-                            "CH_ADAPTER ({}): Successfully requested deletion of image {}",
-                            req.vm_id, image_uuid
-                        );
-                    }
-                }
-                Err(e) => {
-                    warn!(
-                        "CH_ADAPTER ({}): Could not connect to ImageService to delete image {}: {}",
-                        req.vm_id, image_uuid, e
-                    );
-                }
-            }
-        } else {
-            info!(
-                "CH_ADAPTER ({}): No image UUID provided, skipping image deletion.",
-                req.vm_id
-            );
-        }
 
         Ok(DeleteVmResponse {})
     }
