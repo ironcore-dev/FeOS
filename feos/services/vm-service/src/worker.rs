@@ -74,6 +74,19 @@ pub async fn handle_create_vm(
         return;
     }
 
+    info!("VM_WORKER ({vm_id}): Starting creation process.");
+    crate::vmm::broadcast_state_change_event(
+        &broadcast_tx,
+        &vm_id,
+        "vm-service",
+        VmStateChangedEvent {
+            new_state: VmState::Creating as i32,
+            reason: "VM creation process started".to_string(),
+        },
+        None,
+    )
+    .await;
+
     let image_ref = req
         .config
         .as_ref()
@@ -81,12 +94,11 @@ pub async fn handle_create_vm(
         .unwrap_or_default();
 
     info!(
-        "VM_WORKER ({}): Waiting for image '{}' (uuid: {}) to be ready...",
-        vm_id, image_ref, image_uuid
+        "VM_WORKER ({vm_id}): Waiting for image '{image_ref}' (uuid: {image_uuid}) to be ready..."
     );
     if let Err(e) = wait_for_image_ready(&image_uuid, &image_ref).await {
         let error_msg = e.to_string();
-        error!("VM_WORKER ({}): {}", vm_id, &error_msg);
+        error!("VM_WORKER ({vm_id}): {error_msg}");
         crate::vmm::broadcast_state_change_event(
             &broadcast_tx,
             &vm_id,
@@ -100,25 +112,40 @@ pub async fn handle_create_vm(
         .await;
         return;
     }
-    info!(
-        "VM_WORKER ({}): Image '{}' (uuid: {}) is ready.",
-        vm_id, image_ref, image_uuid
-    );
+    info!("VM_WORKER ({vm_id}): Image '{image_ref}' (uuid: {image_uuid}) is ready.");
 
-    info!("VM_WORKER ({vm_id}): Starting creation process.");
+    let result = hypervisor.create_vm(&vm_id, req, image_uuid).await;
 
-    let result = hypervisor
-        .create_vm(&vm_id, req, image_uuid, broadcast_tx.clone())
-        .await;
-
-    if let Err(e) = result {
-        let error_msg = e.to_string();
-        error!(
-            "VM_WORKER ({}): Background creation process failed: {}",
-            &vm_id, &error_msg
-        );
-    } else {
-        info!("VM_WORKER ({vm_id}): Background creation process completed successfully.");
+    match result {
+        Ok(pid) => {
+            info!("VM_WORKER ({vm_id}): Background creation process completed successfully.");
+            crate::vmm::broadcast_state_change_event(
+                &broadcast_tx,
+                &vm_id,
+                "vm-service",
+                VmStateChangedEvent {
+                    new_state: VmState::Created as i32,
+                    reason: "Hypervisor process started and VM configured".to_string(),
+                },
+                pid,
+            )
+            .await;
+        }
+        Err(e) => {
+            let error_msg = e.to_string();
+            error!("VM_WORKER ({vm_id}): Background creation process failed: {error_msg}");
+            crate::vmm::broadcast_state_change_event(
+                &broadcast_tx,
+                &vm_id,
+                "vm-service",
+                VmStateChangedEvent {
+                    new_state: VmState::Crashed as i32,
+                    reason: error_msg,
+                },
+                None,
+            )
+            .await;
+        }
     }
 }
 
@@ -128,7 +155,23 @@ pub async fn handle_start_vm(
     hypervisor: Arc<dyn Hypervisor>,
     broadcast_tx: broadcast::Sender<VmEventWrapper>,
 ) {
-    let result = hypervisor.start_vm(req, broadcast_tx).await;
+    let vm_id = req.vm_id.clone();
+    let result = hypervisor.start_vm(req).await;
+
+    if result.is_ok() {
+        crate::vmm::broadcast_state_change_event(
+            &broadcast_tx,
+            &vm_id,
+            "vm-service",
+            VmStateChangedEvent {
+                new_state: VmState::Running as i32,
+                reason: "Start command successful".to_string(),
+            },
+            None,
+        )
+        .await;
+    }
+
     if responder.send(result.map_err(Into::into)).is_err() {
         error!("VM_WORKER: Failed to send response for StartVm.");
     }
@@ -176,16 +219,13 @@ pub async fn handle_delete_vm(
     process_id: Option<i64>,
     responder: oneshot::Sender<Result<DeleteVmResponse, Status>>,
     hypervisor: Arc<dyn Hypervisor>,
-    broadcast_tx: broadcast::Sender<VmEventWrapper>,
+    _broadcast_tx: broadcast::Sender<VmEventWrapper>,
 ) {
     let vm_id = req.vm_id.clone();
-    let result = hypervisor.delete_vm(req, process_id, broadcast_tx).await;
+    let result = hypervisor.delete_vm(req, process_id).await;
 
     if !image_uuid.is_empty() {
-        info!(
-            "VM_WORKER ({}): Attempting to delete associated image with UUID: {}",
-            vm_id, image_uuid
-        );
+        info!("VM_WORKER ({vm_id}): Attempting to delete associated image with UUID: {image_uuid}");
         match vmservice_helper::get_image_service_client().await {
             Ok(mut client) => {
                 let delete_req = feos_proto::image_service::DeleteImageRequest {
@@ -193,30 +233,19 @@ pub async fn handle_delete_vm(
                 };
                 if let Err(status) = client.delete_image(delete_req).await {
                     warn!(
-                        "VM_WORKER ({}): Failed to delete image {}: {}. This may be expected if the image is shared or already deleted.",
-                        vm_id,
-                        image_uuid,
+                        "VM_WORKER ({vm_id}): Failed to delete image {image_uuid}: {}. This may be expected if the image is shared or already deleted.",
                         status.message()
                     );
                 } else {
-                    info!(
-                        "VM_WORKER ({}): Successfully requested deletion of image {}",
-                        vm_id, image_uuid
-                    );
+                    info!("VM_WORKER ({vm_id}): Successfully requested deletion of image {image_uuid}");
                 }
             }
             Err(e) => {
-                warn!(
-                    "VM_WORKER ({}): Could not connect to ImageService to delete image {}: {}",
-                    vm_id, image_uuid, e
-                );
+                warn!("VM_WORKER ({vm_id}): Could not connect to ImageService to delete image {image_uuid}: {e}");
             }
         }
     } else {
-        info!(
-            "VM_WORKER ({}): No image UUID provided, skipping image deletion.",
-            vm_id
-        );
+        info!("VM_WORKER ({vm_id}): No image UUID provided, skipping image deletion.");
     }
 
     if responder.send(result.map_err(Into::into)).is_err() {
@@ -265,7 +294,23 @@ pub async fn handle_shutdown_vm(
     hypervisor: Arc<dyn Hypervisor>,
     broadcast_tx: broadcast::Sender<VmEventWrapper>,
 ) {
-    let result = hypervisor.shutdown_vm(req, broadcast_tx).await;
+    let vm_id = req.vm_id.clone();
+    let result = hypervisor.shutdown_vm(req).await;
+
+    if result.is_ok() {
+        crate::vmm::broadcast_state_change_event(
+            &broadcast_tx,
+            &vm_id,
+            "vm-service",
+            VmStateChangedEvent {
+                new_state: VmState::Stopped as i32,
+                reason: "Shutdown command successful".to_string(),
+            },
+            None,
+        )
+        .await;
+    }
+
     if responder.send(result.map_err(Into::into)).is_err() {
         error!("VM_WORKER: Failed to send response for ShutdownVm.");
     }
@@ -277,7 +322,23 @@ pub async fn handle_pause_vm(
     hypervisor: Arc<dyn Hypervisor>,
     broadcast_tx: broadcast::Sender<VmEventWrapper>,
 ) {
-    let result = hypervisor.pause_vm(req, broadcast_tx).await;
+    let vm_id = req.vm_id.clone();
+    let result = hypervisor.pause_vm(req).await;
+
+    if result.is_ok() {
+        crate::vmm::broadcast_state_change_event(
+            &broadcast_tx,
+            &vm_id,
+            "vm-service",
+            VmStateChangedEvent {
+                new_state: VmState::Paused as i32,
+                reason: "Pause command successful".to_string(),
+            },
+            None,
+        )
+        .await;
+    }
+
     if responder.send(result.map_err(Into::into)).is_err() {
         error!("VM_WORKER: Failed to send response for PauseVm.");
     }
@@ -289,7 +350,23 @@ pub async fn handle_resume_vm(
     hypervisor: Arc<dyn Hypervisor>,
     broadcast_tx: broadcast::Sender<VmEventWrapper>,
 ) {
-    let result = hypervisor.resume_vm(req, broadcast_tx).await;
+    let vm_id = req.vm_id.clone();
+    let result = hypervisor.resume_vm(req).await;
+
+    if result.is_ok() {
+        crate::vmm::broadcast_state_change_event(
+            &broadcast_tx,
+            &vm_id,
+            "vm-service",
+            VmStateChangedEvent {
+                new_state: VmState::Running as i32,
+                reason: "Resume command successful".to_string(),
+            },
+            None,
+        )
+        .await;
+    }
+
     if responder.send(result.map_err(Into::into)).is_err() {
         error!("VM_WORKER: Failed to send response for ResumeVm.");
     }

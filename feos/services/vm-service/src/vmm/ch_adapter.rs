@@ -1,4 +1,4 @@
-use super::{broadcast_state_change_event, Hypervisor, VmmError};
+use super::{Hypervisor, VmmError};
 use crate::{VmEventWrapper, IMAGE_DIR, VM_API_SOCKET_DIR, VM_CONSOLE_DIR};
 use cloud_hypervisor_client::{
     apis::{configuration::Configuration, DefaultApi, DefaultApiClient},
@@ -11,12 +11,12 @@ use feos_proto::vm_service::{
     AttachDiskRequest, AttachDiskResponse, CreateVmRequest, DeleteVmRequest, DeleteVmResponse,
     GetVmRequest, PauseVmRequest, PauseVmResponse, PingVmRequest, PingVmResponse,
     RemoveDiskRequest, RemoveDiskResponse, ResumeVmRequest, ResumeVmResponse, ShutdownVmRequest,
-    ShutdownVmResponse, StartVmRequest, StartVmResponse, StreamVmEventsRequest, VmEvent, VmInfo,
-    VmState, VmStateChangedEvent,
+    ShutdownVmResponse, StartVmRequest, StartVmResponse, StreamVmEventsRequest, VmConfig, VmEvent,
+    VmInfo, VmState,
 };
 use hyper_util::client::legacy::Client;
 use hyperlocal::{UnixClientExt, UnixConnector, Uri as HyperlocalUri};
-use log::{error, info, warn};
+use log::{info, warn};
 use nix::sys::signal::{kill, Signal};
 use nix::unistd::{self, Pid};
 use std::io;
@@ -56,104 +56,13 @@ impl CloudHypervisorAdapter {
         Ok(DefaultApiClient::new(Arc::new(configuration)))
     }
 
-    async fn cleanup_socket_file(&self, vm_id: &str, socket_path: &Path, socket_type: &str) {
-        if let Err(e) = tokio::fs::remove_file(socket_path).await {
-            if e.kind() != std::io::ErrorKind::NotFound {
-                warn!(
-                    "CH_ADAPTER ({}): Failed to remove {} socket {}: {}",
-                    vm_id,
-                    socket_type,
-                    socket_path.display(),
-                    e
-                );
-            }
-        } else {
-            info!(
-                "CH_ADAPTER ({}): Successfully removed {} socket {}",
-                vm_id,
-                socket_type,
-                socket_path.display()
-            );
-        }
-    }
-}
-
-#[tonic::async_trait]
-impl Hypervisor for CloudHypervisorAdapter {
-    async fn create_vm(
+    async fn perform_vm_creation(
         &self,
         vm_id: &str,
-        req: CreateVmRequest,
+        config: VmConfig,
         image_uuid: String,
-        broadcast_tx: broadcast::Sender<VmEventWrapper>,
+        api_socket_path: &Path,
     ) -> Result<(), VmmError> {
-        info!("CH_ADAPTER: Creating VM with provided ID: {vm_id}");
-
-        broadcast_state_change_event(
-            &broadcast_tx,
-            vm_id,
-            "vm-service",
-            VmStateChangedEvent {
-                new_state: VmState::Creating as i32,
-                reason: "VM creation process started".to_string(),
-            },
-            None,
-        )
-        .await;
-
-        let config = req
-            .config
-            .ok_or_else(|| VmmError::InvalidConfig("VmConfig is required".to_string()))?;
-
-        let api_socket_path = PathBuf::from(VM_API_SOCKET_DIR).join(vm_id);
-
-        info!(
-            "CH_ADAPTER ({}): Spawning cloud-hypervisor process...",
-            vm_id
-        );
-        let mut child = unsafe {
-            TokioCommand::new(&self.ch_binary_path)
-                .arg("--api-socket")
-                .arg(&api_socket_path)
-                .pre_exec(|| unistd::setsid().map(|_pid| ()).map_err(io::Error::other))
-                .spawn()
-        }
-        .map_err(|e| VmmError::ProcessSpawnFailed(e.to_string()))?;
-        let pid = child.id().map(|id| id as i64);
-
-        let vm_id_clone = vm_id.to_string();
-        let broadcast_tx_clone = broadcast_tx.clone();
-        tokio::spawn(async move {
-            match child.wait().await {
-                Ok(status) => {
-                    warn!(
-                        "CH_ADAPTER ({}): Process exited with status: {}",
-                        &vm_id_clone, status
-                    );
-                    broadcast_state_change_event(
-                        &broadcast_tx_clone,
-                        &vm_id_clone,
-                        "vm-process",
-                        VmStateChangedEvent {
-                            new_state: VmState::Crashed as i32,
-                            reason: format!(
-                                "Process exited with code {}",
-                                status.code().unwrap_or(-1)
-                            ),
-                        },
-                        None,
-                    )
-                    .await;
-                }
-                Err(e) => {
-                    error!(
-                        "CH_ADAPTER ({}): Failed to wait for child process: {}",
-                        &vm_id_clone, e
-                    );
-                }
-            }
-        });
-
         let wait_for_socket = async {
             while !api_socket_path.exists() {
                 tokio::time::sleep(Duration::from_millis(50)).await;
@@ -168,7 +77,7 @@ impl Hypervisor for CloudHypervisorAdapter {
                 "Timed out waiting for API socket".to_string(),
             ));
         }
-        info!("CH_ADAPTER ({}): API socket is available.", vm_id);
+        info!("CH_ADAPTER ({vm_id}): API socket is available.");
 
         let client = self.get_ch_api_client(vm_id)?;
         tokio::fs::create_dir_all(VM_CONSOLE_DIR)
@@ -229,45 +138,84 @@ impl Hypervisor for CloudHypervisorAdapter {
             .await
             .map_err(|e| VmmError::ApiOperationFailed(format!("vm.create API call failed: {e}")))?;
 
-        info!("CH_ADAPTER ({}): vm.create API call successful.", vm_id);
+        info!("CH_ADAPTER ({vm_id}): vm.create API call successful.");
 
-        broadcast_state_change_event(
-            &broadcast_tx,
-            vm_id,
-            "vm-service",
-            VmStateChangedEvent {
-                new_state: VmState::Created as i32,
-                reason: "Hypervisor process started and VM configured".to_string(),
-            },
-            pid,
-        )
-        .await;
-
-        Ok(())
+        Ok::<(), VmmError>(())
     }
 
-    async fn start_vm(
+    async fn cleanup_socket_file(&self, vm_id: &str, socket_path: &Path, socket_type: &str) {
+        if let Err(e) = tokio::fs::remove_file(socket_path).await {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                warn!(
+                    "CH_ADAPTER ({vm_id}): Failed to remove {socket_type} socket {}: {e}",
+                    socket_path.display()
+                );
+            }
+        } else {
+            info!(
+                "CH_ADAPTER ({vm_id}): Successfully removed {socket_type} socket {}",
+                socket_path.display()
+            );
+        }
+    }
+}
+
+#[tonic::async_trait]
+impl Hypervisor for CloudHypervisorAdapter {
+    async fn create_vm(
         &self,
-        req: StartVmRequest,
-        broadcast_tx: broadcast::Sender<VmEventWrapper>,
-    ) -> Result<StartVmResponse, VmmError> {
+        vm_id: &str,
+        req: CreateVmRequest,
+        image_uuid: String,
+    ) -> Result<Option<i64>, VmmError> {
+        info!("CH_ADAPTER: Creating VM with provided ID: {vm_id}");
+
+        let config = req
+            .config
+            .ok_or_else(|| VmmError::InvalidConfig("VmConfig is required".to_string()))?;
+
+        let api_socket_path = PathBuf::from(VM_API_SOCKET_DIR).join(vm_id);
+
+        info!("CH_ADAPTER ({vm_id}): Spawning cloud-hypervisor process...");
+        let mut child = unsafe {
+            TokioCommand::new(&self.ch_binary_path)
+                .arg("--api-socket")
+                .arg(&api_socket_path)
+                .pre_exec(|| unistd::setsid().map(|_pid| ()).map_err(io::Error::other))
+                .spawn()
+        }
+        .map_err(|e| VmmError::ProcessSpawnFailed(e.to_string()))?;
+        let pid = child.id().map(|id| id as i64);
+
+        let vm_creation = self.perform_vm_creation(vm_id, config, image_uuid, &api_socket_path);
+
+        tokio::select! {
+            biased;
+            exit_status_res = child.wait() => {
+                let status = exit_status_res.map_err(|e| VmmError::ProcessSpawnFailed(format!("Failed to wait for child process: {e}")))?;
+                Err(VmmError::ProcessSpawnFailed(format!("Process exited prematurely with status: {status}")))
+            }
+            creation_result = vm_creation => {
+                match creation_result {
+                    Ok(_) => Ok(pid),
+                    Err(e) => {
+                        if let Err(kill_err) = child.kill().await {
+                             warn!("CH_ADAPTER ({vm_id}): Failed to kill child process after creation failure: {kill_err}");
+                        }
+                        let _ = child.wait().await;
+                        Err(e)
+                    }
+                }
+            }
+        }
+    }
+
+    async fn start_vm(&self, req: StartVmRequest) -> Result<StartVmResponse, VmmError> {
         let api_client = self.get_ch_api_client(&req.vm_id)?;
         api_client
             .boot_vm()
             .await
             .map_err(|e| VmmError::ApiOperationFailed(e.to_string()))?;
-
-        broadcast_state_change_event(
-            &broadcast_tx,
-            &req.vm_id,
-            "vm-service",
-            VmStateChangedEvent {
-                new_state: VmState::Running as i32,
-                reason: "Start command successful".to_string(),
-            },
-            None,
-        )
-        .await;
 
         Ok(StartVmResponse {})
     }
@@ -297,13 +245,12 @@ impl Hypervisor for CloudHypervisorAdapter {
         &self,
         req: DeleteVmRequest,
         process_id: Option<i64>,
-        _broadcast_tx: broadcast::Sender<VmEventWrapper>,
     ) -> Result<DeleteVmResponse, VmmError> {
         if let Ok(api_client) = self.get_ch_api_client(&req.vm_id) {
             if let Err(e) = api_client.delete_vm().await {
                 warn!(
-                    "CH_ADAPTER ({}): API call to delete VM failed: {}. This might happen if the process is already gone. Continuing cleanup.",
-                    req.vm_id, e
+                    "CH_ADAPTER ({}): API call to delete VM failed: {e}. This might happen if the process is already gone. Continuing cleanup.",
+                    req.vm_id
                 );
             } else {
                 info!(
@@ -315,22 +262,22 @@ impl Hypervisor for CloudHypervisorAdapter {
 
         if let Some(pid_val) = process_id {
             info!(
-                "CH_ADAPTER ({}): Attempting to kill process with PID: {}",
-                req.vm_id, pid_val
+                "CH_ADAPTER ({}): Attempting to kill process with PID: {pid_val}",
+                req.vm_id
             );
             let pid = Pid::from_raw(pid_val as i32);
             match kill(pid, Signal::SIGKILL) {
                 Ok(_) => info!(
-                    "CH_ADAPTER ({}): Successfully sent SIGKILL to process {}.",
-                    req.vm_id, pid_val
+                    "CH_ADAPTER ({}): Successfully sent SIGKILL to process {pid_val}.",
+                    req.vm_id
                 ),
                 Err(nix::Error::ESRCH) => info!(
-                    "CH_ADAPTER ({}): Process {} already exited.",
-                    req.vm_id, pid_val
+                    "CH_ADAPTER ({}): Process {pid_val} already exited.",
+                    req.vm_id
                 ),
                 Err(e) => warn!(
-                    "CH_ADAPTER ({}): Failed to kill process {}: {}. It might already be gone.",
-                    req.vm_id, pid_val, e
+                    "CH_ADAPTER ({}): Failed to kill process {pid_val}: {e}. It might already be gone.",
+                    req.vm_id
                 ),
             }
         }
@@ -413,75 +360,30 @@ impl Hypervisor for CloudHypervisorAdapter {
         })
     }
 
-    async fn shutdown_vm(
-        &self,
-        req: ShutdownVmRequest,
-        broadcast_tx: broadcast::Sender<VmEventWrapper>,
-    ) -> Result<ShutdownVmResponse, VmmError> {
+    async fn shutdown_vm(&self, req: ShutdownVmRequest) -> Result<ShutdownVmResponse, VmmError> {
         let api_client = self.get_ch_api_client(&req.vm_id)?;
         api_client
             .shutdown_vm()
             .await
             .map_err(|e| VmmError::ApiOperationFailed(e.to_string()))?;
-        broadcast_state_change_event(
-            &broadcast_tx,
-            &req.vm_id,
-            "vm-service",
-            VmStateChangedEvent {
-                new_state: VmState::Stopped as i32,
-                reason: "Shutdown command successful".to_string(),
-            },
-            None,
-        )
-        .await;
         Ok(ShutdownVmResponse {})
     }
 
-    async fn pause_vm(
-        &self,
-        req: PauseVmRequest,
-        broadcast_tx: broadcast::Sender<VmEventWrapper>,
-    ) -> Result<PauseVmResponse, VmmError> {
+    async fn pause_vm(&self, req: PauseVmRequest) -> Result<PauseVmResponse, VmmError> {
         let api_client = self.get_ch_api_client(&req.vm_id)?;
         api_client
             .pause_vm()
             .await
             .map_err(|e| VmmError::ApiOperationFailed(e.to_string()))?;
-        broadcast_state_change_event(
-            &broadcast_tx,
-            &req.vm_id,
-            "vm-service",
-            VmStateChangedEvent {
-                new_state: VmState::Paused as i32,
-                reason: "Pause command successful".to_string(),
-            },
-            None,
-        )
-        .await;
         Ok(PauseVmResponse {})
     }
 
-    async fn resume_vm(
-        &self,
-        req: ResumeVmRequest,
-        broadcast_tx: broadcast::Sender<VmEventWrapper>,
-    ) -> Result<ResumeVmResponse, VmmError> {
+    async fn resume_vm(&self, req: ResumeVmRequest) -> Result<ResumeVmResponse, VmmError> {
         let api_client = self.get_ch_api_client(&req.vm_id)?;
         api_client
             .resume_vm()
             .await
             .map_err(|e| VmmError::ApiOperationFailed(e.to_string()))?;
-        broadcast_state_change_event(
-            &broadcast_tx,
-            &req.vm_id,
-            "vm-service",
-            VmStateChangedEvent {
-                new_state: VmState::Running as i32,
-                reason: "Resume command successful".to_string(),
-            },
-            None,
-        )
-        .await;
         Ok(ResumeVmResponse {})
     }
 

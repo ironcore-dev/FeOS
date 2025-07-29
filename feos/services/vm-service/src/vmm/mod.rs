@@ -61,14 +61,9 @@ pub trait Hypervisor: Send + Sync {
         vm_id: &str,
         req: CreateVmRequest,
         image_uuid: String,
-        broadcast_tx: broadcast::Sender<VmEventWrapper>,
-    ) -> Result<(), VmmError>;
+    ) -> Result<Option<i64>, VmmError>;
 
-    async fn start_vm(
-        &self,
-        req: StartVmRequest,
-        broadcast_tx: broadcast::Sender<VmEventWrapper>,
-    ) -> Result<StartVmResponse, VmmError>;
+    async fn start_vm(&self, req: StartVmRequest) -> Result<StartVmResponse, VmmError>;
 
     async fn get_vm(&self, req: GetVmRequest) -> Result<VmInfo, VmmError>;
 
@@ -76,7 +71,6 @@ pub trait Hypervisor: Send + Sync {
         &self,
         req: DeleteVmRequest,
         process_id: Option<i64>,
-        broadcast_tx: broadcast::Sender<VmEventWrapper>,
     ) -> Result<DeleteVmResponse, VmmError>;
 
     async fn stream_vm_events(
@@ -88,21 +82,9 @@ pub trait Hypervisor: Send + Sync {
     async fn get_console_socket_path(&self, vm_id: &str) -> Result<PathBuf, VmmError>;
 
     async fn ping_vm(&self, req: PingVmRequest) -> Result<PingVmResponse, VmmError>;
-    async fn shutdown_vm(
-        &self,
-        req: ShutdownVmRequest,
-        broadcast_tx: broadcast::Sender<VmEventWrapper>,
-    ) -> Result<ShutdownVmResponse, VmmError>;
-    async fn pause_vm(
-        &self,
-        req: PauseVmRequest,
-        broadcast_tx: broadcast::Sender<VmEventWrapper>,
-    ) -> Result<PauseVmResponse, VmmError>;
-    async fn resume_vm(
-        &self,
-        req: ResumeVmRequest,
-        broadcast_tx: broadcast::Sender<VmEventWrapper>,
-    ) -> Result<ResumeVmResponse, VmmError>;
+    async fn shutdown_vm(&self, req: ShutdownVmRequest) -> Result<ShutdownVmResponse, VmmError>;
+    async fn pause_vm(&self, req: PauseVmRequest) -> Result<PauseVmResponse, VmmError>;
+    async fn resume_vm(&self, req: ResumeVmRequest) -> Result<ResumeVmResponse, VmmError>;
     async fn attach_disk(&self, req: AttachDiskRequest) -> Result<AttachDiskResponse, VmmError>;
     async fn remove_disk(&self, req: RemoveDiskRequest) -> Result<RemoveDiskResponse, VmmError>;
 }
