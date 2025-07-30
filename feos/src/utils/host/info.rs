@@ -4,6 +4,8 @@ use nix::sys::sysinfo::sysinfo;
 use nix::unistd::sysconf;
 use nix::unistd::SysconfVar;
 use std::fs;
+use tokio::fs::File;
+use tokio::io::AsyncReadExt;
 
 #[derive(Default)]
 pub struct HostInfo {
@@ -85,4 +87,26 @@ pub fn check_info() -> HostInfo {
     }
 
     host
+}
+
+pub async fn is_running_on_vm() -> Result<bool, Box<dyn std::error::Error>> {
+    let files = [
+        "/sys/class/dmi/id/product_name",
+        "/sys/class/dmi/id/sys_vendor",
+    ];
+
+    let mut match_count = 0;
+
+    for file_path in files.iter() {
+        let mut file = File::open(file_path).await?;
+        let mut contents = String::new();
+        file.read_to_string(&mut contents).await?;
+
+        let lowercase_contents = contents.to_lowercase();
+        if lowercase_contents.contains("cloud") && lowercase_contents.contains("hypervisor") {
+            match_count += 1;
+        }
+    }
+
+    Ok(match_count == 2)
 }

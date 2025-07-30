@@ -4,11 +4,169 @@ use log::{error, info, warn};
 use netlink_packet_route::route::RouteType;
 use rtnetlink::new_connection;
 use std::fs::File;
+use std::io;
 use std::io::Write;
 use std::net::Ipv6Addr;
+use tokio::fs::{read_link, OpenOptions};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::time::{sleep, Duration};
 
 pub const INTERFACE_NAME: &str = "eth0";
+
+pub async fn configure_sriov(num_vfs: u32) -> Result<(), String> {
+    let base_path = format!("/sys/class/net/{}/device", INTERFACE_NAME);
+
+    let file_path = format!("{}/sriov_numvfs", base_path);
+    let mut file = OpenOptions::new()
+        .write(true)
+        .open(&file_path)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let value = format!("{}\n", num_vfs);
+    if let Err(e) = file.write_all(value.as_bytes()).await {
+        return Err(format!("Failed to write to the file: {}", e));
+    }
+    info!("Created {} sriov virtual functions", num_vfs);
+
+    let device_path = read_link(base_path).await.map_err(|e| e.to_string())?;
+    let pci_address = device_path
+        .file_name()
+        .ok_or("No PCI address found".to_string())?;
+    let pci_address = pci_address.to_str().ok_or("No PCI address found")?;
+
+    info!("Found PCI address of {}: {}", INTERFACE_NAME, pci_address);
+
+    let sriov_offset = get_device_information(pci_address, "sriov_offset")
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let sriov_offset = match sriov_offset.parse::<u32>() {
+        Ok(n) => n,
+        Err(e) => return Err(e.to_string()),
+    };
+
+    let base_pci_address = parse_pci_address(pci_address)?;
+
+    let virtual_funcs: Vec<String> = (0..num_vfs)
+        .map(|x| nth_next_pci_address(base_pci_address, x + sriov_offset))
+        .map(format_pci_address)
+        .collect();
+
+    const RETRIES: i32 = 5;
+    for (index, vf) in virtual_funcs.iter().enumerate() {
+        for i in 1..RETRIES {
+            info!("try to unbind device {}: {:?}/{}", vf, i, RETRIES);
+            if let Err(e) = unbind_device(vf).await {
+                warn!("failed to unbind device {}: {}", vf, e.to_string());
+                sleep(Duration::from_secs(2)).await;
+            } else {
+                info!("successfull unbound device {}", vf);
+
+                if let Err(e) = bind_device(index, vf).await {
+                    warn!("failed to bind devices: {}", e.to_string())
+                }
+                break;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn parse_pci_address(address: &str) -> Result<(u16, u8, u8, u8), String> {
+    let parts: Vec<&str> = address.split(&[':', '.', ' '][..]).collect();
+    if parts.len() != 4 {
+        return Err("Invalid PCI address format".to_string());
+    }
+
+    let domain = u16::from_str_radix(parts[0], 16).map_err(|_| "Invalid domain".to_string())?;
+    let bus = u8::from_str_radix(parts[1], 16).map_err(|_| "Invalid bus".to_string())?;
+    let slot = u8::from_str_radix(parts[2], 16).map_err(|_| "Invalid slot".to_string())?;
+    let function = u8::from_str_radix(parts[3], 16).map_err(|_| "Invalid function".to_string())?;
+
+    Ok((domain, bus, slot, function))
+}
+
+fn nth_next_pci_address(address: (u16, u8, u8, u8), n: u32) -> (u16, u8, u8, u8) {
+    let (domain, bus, slot, function) = address;
+    let total_functions = (domain as u32) * 256 * 32 * 8
+        + (bus as u32) * 32 * 8
+        + (slot as u32) * 8
+        + function as u32
+        + n;
+
+    let new_domain = (total_functions / (256 * 32 * 8)) as u16;
+    let remaining = total_functions % (256 * 32 * 8);
+    let new_bus = (remaining / (32 * 8)) as u8;
+    let remaining = remaining % (32 * 8);
+    let new_slot = (remaining / 8) as u8;
+    let new_function = (remaining % 8) as u8;
+
+    (new_domain, new_bus, new_slot, new_function)
+}
+
+fn format_pci_address(address: (u16, u8, u8, u8)) -> String {
+    let (domain, bus, slot, function) = address;
+    format!("{:04x}:{:02x}:{:02x}.{}", domain, bus, slot, function)
+}
+
+async fn unbind_device(pci: &str) -> Result<(), io::Error> {
+    let unbind_path = format!("/sys/bus/pci/devices/{}/driver/unbind", pci);
+    let mut file = OpenOptions::new().write(true).open(&unbind_path).await?;
+
+    file.write_all(pci.as_bytes()).await?;
+    info!("unbound device: {}", pci);
+    Ok(())
+}
+
+async fn bind_device(index: usize, pci_address: &str) -> Result<(), io::Error> {
+    info!("try to bind device to vfio: {}", pci_address);
+    if index == 0 {
+        vfio_new_id(pci_address).await
+    } else {
+        vfio_bind(pci_address).await
+    }
+}
+
+async fn vfio_new_id(pci_address: &str) -> Result<(), io::Error> {
+    let vendor = get_device_information(pci_address, "vendor").await?;
+    let vendor = vendor[2..].to_string();
+
+    let device = get_device_information(pci_address, "device").await?;
+    let device = device[2..].to_string();
+
+    let mut file = OpenOptions::new()
+        .write(true)
+        .open("/sys/bus/pci/drivers/vfio-pci/new_id")
+        .await?;
+
+    let content = format!("{} {}", vendor, device);
+    file.write_all(content.as_bytes()).await?;
+    info!("bound devices ({}) to vfio-pci", pci_address);
+    Ok(())
+}
+
+async fn vfio_bind(pci_address: &str) -> Result<(), io::Error> {
+    let mut file = OpenOptions::new()
+        .write(true)
+        .open("/sys/bus/pci/drivers/vfio-pci/bind")
+        .await?;
+
+    file.write_all(pci_address.as_bytes()).await?;
+    info!("bound devices ({}) to vfio-pci", pci_address);
+    Ok(())
+}
+
+async fn get_device_information(pci: &str, field: &str) -> Result<String, io::Error> {
+    let path = format!("/sys/bus/pci/devices/{}/{}", pci, field);
+    let mut file = OpenOptions::new().read(true).open(&path).await?;
+
+    let mut dst = String::new();
+    file.read_to_string(&mut dst).await?;
+
+    Ok(dst.trim().to_string())
+}
 
 pub async fn configure_network_devices() -> Result<Option<(Ipv6Addr, u8)>, String> {
     let ignore_ra_flag = true; // Till the RA has the correct flags (O or M), ignore the flag

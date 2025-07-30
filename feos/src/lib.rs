@@ -24,12 +24,14 @@ use tokio::{net::UnixListener, sync::mpsc};
 use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::Server;
 use utils::filesystem::mount_virtual_filesystems;
-use utils::network::configure_network_devices;
+use utils::host::info::is_running_on_vm;
+use utils::network::{configure_network_devices, configure_sriov};
 use vm_service::{
     api::VmApiHandler, dispatcher::VmServiceDispatcher, Command as VmCommand, DEFAULT_VM_DB_URL,
     VM_API_SOCKET_DIR, VM_CONSOLE_DIR,
 };
 
+const VFS_NUM: u32 = 125;
 pub mod utils;
 
 pub async fn run_server(restarted_after_upgrade: bool) -> Result<()> {
@@ -56,12 +58,24 @@ pub async fn run_server(restarted_after_upgrade: bool) -> Result<()> {
             info!("MAIN: Mounting virtual filesystems...");
             mount_virtual_filesystems();
 
+            let is_on_vm = is_running_on_vm().await.unwrap_or_else(|e| {
+                error!("Error checking VM status: {}", e);
+                false // Default to false in case of error
+            });
+
             info!("MAIN: Configuring network devices...");
             if let Some((delegated_prefix, delegated_prefix_length)) = configure_network_devices()
                 .await
                 .expect("could not configure network devices")
             {
                 info!("MAIN: Delegated prefix: {delegated_prefix}/{delegated_prefix_length}");
+            }
+
+            if !is_on_vm {
+                info!("configuring sriov...");
+                if let Err(e) = configure_sriov(VFS_NUM).await {
+                    warn!("failed to configure sriov: {}", e.to_string())
+                }
             }
         }
     } else {
