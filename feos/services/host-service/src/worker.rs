@@ -1,7 +1,7 @@
 use crate::RestartSignal;
 use digest::Digest;
 use feos_proto::host_service::{
-    upgrade_request, HostnameResponse, UpgradeRequest, UpgradeResponse,
+    upgrade_request, HostnameResponse, KernelLogEntry, UpgradeRequest, UpgradeResponse,
 };
 use log::{error, info, warn};
 use nix::unistd;
@@ -12,7 +12,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use tempfile::NamedTempFile;
 use tokio::fs::File;
-use tokio::io::AsyncReadExt;
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 use tokio_stream::StreamExt;
@@ -20,6 +20,7 @@ use tonic::{Status, Streaming};
 
 const UPGRADE_DIR: &str = "/var/lib/feos/upgrade";
 const ELF_MAGIC: [u8; 4] = [0x7f, 0x45, 0x4c, 0x46];
+const KMSG_PATH: &str = "/dev/kmsg";
 
 pub async fn handle_hostname(responder: oneshot::Sender<Result<HostnameResponse, Status>>) {
     info!("HOST_WORKER: Processing Hostname request.");
@@ -41,6 +42,58 @@ pub async fn handle_hostname(responder: oneshot::Sender<Result<HostnameResponse,
         error!(
             "HOST_WORKER: Failed to send response for Hostname. API handler may have timed out."
         );
+    }
+}
+
+pub async fn handle_stream_kernel_logs(
+    grpc_tx: mpsc::Sender<Result<KernelLogEntry, Status>>,
+) {
+    info!("HOST_WORKER: Opening {KMSG_PATH} for streaming kernel logs.");
+
+    let file = match File::open(KMSG_PATH).await {
+        Ok(f) => f,
+        Err(e) => {
+            let msg = format!("Failed to open {KMSG_PATH}: {e}");
+            error!("HOST_WORKER: {msg}");
+            if grpc_tx.send(Err(Status::internal(msg))).await.is_err() {
+                warn!("HOST_WORKER: gRPC client for kernel logs disconnected before error could be sent.");
+            }
+            return;
+        }
+    };
+
+    let mut reader = BufReader::new(file).lines();
+    info!("HOST_WORKER: Streaming logs from {KMSG_PATH}.");
+
+    loop {
+        tokio::select! {
+            biased;
+            _ = grpc_tx.closed() => {
+                info!("HOST_WORKER: gRPC client for kernel logs disconnected. Closing stream.");
+                break;
+            }
+            line_res = reader.next_line() => {
+                match line_res {
+                    Ok(Some(line)) => {
+                        let entry = KernelLogEntry { message: line };
+                        if grpc_tx.send(Ok(entry)).await.is_err() {
+                            info!("HOST_WORKER: gRPC client for kernel logs disconnected. Stopping stream.");
+                            break;
+                        }
+                    }
+                    Ok(None) => {
+                        info!("HOST_WORKER: Reached EOF on {KMSG_PATH}. Stream finished.");
+                        break;
+                    }
+                    Err(e) => {
+                        let msg = format!("Error reading from {KMSG_PATH}: {e}");
+                        error!("HOST_WORKER: {msg}");
+                        let _ = grpc_tx.send(Err(Status::internal(msg))).await;
+                        break;
+                    }
+                }
+            }
+        }
     }
 }
 

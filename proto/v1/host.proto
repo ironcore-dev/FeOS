@@ -11,6 +11,9 @@ service HostService {
   // The first message MUST contain the UpgradeMetadata, and subsequent messages
   // MUST contain the binary data chunks.
   rpc UpgradeFeosBinary(stream UpgradeRequest) returns (UpgradeResponse);
+
+  // Streams kernel log messages from /dev/kmsg.
+  rpc StreamKernelLogs(StreamKernelLogsRequest) returns (stream KernelLogEntry);
 }
 
 message HostnameRequest {}
@@ -33,5 +36,12 @@ message UpgradeMetadata {
 
 message UpgradeResponse {
   // A message indicating the result of the upgrade attempt.
+  string message = 1;
+}
+
+message StreamKernelLogsRequest {}
+
+message KernelLogEntry {
+  // A single raw log line from the kernel log buffer.
   string message = 1;
 }

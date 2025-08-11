@@ -1,10 +1,12 @@
 use crate::Command;
 use feos_proto::host_service::{
-    host_service_server::HostService, HostnameRequest, HostnameResponse, UpgradeRequest,
-    UpgradeResponse,
+    host_service_server::HostService, HostnameRequest, HostnameResponse, KernelLogEntry,
+    StreamKernelLogsRequest, UpgradeRequest, UpgradeResponse,
 };
 use log::info;
+use std::pin::Pin;
 use tokio::sync::{mpsc, oneshot};
+use tokio_stream::{wrappers::ReceiverStream, Stream};
 use tonic::{Request, Response, Status, Streaming};
 
 pub struct HostApiHandler {
@@ -19,6 +21,8 @@ impl HostApiHandler {
 
 #[tonic::async_trait]
 impl HostService for HostApiHandler {
+    type StreamKernelLogsStream = Pin<Box<dyn Stream<Item = Result<KernelLogEntry, Status>> + Send>>;
+
     async fn hostname(
         &self,
         _request: Request<HostnameRequest>,
@@ -59,5 +63,20 @@ impl HostService for HostApiHandler {
                 "Dispatcher task dropped response channel.",
             )),
         }
+    }
+
+    async fn stream_kernel_logs(
+        &self,
+        _request: Request<StreamKernelLogsRequest>,
+    ) -> Result<Response<Self::StreamKernelLogsStream>, Status> {
+        info!("HOST_API_HANDLER: Received StreamKernelLogs request.");
+        let (stream_tx, stream_rx) = mpsc::channel(128);
+        let cmd = Command::StreamKernelLogs(stream_tx);
+        self.dispatcher_tx
+            .send(cmd)
+            .await
+            .map_err(|e| Status::internal(format!("Failed to send command to dispatcher: {e}")))?;
+        let output_stream = ReceiverStream::new(stream_rx);
+        Ok(Response::new(Box::pin(output_stream)))
     }
 }

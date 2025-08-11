@@ -23,6 +23,9 @@ impl HostServiceDispatcher {
                     let restart_tx = self.restart_tx.clone();
                     tokio::spawn(worker::handle_upgrade(restart_tx, *stream, responder));
                 }
+                Command::StreamKernelLogs(stream_tx) => {
+                    tokio::spawn(worker::handle_stream_kernel_logs(stream_tx));
+                }
             }
         }
         info!("HOST_DISPATCHER: Channel closed, shutting down.");

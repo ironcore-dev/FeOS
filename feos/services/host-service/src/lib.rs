@@ -1,6 +1,6 @@
-use feos_proto::host_service::{HostnameResponse, UpgradeRequest, UpgradeResponse};
+use feos_proto::host_service::{KernelLogEntry, HostnameResponse, UpgradeRequest, UpgradeResponse};
 use std::path::PathBuf;
-use tokio::sync::oneshot;
+use tokio::sync::{mpsc, oneshot};
 use tonic::{Status, Streaming};
 
 pub mod api;
@@ -14,6 +14,7 @@ pub enum Command {
         Box<Streaming<UpgradeRequest>>,
         oneshot::Sender<Result<UpgradeResponse, Status>>,
     ),
+    StreamKernelLogs(mpsc::Sender<Result<KernelLogEntry, Status>>),
 }
 
 #[derive(Debug)]

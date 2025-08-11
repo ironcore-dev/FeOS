@@ -2,15 +2,15 @@ use anyhow::{Context, Result};
 use clap::{Args, Subcommand};
 use digest::Digest;
 use feos_proto::host_service::{
-    host_service_client::HostServiceClient, upgrade_request, HostnameRequest, UpgradeMetadata,
-    UpgradeRequest,
+    host_service_client::HostServiceClient, upgrade_request, HostnameRequest,
+    StreamKernelLogsRequest, UpgradeMetadata, UpgradeRequest,
 };
 use sha2::Sha256;
 use std::path::PathBuf;
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
 use tokio::sync::mpsc;
-use tokio_stream::wrappers::ReceiverStream;
+use tokio_stream::{wrappers::ReceiverStream, StreamExt};
 use tonic::transport::Channel;
 
 #[derive(Args, Debug)]
@@ -35,6 +35,8 @@ pub enum HostCommand {
         #[arg(required = true)]
         binary_path: PathBuf,
     },
+    /// Stream kernel logs from /dev/kmsg
+    Klogs,
 }
 
 pub async fn handle_host_command(args: HostArgs) -> Result<()> {
@@ -45,6 +47,7 @@ pub async fn handle_host_command(args: HostArgs) -> Result<()> {
     match args.command {
         HostCommand::Hostname => get_hostname(&mut client).await?,
         HostCommand::Upgrade { binary_path } => upgrade_feos(&mut client, binary_path).await?,
+        HostCommand::Klogs => stream_klogs(&mut client).await?,
     }
 
     Ok(())
@@ -54,6 +57,26 @@ async fn get_hostname(client: &mut HostServiceClient<Channel>) -> Result<()> {
     let request = HostnameRequest {};
     let response = client.hostname(request).await?.into_inner();
     println!("{}", response.hostname);
+    Ok(())
+}
+
+async fn stream_klogs(client: &mut HostServiceClient<Channel>) -> Result<()> {
+    println!("Streaming kernel logs... Press Ctrl+C to stop.");
+    let request = StreamKernelLogsRequest {};
+    let mut stream = client.stream_kernel_logs(request).await?.into_inner();
+
+    while let Some(entry_res) = stream.next().await {
+        match entry_res {
+            Ok(entry) => {
+                println!("{}", entry.message);
+            }
+            Err(status) => {
+                eprintln!("Error in kernel log stream: {status}");
+                break;
+            }
+        }
+    }
+
     Ok(())
 }
 
