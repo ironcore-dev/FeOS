@@ -8,8 +8,8 @@ use cloud_hypervisor_client::{
     },
 };
 use feos_proto::vm_service::{
-    AttachDiskRequest, AttachDiskResponse, CreateVmRequest, DeleteVmRequest, DeleteVmResponse,
-    GetVmRequest, PauseVmRequest, PauseVmResponse, PingVmRequest, PingVmResponse,
+    net_config, AttachDiskRequest, AttachDiskResponse, CreateVmRequest, DeleteVmRequest,
+    DeleteVmResponse, GetVmRequest, PauseVmRequest, PauseVmResponse, PingVmRequest, PingVmResponse,
     RemoveDiskRequest, RemoveDiskResponse, ResumeVmRequest, ResumeVmResponse, ShutdownVmRequest,
     ShutdownVmResponse, StartVmRequest, StartVmResponse, StreamVmEventsRequest, VmConfig, VmEvent,
     VmInfo, VmState,
@@ -122,6 +122,44 @@ impl CloudHypervisorAdapter {
                 shared: Some(true),
                 ..Default::default()
             });
+        }
+
+        let mut ch_net_configs: Vec<models::NetConfig> = Vec::new();
+        let mut ch_device_configs: Vec<models::DeviceConfig> = Vec::new();
+
+        for nc in config.net {
+            if let Some(backend) = nc.backend {
+                match backend {
+                    net_config::Backend::VfioPci(vfio_pci) => {
+                        let device_path = format!("/sys/bus/pci/devices/{}", vfio_pci.bdf);
+                        ch_device_configs.push(models::DeviceConfig {
+                            path: device_path,
+                            ..Default::default()
+                        });
+                    }
+                    net_config::Backend::Tap(tap) => {
+                        let mac = if nc.mac_address.is_empty() {
+                            None
+                        } else {
+                            Some(nc.mac_address)
+                        };
+
+                        ch_net_configs.push(models::NetConfig {
+                            tap: Some(tap.tap_name),
+                            mac,
+                            ..Default::default()
+                        });
+                    }
+                }
+            }
+        }
+
+        if !ch_net_configs.is_empty() {
+            ch_vm_config.net = Some(ch_net_configs);
+        }
+
+        if !ch_device_configs.is_empty() {
+            ch_vm_config.devices = Some(ch_device_configs);
         }
 
         if let Some(ignition_data) = config.ignition {

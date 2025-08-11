@@ -59,7 +59,7 @@ pub async fn run_server(restarted_after_upgrade: bool) -> Result<()> {
             mount_virtual_filesystems();
 
             let is_on_vm = is_running_on_vm().await.unwrap_or_else(|e| {
-                error!("Error checking VM status: {}", e);
+                error!("Error checking VM status: {e}");
                 false // Default to false in case of error
             });
 
@@ -74,7 +74,7 @@ pub async fn run_server(restarted_after_upgrade: bool) -> Result<()> {
             if !is_on_vm {
                 info!("configuring sriov...");
                 if let Err(e) = configure_sriov(VFS_NUM).await {
-                    warn!("failed to configure sriov: {}", e.to_string())
+                    warn!("failed to configure sriov: {e}")
                 }
             }
         }

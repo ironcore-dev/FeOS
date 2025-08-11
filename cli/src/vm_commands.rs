@@ -3,11 +3,12 @@ use clap::{Args, Subcommand};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use crossterm::tty::IsTty;
 use feos_proto::vm_service::{
-    stream_vm_console_request as console_input, vm_service_client::VmServiceClient,
+    net_config, stream_vm_console_request as console_input, vm_service_client::VmServiceClient,
     AttachConsoleMessage, AttachDiskRequest, ConsoleData, CpuConfig, CreateVmRequest,
-    DeleteVmRequest, DiskConfig, GetVmRequest, ListVmsRequest, MemoryConfig, PauseVmRequest,
-    PingVmRequest, RemoveDiskRequest, ResumeVmRequest, ShutdownVmRequest, StartVmRequest,
-    StreamVmConsoleRequest, StreamVmEventsRequest, VmConfig, VmState, VmStateChangedEvent,
+    DeleteVmRequest, DiskConfig, GetVmRequest, ListVmsRequest, MemoryConfig, NetConfig,
+    PauseVmRequest, PingVmRequest, RemoveDiskRequest, ResumeVmRequest, ShutdownVmRequest,
+    StartVmRequest, StreamVmConsoleRequest, StreamVmEventsRequest, VfioPciConfig, VmConfig,
+    VmState, VmStateChangedEvent,
 };
 use prost::Message;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -44,6 +45,12 @@ pub enum VmCommand {
 
         #[arg(long)]
         vm_id: Option<String>,
+
+        #[arg(
+            long,
+            help = "PCI device BDF to passthrough for networking (e.g., 0000:03:00.0)"
+        )]
+        pci_device: Vec<String>,
     },
     Start {
         #[arg(required = true)]
@@ -107,7 +114,8 @@ pub async fn handle_vm_command(args: VmArgs) -> Result<()> {
             vcpus,
             memory,
             vm_id,
-        } => create_vm(&mut client, image_ref, vcpus, memory, vm_id).await?,
+            pci_device,
+        } => create_vm(&mut client, image_ref, vcpus, memory, vm_id, pci_device).await?,
         VmCommand::Start { vm_id } => start_vm(&mut client, vm_id).await?,
         VmCommand::Info { vm_id } => get_vm_info(&mut client, vm_id).await?,
         VmCommand::List => list_vms(&mut client).await?,
@@ -133,8 +141,20 @@ async fn create_vm(
     vcpus: u32,
     memory: u64,
     vm_id: Option<String>,
+    pci_devices: Vec<String>,
 ) -> Result<()> {
     println!("Requesting VM creation with image: {image_ref}...");
+
+    let net_configs = pci_devices
+        .into_iter()
+        .map(|bdf| {
+            println!("Adding PCI device: {bdf}");
+            NetConfig {
+                backend: Some(net_config::Backend::VfioPci(VfioPciConfig { bdf })),
+                ..Default::default()
+            }
+        })
+        .collect();
 
     let request = CreateVmRequest {
         config: Some(VmConfig {
@@ -144,6 +164,7 @@ async fn create_vm(
             }),
             memory: Some(MemoryConfig { size_mib: memory }),
             image_ref,
+            net: net_configs,
             ..Default::default()
         }),
         vm_id,

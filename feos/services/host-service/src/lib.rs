@@ -1,4 +1,4 @@
-use feos_proto::host_service::{KernelLogEntry, HostnameResponse, UpgradeRequest, UpgradeResponse};
+use feos_proto::host_service::{HostnameResponse, KernelLogEntry, UpgradeRequest, UpgradeResponse};
 use std::path::PathBuf;
 use tokio::sync::{mpsc, oneshot};
 use tonic::{Status, Streaming};

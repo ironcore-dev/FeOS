@@ -14,37 +14,57 @@ use tokio::time::{sleep, Duration};
 pub const INTERFACE_NAME: &str = "eth0";
 
 pub async fn configure_sriov(num_vfs: u32) -> Result<(), String> {
-    let base_path = format!("/sys/class/net/{}/device", INTERFACE_NAME);
+    let base_path = format!("/sys/class/net/{INTERFACE_NAME}/device");
 
-    let file_path = format!("{}/sriov_numvfs", base_path);
-    let mut file = OpenOptions::new()
+    // Disable driver autoprobe for new VFs to prevent mlx5_core from claiming them.
+    let autoprobe_path = format!("{base_path}/sriov_drivers_autoprobe");
+    info!("Disabling sriov_drivers_autoprobe at {autoprobe_path}");
+    let mut autoprobe_file = OpenOptions::new()
         .write(true)
-        .open(&file_path)
+        .open(&autoprobe_path)
+        .await
+        .map_err(|e| format!("Failed to open sriov_drivers_autoprobe: {e}"))?;
+    autoprobe_file
+        .write_all(b"0\n")
+        .await
+        .map_err(|e| format!("Failed to disable autoprobe: {e}"))?;
+
+    // Reset VFs to 0 before creating new ones.
+    let numvfs_path = format!("{base_path}/sriov_numvfs");
+    let mut numvfs_file = OpenOptions::new()
+        .write(true)
+        .open(&numvfs_path)
         .await
         .map_err(|e| e.to_string())?;
 
-    let value = format!("{}\n", num_vfs);
-    if let Err(e) = file.write_all(value.as_bytes()).await {
-        return Err(format!("Failed to write to the file: {}", e));
-    }
-    info!("Created {} sriov virtual functions", num_vfs);
+    info!("Resetting VFs to 0 for {INTERFACE_NAME}");
+    numvfs_file
+        .write_all(b"0\n")
+        .await
+        .map_err(|e| format!("Failed to write 0 to sriov_numvfs: {e}"))?;
+    sleep(Duration::from_secs(1)).await; // Give time for VFs to be removed.
 
-    let device_path = read_link(base_path).await.map_err(|e| e.to_string())?;
+    // Create the new VFs.
+    info!("Creating {num_vfs} sriov virtual functions for {INTERFACE_NAME}");
+    numvfs_file
+        .write_all(format!("{num_vfs}\n").as_bytes())
+        .await
+        .map_err(|e| format!("Failed to write to sriov_numvfs: {e}"))?;
+    sleep(Duration::from_secs(2)).await; // Give time for VFs to be created.
+
+    let device_path = read_link(&base_path).await.map_err(|e| e.to_string())?;
     let pci_address = device_path
         .file_name()
         .ok_or("No PCI address found".to_string())?;
     let pci_address = pci_address.to_str().ok_or("No PCI address found")?;
 
-    info!("Found PCI address of {}: {}", INTERFACE_NAME, pci_address);
+    info!("Found PCI address of {INTERFACE_NAME}: {pci_address}");
 
     let sriov_offset = get_device_information(pci_address, "sriov_offset")
         .await
         .map_err(|e| e.to_string())?;
 
-    let sriov_offset = match sriov_offset.parse::<u32>() {
-        Ok(n) => n,
-        Err(e) => return Err(e.to_string()),
-    };
+    let sriov_offset = sriov_offset.parse::<u32>().map_err(|e| e.to_string())?;
 
     let base_pci_address = parse_pci_address(pci_address)?;
 
@@ -53,21 +73,11 @@ pub async fn configure_sriov(num_vfs: u32) -> Result<(), String> {
         .map(format_pci_address)
         .collect();
 
-    const RETRIES: i32 = 5;
-    for (index, vf) in virtual_funcs.iter().enumerate() {
-        for i in 1..RETRIES {
-            info!("try to unbind device {}: {:?}/{}", vf, i, RETRIES);
-            if let Err(e) = unbind_device(vf).await {
-                warn!("failed to unbind device {}: {}", vf, e.to_string());
-                sleep(Duration::from_secs(2)).await;
-            } else {
-                info!("successfull unbound device {}", vf);
-
-                if let Err(e) = bind_device(index, vf).await {
-                    warn!("failed to bind devices: {}", e.to_string())
-                }
-                break;
-            }
+    // Bind each newly created VF to the vfio-pci driver.
+    for vf_pci in virtual_funcs.iter() {
+        if let Err(e) = bind_vf_to_vfio(vf_pci).await {
+            // With autoprobe disabled, this should be reliable. A failure is a hard error.
+            return Err(format!("Failed to bind VF {vf_pci} to vfio-pci: {e}"));
         }
     }
 
@@ -108,58 +118,29 @@ fn nth_next_pci_address(address: (u16, u8, u8, u8), n: u32) -> (u16, u8, u8, u8)
 
 fn format_pci_address(address: (u16, u8, u8, u8)) -> String {
     let (domain, bus, slot, function) = address;
-    format!("{:04x}:{:02x}:{:02x}.{}", domain, bus, slot, function)
+    format!("{domain:04x}:{bus:02x}:{slot:02x}.{function}")
 }
 
-async fn unbind_device(pci: &str) -> Result<(), io::Error> {
-    let unbind_path = format!("/sys/bus/pci/devices/{}/driver/unbind", pci);
-    let mut file = OpenOptions::new().write(true).open(&unbind_path).await?;
+async fn bind_vf_to_vfio(pci_address: &str) -> Result<(), io::Error> {
+    info!("Binding {pci_address} to vfio-pci using driver_override");
 
-    file.write_all(pci.as_bytes()).await?;
-    info!("unbound device: {}", pci);
-    Ok(())
-}
+    // Set the driver_override to vfio-pci for this specific device.
+    let override_path = format!("/sys/bus/pci/devices/{pci_address}/driver_override");
+    let mut override_file = OpenOptions::new().write(true).open(&override_path).await?;
+    override_file.write_all(b"vfio-pci").await?;
+    info!("Set driver_override for {pci_address}");
 
-async fn bind_device(index: usize, pci_address: &str) -> Result<(), io::Error> {
-    info!("try to bind device to vfio: {}", pci_address);
-    if index == 0 {
-        vfio_new_id(pci_address).await
-    } else {
-        vfio_bind(pci_address).await
-    }
-}
+    // Trigger the binding action. The kernel will see the override and use vfio-pci.
+    let bind_path = "/sys/bus/pci/drivers/vfio-pci/bind";
+    let mut bind_file = OpenOptions::new().write(true).open(bind_path).await?;
+    bind_file.write_all(pci_address.as_bytes()).await?;
+    info!("Successfully triggered bind for {pci_address}");
 
-async fn vfio_new_id(pci_address: &str) -> Result<(), io::Error> {
-    let vendor = get_device_information(pci_address, "vendor").await?;
-    let vendor = vendor[2..].to_string();
-
-    let device = get_device_information(pci_address, "device").await?;
-    let device = device[2..].to_string();
-
-    let mut file = OpenOptions::new()
-        .write(true)
-        .open("/sys/bus/pci/drivers/vfio-pci/new_id")
-        .await?;
-
-    let content = format!("{} {}", vendor, device);
-    file.write_all(content.as_bytes()).await?;
-    info!("bound devices ({}) to vfio-pci", pci_address);
-    Ok(())
-}
-
-async fn vfio_bind(pci_address: &str) -> Result<(), io::Error> {
-    let mut file = OpenOptions::new()
-        .write(true)
-        .open("/sys/bus/pci/drivers/vfio-pci/bind")
-        .await?;
-
-    file.write_all(pci_address.as_bytes()).await?;
-    info!("bound devices ({}) to vfio-pci", pci_address);
     Ok(())
 }
 
 async fn get_device_information(pci: &str, field: &str) -> Result<String, io::Error> {
-    let path = format!("/sys/bus/pci/devices/{}/{}", pci, field);
+    let path = format!("/sys/bus/pci/devices/{pci}/{field}");
     let mut file = OpenOptions::new().read(true).open(&path).await?;
 
     let mut dst = String::new();

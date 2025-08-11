@@ -45,9 +45,7 @@ pub async fn handle_hostname(responder: oneshot::Sender<Result<HostnameResponse,
     }
 }
 
-pub async fn handle_stream_kernel_logs(
-    grpc_tx: mpsc::Sender<Result<KernelLogEntry, Status>>,
-) {
+pub async fn handle_stream_kernel_logs(grpc_tx: mpsc::Sender<Result<KernelLogEntry, Status>>) {
     info!("HOST_WORKER: Opening {KMSG_PATH} for streaming kernel logs.");
 
     let file = match File::open(KMSG_PATH).await {

@@ -21,7 +21,8 @@ impl HostApiHandler {
 
 #[tonic::async_trait]
 impl HostService for HostApiHandler {
-    type StreamKernelLogsStream = Pin<Box<dyn Stream<Item = Result<KernelLogEntry, Status>> + Send>>;
+    type StreamKernelLogsStream =
+        Pin<Box<dyn Stream<Item = Result<KernelLogEntry, Status>> + Send>>;
 
     async fn hostname(
         &self,
