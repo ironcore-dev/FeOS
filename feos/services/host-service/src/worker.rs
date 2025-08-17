@@ -1,11 +1,13 @@
 use crate::RestartSignal;
 use digest::Digest;
 use feos_proto::host_service::{
-    upgrade_request, HostnameResponse, KernelLogEntry, UpgradeRequest, UpgradeResponse,
+    upgrade_request, HostnameResponse, KernelLogEntry, MemInfo, MemoryResponse, UpgradeRequest,
+    UpgradeResponse,
 };
 use log::{error, info, warn};
 use nix::unistd;
 use sha2::Sha256;
+use std::collections::HashMap;
 use std::fs::Permissions;
 use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
@@ -41,6 +43,101 @@ pub async fn handle_hostname(responder: oneshot::Sender<Result<HostnameResponse,
     if responder.send(result).is_err() {
         error!(
             "HOST_WORKER: Failed to send response for Hostname. API handler may have timed out."
+        );
+    }
+}
+
+async fn read_and_parse_meminfo() -> Result<MemInfo, std::io::Error> {
+    let file = File::open("/proc/meminfo").await?;
+    let reader = BufReader::new(file);
+    let mut lines = reader.lines();
+
+    let mut values = HashMap::new();
+
+    while let Some(line) = lines.next_line().await? {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() >= 2 {
+            let key = parts[0].trim_end_matches(':');
+            if let Ok(value) = parts[1].parse::<u64>() {
+                values.insert(key.to_lowercase(), value);
+            }
+        }
+    }
+
+    let get = |key: &str| -> u64 {
+        *values.get(key).unwrap_or_else(|| {
+            warn!("Memory key {key} not found in /proc/meminfo");
+            &0
+        })
+    };
+
+    Ok(MemInfo {
+        memtotal: get("memtotal"),
+        memfree: get("memfree"),
+        memavailable: get("memavailable"),
+        buffers: get("buffers"),
+        cached: get("cached"),
+        swapcached: get("swapcached"),
+        active: get("active"),
+        inactive: get("inactive"),
+        activeanon: get("active(anon)"),
+        inactiveanon: get("inactive(anon)"),
+        activefile: get("active(file)"),
+        inactivefile: get("inactive(file)"),
+        unevictable: get("unevictable"),
+        mlocked: get("mlocked"),
+        swaptotal: get("swaptotal"),
+        swapfree: get("swapfree"),
+        dirty: get("dirty"),
+        writeback: get("writeback"),
+        anonpages: get("anonpages"),
+        mapped: get("mapped"),
+        shmem: get("shmem"),
+        slab: get("slab"),
+        sreclaimable: get("sreclaimable"),
+        sunreclaim: get("sunreclaim"),
+        kernelstack: get("kernelstack"),
+        pagetables: get("pagetables"),
+        nfsunstable: get("nfs_unstable"),
+        bounce: get("bounce"),
+        writebacktmp: get("writebacktmp"),
+        commitlimit: get("commitlimit"),
+        committedas: get("committed_as"),
+        vmalloctotal: get("vmalloctotal"),
+        vmallocused: get("vmallocused"),
+        vmallocchunk: get("vmallocchunk"),
+        hardwarecorrupted: get("hardwarecorrupted"),
+        anonhugepages: get("anonhugepages"),
+        shmemhugepages: get("shmemhugepages"),
+        shmempmdmapped: get("shmempmdmapped"),
+        cmatotal: get("cmatotal"),
+        cmafree: get("cmafree"),
+        hugepagestotal: get("hugepages_total"),
+        hugepagesfree: get("hugepages_free"),
+        hugepagesrsvd: get("hugepages_rsvd"),
+        hugepagessurp: get("hugepages_surp"),
+        hugepagesize: get("hugepagesize"),
+        directmap4k: get("directmap4k"),
+        directmap2m: get("directmap2m"),
+        directmap1g: get("directmap1g"),
+    })
+}
+
+pub async fn handle_get_memory(responder: oneshot::Sender<Result<MemoryResponse, Status>>) {
+    info!("HOST_WORKER: Processing GetMemory request.");
+    let result = match read_and_parse_meminfo().await {
+        Ok(mem_info) => Ok(MemoryResponse {
+            mem_info: Some(mem_info),
+        }),
+        Err(e) => {
+            error!("HOST_WORKER: ERROR - Failed to get memory info: {e}");
+            Err(Status::internal(format!("Failed to get memory info: {e}")))
+        }
+    };
+
+    if responder.send(result).is_err() {
+        error!(
+            "HOST_WORKER: Failed to send response for GetMemory. API handler may have timed out."
         );
     }
 }

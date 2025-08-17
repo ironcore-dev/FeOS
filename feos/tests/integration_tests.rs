@@ -1,6 +1,6 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use feos_proto::{
-    host_service::{host_service_client::HostServiceClient, HostnameRequest},
+    host_service::{host_service_client::HostServiceClient, HostnameRequest, MemoryRequest},
     image_service::{
         image_service_client::ImageServiceClient, DeleteImageRequest, ImageState,
         ListImagesRequest, PullImageRequest, WatchImageStatusRequest,
@@ -18,6 +18,8 @@ use nix::unistd::{self, Pid};
 use once_cell::sync::{Lazy, OnceCell as SyncOnceCell};
 use prost::Message;
 use std::env;
+use std::fs::File;
+use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::process::Command;
 use std::sync::Arc;
@@ -304,6 +306,54 @@ async fn test_hostname_retrieval() -> Result<()> {
     assert_eq!(
         remote_hostname, local_hostname,
         "The hostname from the API should match the local system's hostname"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_get_memory_info() -> Result<()> {
+    ensure_server().await;
+    let (_, mut host_client) = get_public_clients().await?;
+
+    let file = File::open("/proc/meminfo")?;
+    let reader = BufReader::new(file);
+    let mut local_memtotal = 0;
+    for line in reader.lines() {
+        let line = line?;
+        if line.starts_with("MemTotal:") {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() >= 2 {
+                local_memtotal = parts[1].parse::<u64>()?;
+            }
+            break;
+        }
+    }
+
+    assert!(
+        local_memtotal > 0,
+        "Failed to parse MemTotal from local /proc/meminfo"
+    );
+    info!("Local MemTotal from /proc/meminfo: {} kB", local_memtotal);
+
+    info!("Sending GetMemory request");
+    let response = host_client.get_memory(MemoryRequest {}).await?.into_inner();
+
+    let mem_info = response
+        .mem_info
+        .context("MemoryInfo was not present in the response")?;
+    info!(
+        "Remote MemTotal from gRPC response: {} kB",
+        mem_info.memtotal
+    );
+
+    assert_eq!(
+        mem_info.memtotal, local_memtotal,
+        "MemTotal from API should match the local system's MemTotal"
+    );
+    assert!(
+        mem_info.memfree <= mem_info.memtotal,
+        "MemFree should not be greater than MemTotal"
     );
 
     Ok(())

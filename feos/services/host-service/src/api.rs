@@ -1,7 +1,7 @@
 use crate::Command;
 use feos_proto::host_service::{
     host_service_server::HostService, HostnameRequest, HostnameResponse, KernelLogEntry,
-    StreamKernelLogsRequest, UpgradeRequest, UpgradeResponse,
+    MemoryRequest, MemoryResponse, StreamKernelLogsRequest, UpgradeRequest, UpgradeResponse,
 };
 use log::info;
 use std::pin::Pin;
@@ -31,6 +31,27 @@ impl HostService for HostApiHandler {
         info!("HOST_API_HANDLER: Received Hostname request.");
         let (resp_tx, resp_rx) = oneshot::channel();
         let cmd = Command::GetHostname(resp_tx);
+        self.dispatcher_tx
+            .send(cmd)
+            .await
+            .map_err(|e| Status::internal(format!("Failed to send command to dispatcher: {e}")))?;
+
+        match resp_rx.await {
+            Ok(Ok(result)) => Ok(Response::new(result)),
+            Ok(Err(status)) => Err(status),
+            Err(_) => Err(Status::internal(
+                "Dispatcher task dropped response channel.",
+            )),
+        }
+    }
+
+    async fn get_memory(
+        &self,
+        _request: Request<MemoryRequest>,
+    ) -> Result<Response<MemoryResponse>, Status> {
+        info!("HOST_API_HANDLER: Received GetMemory request.");
+        let (resp_tx, resp_rx) = oneshot::channel();
+        let cmd = Command::GetMemory(resp_tx);
         self.dispatcher_tx
             .send(cmd)
             .await

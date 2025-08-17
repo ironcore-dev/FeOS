@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use clap::{Args, Subcommand};
 use digest::Digest;
 use feos_proto::host_service::{
-    host_service_client::HostServiceClient, upgrade_request, HostnameRequest,
+    host_service_client::HostServiceClient, upgrade_request, HostnameRequest, MemoryRequest,
     StreamKernelLogsRequest, UpgradeMetadata, UpgradeRequest,
 };
 use sha2::Sha256;
@@ -31,6 +31,7 @@ pub struct HostArgs {
 #[derive(Subcommand, Debug)]
 pub enum HostCommand {
     Hostname,
+    Memory,
     Upgrade {
         #[arg(required = true)]
         binary_path: PathBuf,
@@ -46,6 +47,7 @@ pub async fn handle_host_command(args: HostArgs) -> Result<()> {
 
     match args.command {
         HostCommand::Hostname => get_hostname(&mut client).await?,
+        HostCommand::Memory => get_memory(&mut client).await?,
         HostCommand::Upgrade { binary_path } => upgrade_feos(&mut client, binary_path).await?,
         HostCommand::Klogs => stream_klogs(&mut client).await?,
     }
@@ -57,6 +59,88 @@ async fn get_hostname(client: &mut HostServiceClient<Channel>) -> Result<()> {
     let request = HostnameRequest {};
     let response = client.hostname(request).await?.into_inner();
     println!("{}", response.hostname);
+    Ok(())
+}
+
+async fn get_memory(client: &mut HostServiceClient<Channel>) -> Result<()> {
+    let request = MemoryRequest {};
+    let response = client.get_memory(request).await?.into_inner();
+
+    if let Some(mem_info) = response.mem_info {
+        println!("{:<20} {:>15} kB", "Key", "Value");
+        println!("{:-<20} {:-<16}", "", "");
+        println!("{:<20} {:>15} kB", "MemTotal:", mem_info.memtotal);
+        println!("{:<20} {:>15} kB", "MemFree:", mem_info.memfree);
+        println!("{:<20} {:>15} kB", "MemAvailable:", mem_info.memavailable);
+        println!("{:<20} {:>15} kB", "Buffers:", mem_info.buffers);
+        println!("{:<20} {:>15} kB", "Cached:", mem_info.cached);
+        println!("{:<20} {:>15} kB", "SwapCached:", mem_info.swapcached);
+        println!("{:<20} {:>15} kB", "Active:", mem_info.active);
+        println!("{:<20} {:>15} kB", "Inactive:", mem_info.inactive);
+        println!("{:<20} {:>15} kB", "Active(anon):", mem_info.activeanon);
+        println!("{:<20} {:>15} kB", "Inactive(anon):", mem_info.inactiveanon);
+        println!("{:<20} {:>15} kB", "Active(file):", mem_info.activefile);
+        println!("{:<20} {:>15} kB", "Inactive(file):", mem_info.inactivefile);
+        println!("{:<20} {:>15} kB", "Unevictable:", mem_info.unevictable);
+        println!("{:<20} {:>15} kB", "Mlocked:", mem_info.mlocked);
+        println!("{:<20} {:>15} kB", "SwapTotal:", mem_info.swaptotal);
+        println!("{:<20} {:>15} kB", "SwapFree:", mem_info.swapfree);
+        println!("{:<20} {:>15} kB", "Dirty:", mem_info.dirty);
+        println!("{:<20} {:>15} kB", "Writeback:", mem_info.writeback);
+        println!("{:<20} {:>15} kB", "AnonPages:", mem_info.anonpages);
+        println!("{:<20} {:>15} kB", "Mapped:", mem_info.mapped);
+        println!("{:<20} {:>15} kB", "Shmem:", mem_info.shmem);
+        println!("{:<20} {:>15} kB", "Slab:", mem_info.slab);
+        println!("{:<20} {:>15} kB", "SReclaimable:", mem_info.sreclaimable);
+        println!("{:<20} {:>15} kB", "SUnreclaim:", mem_info.sunreclaim);
+        println!("{:<20} {:>15} kB", "KernelStack:", mem_info.kernelstack);
+        println!("{:<20} {:>15} kB", "PageTables:", mem_info.pagetables);
+        println!("{:<20} {:>15} kB", "NFS_Unstable:", mem_info.nfsunstable);
+        println!("{:<20} {:>15} kB", "Bounce:", mem_info.bounce);
+        println!("{:<20} {:>15} kB", "WritebackTmp:", mem_info.writebacktmp);
+        println!("{:<20} {:>15} kB", "CommitLimit:", mem_info.commitlimit);
+        println!("{:<20} {:>15} kB", "Committed_AS:", mem_info.committedas);
+        println!("{:<20} {:>15} kB", "VmallocTotal:", mem_info.vmalloctotal);
+        println!("{:<20} {:>15} kB", "VmallocUsed:", mem_info.vmallocused);
+        println!("{:<20} {:>15} kB", "VmallocChunk:", mem_info.vmallocchunk);
+        println!(
+            "{:<20} {:>15} kB",
+            "HardwareCorrupted:", mem_info.hardwarecorrupted
+        );
+        println!("{:<20} {:>15} kB", "AnonHugePages:", mem_info.anonhugepages);
+        println!(
+            "{:<20} {:>15} kB",
+            "ShmemHugePages:", mem_info.shmemhugepages
+        );
+        println!(
+            "{:<20} {:>15} kB",
+            "ShmemPmdMapped:", mem_info.shmempmdmapped
+        );
+        println!("{:<20} {:>15} kB", "CmaTotal:", mem_info.cmatotal);
+        println!("{:<20} {:>15} kB", "CmaFree:", mem_info.cmafree);
+        println!(
+            "{:<20} {:>15} kB",
+            "HugePages_Total:", mem_info.hugepagestotal
+        );
+        println!(
+            "{:<20} {:>15} kB",
+            "HugePages_Free:", mem_info.hugepagesfree
+        );
+        println!(
+            "{:<20} {:>15} kB",
+            "HugePages_Rsvd:", mem_info.hugepagesrsvd
+        );
+        println!(
+            "{:<20} {:>15} kB",
+            "HugePages_Surp:", mem_info.hugepagessurp
+        );
+        println!("{:<20} {:>15} kB", "Hugepagesize:", mem_info.hugepagesize);
+        println!("{:<20} {:>15} kB", "DirectMap4k:", mem_info.directmap4k);
+        println!("{:<20} {:>15} kB", "DirectMap2m:", mem_info.directmap2m);
+        println!("{:<20} {:>15} kB", "DirectMap1G:", mem_info.directmap1g);
+    } else {
+        println!("No memory information received from the host.");
+    }
     Ok(())
 }
 
