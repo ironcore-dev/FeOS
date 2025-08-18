@@ -2,9 +2,11 @@ use crate::RestartSignal;
 use digest::Digest;
 use feos_proto::host_service::{
     upgrade_request, CpuInfo, GetCpuInfoResponse, HostnameResponse, KernelLogEntry, MemInfo,
-    MemoryResponse, UpgradeRequest, UpgradeResponse,
+    MemoryResponse, RebootRequest, RebootResponse, ShutdownRequest, ShutdownResponse,
+    UpgradeRequest, UpgradeResponse,
 };
 use log::{error, info, warn};
+use nix::sys::reboot::{reboot, RebootMode};
 use nix::unistd;
 use sha2::Sha256;
 use std::collections::HashMap;
@@ -433,4 +435,50 @@ pub async fn handle_upgrade(
         message: "Binary received and validated. System will now restart with the new binary."
             .to_string(),
     }));
+}
+
+pub async fn handle_shutdown(
+    _req: ShutdownRequest,
+    responder: oneshot::Sender<Result<ShutdownResponse, Status>>,
+) {
+    info!("HOST_WORKER: Processing Shutdown request.");
+
+    if responder.send(Ok(ShutdownResponse {})).is_err() {
+        error!(
+            "HOST_WORKER: Failed to send response for Shutdown. The client may have disconnected."
+        );
+    }
+
+    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+
+    info!("HOST_WORKER: Executing system shutdown.");
+    match reboot(RebootMode::RB_POWER_OFF) {
+        Ok(infallible) => match infallible {},
+        Err(e) => {
+            error!("HOST_WORKER: CRITICAL - Failed to execute system shutdown: {e}");
+        }
+    }
+}
+
+pub async fn handle_reboot(
+    _req: RebootRequest,
+    responder: oneshot::Sender<Result<RebootResponse, Status>>,
+) {
+    info!("HOST_WORKER: Processing Reboot request.");
+
+    if responder.send(Ok(RebootResponse {})).is_err() {
+        error!(
+            "HOST_WORKER: Failed to send response for Reboot. The client may have disconnected."
+        );
+    }
+
+    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+
+    info!("HOST_WORKER: Executing system reboot.");
+    match reboot(RebootMode::RB_AUTOBOOT) {
+        Ok(infallible) => match infallible {},
+        Err(e) => {
+            error!("HOST_WORKER: CRITICAL - Failed to execute system reboot: {e}");
+        }
+    }
 }

@@ -32,6 +32,12 @@ impl HostServiceDispatcher {
                 Command::StreamKernelLogs(stream_tx) => {
                     tokio::spawn(worker::handle_stream_kernel_logs(stream_tx));
                 }
+                Command::Shutdown(req, responder) => {
+                    tokio::spawn(worker::handle_shutdown(req, responder));
+                }
+                Command::Reboot(req, responder) => {
+                    tokio::spawn(worker::handle_reboot(req, responder));
+                }
             }
         }
         info!("HOST_DISPATCHER: Channel closed, shutting down.");

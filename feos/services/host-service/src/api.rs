@@ -1,8 +1,8 @@
 use crate::Command;
 use feos_proto::host_service::{
     host_service_server::HostService, GetCpuInfoRequest, GetCpuInfoResponse, HostnameRequest,
-    HostnameResponse, KernelLogEntry, MemoryRequest, MemoryResponse, StreamKernelLogsRequest,
-    UpgradeRequest, UpgradeResponse,
+    HostnameResponse, KernelLogEntry, MemoryRequest, MemoryResponse, RebootRequest, RebootResponse,
+    ShutdownRequest, ShutdownResponse, StreamKernelLogsRequest, UpgradeRequest, UpgradeResponse,
 };
 use log::info;
 use std::pin::Pin;
@@ -74,6 +74,48 @@ impl HostService for HostApiHandler {
         info!("HOST_API_HANDLER: Received GetCPUInfo request.");
         let (resp_tx, resp_rx) = oneshot::channel();
         let cmd = Command::GetCPUInfo(resp_tx);
+        self.dispatcher_tx
+            .send(cmd)
+            .await
+            .map_err(|e| Status::internal(format!("Failed to send command to dispatcher: {e}")))?;
+
+        match resp_rx.await {
+            Ok(Ok(result)) => Ok(Response::new(result)),
+            Ok(Err(status)) => Err(status),
+            Err(_) => Err(Status::internal(
+                "Dispatcher task dropped response channel.",
+            )),
+        }
+    }
+
+    async fn shutdown(
+        &self,
+        request: Request<ShutdownRequest>,
+    ) -> Result<Response<ShutdownResponse>, Status> {
+        info!("HOST_API_HANDLER: Received Shutdown request.");
+        let (resp_tx, resp_rx) = oneshot::channel();
+        let cmd = Command::Shutdown(request.into_inner(), resp_tx);
+        self.dispatcher_tx
+            .send(cmd)
+            .await
+            .map_err(|e| Status::internal(format!("Failed to send command to dispatcher: {e}")))?;
+
+        match resp_rx.await {
+            Ok(Ok(result)) => Ok(Response::new(result)),
+            Ok(Err(status)) => Err(status),
+            Err(_) => Err(Status::internal(
+                "Dispatcher task dropped response channel.",
+            )),
+        }
+    }
+
+    async fn reboot(
+        &self,
+        request: Request<RebootRequest>,
+    ) -> Result<Response<RebootResponse>, Status> {
+        info!("HOST_API_HANDLER: Received Reboot request.");
+        let (resp_tx, resp_rx) = oneshot::channel();
+        let cmd = Command::Reboot(request.into_inner(), resp_tx);
         self.dispatcher_tx
             .send(cmd)
             .await

@@ -3,7 +3,8 @@ use clap::{Args, Subcommand};
 use digest::Digest;
 use feos_proto::host_service::{
     host_service_client::HostServiceClient, upgrade_request, GetCpuInfoRequest, HostnameRequest,
-    MemoryRequest, StreamKernelLogsRequest, UpgradeMetadata, UpgradeRequest,
+    MemoryRequest, RebootRequest, ShutdownRequest, StreamKernelLogsRequest, UpgradeMetadata,
+    UpgradeRequest,
 };
 use sha2::Sha256;
 use std::path::PathBuf;
@@ -39,6 +40,10 @@ pub enum HostCommand {
     },
     /// Stream kernel logs from /dev/kmsg
     Klogs,
+    /// Shutdown the host machine
+    Shutdown,
+    /// Reboot the host machine
+    Reboot,
 }
 
 pub async fn handle_host_command(args: HostArgs) -> Result<()> {
@@ -52,6 +57,8 @@ pub async fn handle_host_command(args: HostArgs) -> Result<()> {
         HostCommand::CpuInfo => get_cpu_info(&mut client).await?,
         HostCommand::Upgrade { binary_path } => upgrade_feos(&mut client, binary_path).await?,
         HostCommand::Klogs => stream_klogs(&mut client).await?,
+        HostCommand::Shutdown => shutdown_host(&mut client).await?,
+        HostCommand::Reboot => reboot_host(&mut client).await?,
     }
 
     Ok(())
@@ -269,5 +276,21 @@ async fn upgrade_feos(client: &mut HostServiceClient<Channel>, binary_path: Path
 
     upload_task.await?;
 
+    Ok(())
+}
+
+async fn shutdown_host(client: &mut HostServiceClient<Channel>) -> Result<()> {
+    println!("Requesting host shutdown...");
+    let request = ShutdownRequest {};
+    client.shutdown(request).await?;
+    println!("Shutdown command sent successfully. Connection will be lost.");
+    Ok(())
+}
+
+async fn reboot_host(client: &mut HostServiceClient<Channel>) -> Result<()> {
+    println!("Requesting host reboot...");
+    let request = RebootRequest {};
+    client.reboot(request).await?;
+    println!("Reboot command sent successfully. Connection will be lost.");
     Ok(())
 }
