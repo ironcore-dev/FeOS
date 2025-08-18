@@ -1,5 +1,6 @@
 use feos_proto::host_service::{
-    HostnameResponse, KernelLogEntry, MemoryResponse, UpgradeRequest, UpgradeResponse,
+    GetCpuInfoResponse, HostnameResponse, KernelLogEntry, MemoryResponse, UpgradeRequest,
+    UpgradeResponse,
 };
 use std::path::PathBuf;
 use tokio::sync::{mpsc, oneshot};
@@ -13,6 +14,7 @@ pub mod worker;
 pub enum Command {
     GetHostname(oneshot::Sender<Result<HostnameResponse, Status>>),
     GetMemory(oneshot::Sender<Result<MemoryResponse, Status>>),
+    GetCPUInfo(oneshot::Sender<Result<GetCpuInfoResponse, Status>>),
     UpgradeFeosBinary(
         Box<Streaming<UpgradeRequest>>,
         oneshot::Sender<Result<UpgradeResponse, Status>>,

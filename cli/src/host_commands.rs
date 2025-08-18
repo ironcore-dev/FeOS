@@ -2,8 +2,8 @@ use anyhow::{Context, Result};
 use clap::{Args, Subcommand};
 use digest::Digest;
 use feos_proto::host_service::{
-    host_service_client::HostServiceClient, upgrade_request, HostnameRequest, MemoryRequest,
-    StreamKernelLogsRequest, UpgradeMetadata, UpgradeRequest,
+    host_service_client::HostServiceClient, upgrade_request, GetCpuInfoRequest, HostnameRequest,
+    MemoryRequest, StreamKernelLogsRequest, UpgradeMetadata, UpgradeRequest,
 };
 use sha2::Sha256;
 use std::path::PathBuf;
@@ -32,6 +32,7 @@ pub struct HostArgs {
 pub enum HostCommand {
     Hostname,
     Memory,
+    CpuInfo,
     Upgrade {
         #[arg(required = true)]
         binary_path: PathBuf,
@@ -48,6 +49,7 @@ pub async fn handle_host_command(args: HostArgs) -> Result<()> {
     match args.command {
         HostCommand::Hostname => get_hostname(&mut client).await?,
         HostCommand::Memory => get_memory(&mut client).await?,
+        HostCommand::CpuInfo => get_cpu_info(&mut client).await?,
         HostCommand::Upgrade { binary_path } => upgrade_feos(&mut client, binary_path).await?,
         HostCommand::Klogs => stream_klogs(&mut client).await?,
     }
@@ -141,6 +143,38 @@ async fn get_memory(client: &mut HostServiceClient<Channel>) -> Result<()> {
     } else {
         println!("No memory information received from the host.");
     }
+    Ok(())
+}
+
+async fn get_cpu_info(client: &mut HostServiceClient<Channel>) -> Result<()> {
+    let request = GetCpuInfoRequest {};
+    let response = client.get_cpu_info(request).await?.into_inner();
+
+    if response.cpu_info.is_empty() {
+        println!("No CPU information received from the host.");
+        return Ok(());
+    }
+
+    for (i, cpu) in response.cpu_info.iter().enumerate() {
+        println!("--- Processor {} ---", cpu.processor);
+        println!("{:<20}: {}", "Vendor ID", cpu.vendor_id);
+        println!("{:<20}: {}", "Model Name", cpu.model_name);
+        println!("{:<20}: {}", "CPU Family", cpu.cpu_family);
+        println!("{:<20}: {}", "Model", cpu.model);
+        println!("{:<20}: {}", "Stepping", cpu.stepping);
+        println!("{:<20}: {:.3} MHz", "CPU MHz", cpu.cpu_mhz);
+        println!("{:<20}: {}", "Cache Size", cpu.cache_size);
+        println!("{:<20}: {}", "Physical ID", cpu.physical_id);
+        println!("{:<20}: {}", "Core ID", cpu.core_id);
+        println!("{:<20}: {}", "CPU Cores", cpu.cpu_cores);
+        println!("{:<20}: {}", "Siblings", cpu.siblings);
+        println!("{:<20}: {}", "Address Sizes", cpu.address_sizes);
+        println!("{:<20}: {:.2}", "BogoMIPS", cpu.bogo_mips);
+        if i < response.cpu_info.len() - 1 {
+            println!();
+        }
+    }
+
     Ok(())
 }
 

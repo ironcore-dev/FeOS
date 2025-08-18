@@ -6,8 +6,8 @@ package feos.host.v1;
 service HostService {
   // Retrieves the hostname of the machine running the service.
   rpc Hostname(HostnameRequest) returns (HostnameResponse);
-
   rpc GetMemory(MemoryRequest) returns (MemoryResponse);
+  rpc GetCPUInfo(GetCPUInfoRequest) returns (GetCPUInfoResponse);
 
   // Upgrades the running FeOS binary. This is a client-streaming RPC.
   // The first message MUST contain the UpgradeMetadata, and subsequent messages
@@ -103,4 +103,39 @@ message MemInfo {
   uint64 directmap4k = 46;
   uint64 directmap2m = 47;
   uint64 directmap1g = 48;
+}
+
+message GetCPUInfoRequest {}
+
+message GetCPUInfoResponse {
+  repeated CPUInfo cpu_info = 1;
+}
+
+message CPUInfo {
+  uint32 processor = 1;
+  string vendor_id = 2;
+  string cpu_family = 3;
+  string model = 4;
+  string model_name = 5;
+  string stepping = 6;
+  string microcode = 7;
+  double cpu_mhz = 8;
+  string cache_size = 9;
+  string physical_id = 10;
+  uint32 siblings = 11;
+  string core_id = 12;
+  uint32 cpu_cores = 13;
+  string apic_id = 14;
+  string initial_apic_id = 15;
+  string fpu = 16;
+  string fpu_exception = 17;
+  uint32 cpu_id_level = 18;
+  string wp = 19;
+  repeated string flags = 20;
+  repeated string bugs = 21;
+  double bogo_mips = 22;
+  uint32 cl_flush_size = 23;
+  uint32 cache_alignment = 24;
+  string address_sizes = 25;
+  string power_management = 26;
 }

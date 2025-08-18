@@ -1,6 +1,8 @@
 use anyhow::{Context, Result};
 use feos_proto::{
-    host_service::{host_service_client::HostServiceClient, HostnameRequest, MemoryRequest},
+    host_service::{
+        host_service_client::HostServiceClient, GetCpuInfoRequest, HostnameRequest, MemoryRequest,
+    },
     image_service::{
         image_service_client::ImageServiceClient, DeleteImageRequest, ImageState,
         ListImagesRequest, PullImageRequest, WatchImageStatusRequest,
@@ -316,6 +318,7 @@ async fn test_get_memory_info() -> Result<()> {
     ensure_server().await;
     let (_, mut host_client) = get_public_clients().await?;
 
+    // 1. Read local /proc/meminfo to get the ground truth
     let file = File::open("/proc/meminfo")?;
     let reader = BufReader::new(file);
     let mut local_memtotal = 0;
@@ -336,9 +339,11 @@ async fn test_get_memory_info() -> Result<()> {
     );
     info!("Local MemTotal from /proc/meminfo: {} kB", local_memtotal);
 
+    // 2. Make the gRPC call
     info!("Sending GetMemory request");
     let response = host_client.get_memory(MemoryRequest {}).await?.into_inner();
 
+    // 3. Validate the response
     let mem_info = response
         .mem_info
         .context("MemoryInfo was not present in the response")?;
@@ -354,6 +359,76 @@ async fn test_get_memory_info() -> Result<()> {
     assert!(
         mem_info.memfree <= mem_info.memtotal,
         "MemFree should not be greater than MemTotal"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_get_cpu_info() -> Result<()> {
+    ensure_server().await;
+    let (_, mut host_client) = get_public_clients().await?;
+
+    let file = File::open("/proc/cpuinfo")?;
+    let reader = BufReader::new(file);
+    let mut local_processor_count = 0;
+    let mut local_vendor_id = String::new();
+    for line in reader.lines() {
+        let line = line?;
+        if line.starts_with("processor") {
+            local_processor_count += 1;
+        }
+        if line.starts_with("vendor_id") && local_vendor_id.is_empty() {
+            let parts: Vec<&str> = line.splitn(2, ':').collect();
+            if parts.len() == 2 {
+                local_vendor_id = parts[1].trim().to_string();
+            }
+        }
+    }
+
+    assert!(
+        local_processor_count > 0,
+        "Failed to parse processor count from /proc/cpuinfo"
+    );
+    assert!(
+        !local_vendor_id.is_empty(),
+        "Failed to parse vendor_id from /proc/cpuinfo"
+    );
+    info!(
+        "Local data from /proc/cpuinfo: {} processors, vendor_id: {}",
+        local_processor_count, local_vendor_id
+    );
+
+    info!("Sending GetCPUInfo request");
+    let response = host_client
+        .get_cpu_info(GetCpuInfoRequest {})
+        .await?
+        .into_inner();
+
+    let remote_cpu_info = response.cpu_info;
+    info!(
+        "Remote data from gRPC: {} processors",
+        remote_cpu_info.len()
+    );
+
+    assert_eq!(
+        remote_cpu_info.len(),
+        local_processor_count,
+        "Processor count from API should match local count"
+    );
+
+    let first_cpu = remote_cpu_info
+        .first()
+        .context("CPU info list should not be empty")?;
+    info!("Remote vendor_id: {}", first_cpu.vendor_id);
+
+    assert_eq!(
+        first_cpu.vendor_id, local_vendor_id,
+        "Vendor ID of first CPU should match"
+    );
+    assert!(
+        first_cpu.cpu_mhz > 0.0,
+        "CPU MHz should be a positive value"
     );
 
     Ok(())
