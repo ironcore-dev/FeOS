@@ -170,6 +170,14 @@ pub async fn handle_start_vm(
             None,
         )
         .await;
+
+        let health_hypervisor = hypervisor.clone();
+        let health_broadcast_tx = broadcast_tx.clone();
+        tokio::spawn(async move {
+            health_hypervisor
+                .healthcheck_vm(vm_id, health_broadcast_tx)
+                .await;
+        });
     }
 
     if responder.send(result.map_err(Into::into)).is_err() {

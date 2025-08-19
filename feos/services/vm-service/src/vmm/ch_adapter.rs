@@ -24,7 +24,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::process::Command as TokioCommand;
 use tokio::sync::{broadcast, mpsc};
-use tokio::time::{timeout, Duration};
+use tokio::time::{self, timeout, Duration};
 
 pub struct CloudHypervisorAdapter {
     ch_binary_path: PathBuf,
@@ -256,6 +256,43 @@ impl Hypervisor for CloudHypervisorAdapter {
             .map_err(|e| VmmError::ApiOperationFailed(e.to_string()))?;
 
         Ok(StartVmResponse {})
+    }
+
+    async fn healthcheck_vm(&self, vm_id: String, broadcast_tx: broadcast::Sender<VmEventWrapper>) {
+        info!("CH_ADAPTER ({vm_id}): Starting healthcheck monitoring.");
+        let mut interval = time::interval(Duration::from_secs(10));
+
+        loop {
+            interval.tick().await;
+            log::debug!("CH_ADAPTER ({vm_id}): Performing healthcheck ping.");
+            let req = PingVmRequest {
+                vm_id: vm_id.clone(),
+            };
+
+            match self.ping_vm(req).await {
+                Ok(_) => {
+                    log::debug!("CH_ADAPTER ({vm_id}): Healthcheck ping successful.");
+                }
+                Err(e) => {
+                    warn!(
+                        "CH_ADAPTER ({vm_id}): Healthcheck failed: {e}. VM is considered unhealthy."
+                    );
+                    super::broadcast_state_change_event(
+                        &broadcast_tx,
+                        &vm_id,
+                        "vm-health-monitor",
+                        feos_proto::vm_service::VmStateChangedEvent {
+                            new_state: VmState::Crashed as i32,
+                            reason: format!("Healthcheck failed: {e}"),
+                        },
+                        None,
+                    )
+                    .await;
+                    break;
+                }
+            }
+        }
+        info!("CH_ADAPTER ({vm_id}): Stopping healthcheck monitoring.");
     }
 
     async fn get_vm(&self, req: GetVmRequest) -> Result<VmInfo, VmmError> {

@@ -65,6 +65,8 @@ pub trait Hypervisor: Send + Sync {
 
     async fn start_vm(&self, req: StartVmRequest) -> Result<StartVmResponse, VmmError>;
 
+    async fn healthcheck_vm(&self, vm_id: String, broadcast_tx: broadcast::Sender<VmEventWrapper>);
+
     async fn get_vm(&self, req: GetVmRequest) -> Result<VmInfo, VmmError>;
 
     async fn delete_vm(
