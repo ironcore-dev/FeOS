@@ -12,7 +12,7 @@ use feos_proto::{
         VmStateChangedEvent,
     },
 };
-use log::{error, info, warn, debug};
+use log::{debug, error, info, warn};
 use prost::Message;
 use prost_types::Any;
 use std::sync::Arc;

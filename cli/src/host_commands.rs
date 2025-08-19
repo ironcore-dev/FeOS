@@ -2,9 +2,9 @@ use anyhow::{Context, Result};
 use clap::{Args, Subcommand};
 use digest::Digest;
 use feos_proto::host_service::{
-    host_service_client::HostServiceClient, upgrade_request, GetCpuInfoRequest, HostnameRequest,
-    MemoryRequest, RebootRequest, ShutdownRequest, StreamKernelLogsRequest, UpgradeMetadata,
-    UpgradeRequest,
+    host_service_client::HostServiceClient, upgrade_request, GetCpuInfoRequest,
+    GetNetworkInfoRequest, HostnameRequest, MemoryRequest, RebootRequest, ShutdownRequest,
+    StreamKernelLogsRequest, UpgradeMetadata, UpgradeRequest,
 };
 use sha2::Sha256;
 use std::path::PathBuf;
@@ -34,6 +34,7 @@ pub enum HostCommand {
     Hostname,
     Memory,
     CpuInfo,
+    NetworkInfo,
     Upgrade {
         #[arg(required = true)]
         binary_path: PathBuf,
@@ -55,6 +56,7 @@ pub async fn handle_host_command(args: HostArgs) -> Result<()> {
         HostCommand::Hostname => get_hostname(&mut client).await?,
         HostCommand::Memory => get_memory(&mut client).await?,
         HostCommand::CpuInfo => get_cpu_info(&mut client).await?,
+        HostCommand::NetworkInfo => get_network_info(&mut client).await?,
         HostCommand::Upgrade { binary_path } => upgrade_feos(&mut client, binary_path).await?,
         HostCommand::Klogs => stream_klogs(&mut client).await?,
         HostCommand::Shutdown => shutdown_host(&mut client).await?,
@@ -180,6 +182,33 @@ async fn get_cpu_info(client: &mut HostServiceClient<Channel>) -> Result<()> {
         if i < response.cpu_info.len() - 1 {
             println!();
         }
+    }
+
+    Ok(())
+}
+
+async fn get_network_info(client: &mut HostServiceClient<Channel>) -> Result<()> {
+    let request = GetNetworkInfoRequest {};
+    let response = client.get_network_info(request).await?.into_inner();
+
+    if response.devices.is_empty() {
+        println!("No network devices found on the host.");
+        return Ok(());
+    }
+
+    for dev in response.devices {
+        println!("Interface: {}", dev.name);
+        println!("  RX");
+        println!("    Bytes:    {:>15}", dev.rx_bytes);
+        println!("    Packets:  {:>15}", dev.rx_packets);
+        println!("    Errors:   {:>15}", dev.rx_errors);
+        println!("    Dropped:  {:>15}", dev.rx_dropped);
+        println!("  TX");
+        println!("    Bytes:    {:>15}", dev.tx_bytes);
+        println!("    Packets:  {:>15}", dev.tx_packets);
+        println!("    Errors:   {:>15}", dev.tx_errors);
+        println!("    Dropped:  {:>15}", dev.tx_dropped);
+        println!();
     }
 
     Ok(())

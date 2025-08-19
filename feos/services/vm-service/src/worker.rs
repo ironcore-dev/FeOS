@@ -211,7 +211,9 @@ pub async fn handle_stream_vm_events(
     loop {
         match broadcast_rx.recv().await {
             Ok(VmEventWrapper { event, .. }) => {
-                if vm_id_to_watch.as_ref().is_none_or(|id| event.vm_id == *id) && stream_tx.send(Ok(event)).await.is_err() {
+                if vm_id_to_watch.as_ref().is_none_or(|id| event.vm_id == *id)
+                    && stream_tx.send(Ok(event)).await.is_err()
+                {
                     info!("VM_WORKER (Stream): Client for '{watcher_desc}' disconnected.");
                     break;
                 }

@@ -25,6 +25,9 @@ impl HostServiceDispatcher {
                 Command::GetCPUInfo(responder) => {
                     tokio::spawn(worker::handle_get_cpu_info(responder));
                 }
+                Command::GetNetworkInfo(responder) => {
+                    tokio::spawn(worker::handle_get_network_info(responder));
+                }
                 Command::UpgradeFeosBinary(stream, responder) => {
                     let restart_tx = self.restart_tx.clone();
                     tokio::spawn(worker::handle_upgrade(restart_tx, *stream, responder));

@@ -1,7 +1,8 @@
 use anyhow::{Context, Result};
 use feos_proto::{
     host_service::{
-        host_service_client::HostServiceClient, GetCpuInfoRequest, HostnameRequest, MemoryRequest,
+        host_service_client::HostServiceClient, GetCpuInfoRequest, GetNetworkInfoRequest,
+        HostnameRequest, MemoryRequest,
     },
     image_service::{
         image_service_client::ImageServiceClient, DeleteImageRequest, ImageState,
@@ -429,6 +430,39 @@ async fn test_get_cpu_info() -> Result<()> {
     assert!(
         first_cpu.cpu_mhz > 0.0,
         "CPU MHz should be a positive value"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_get_network_info() -> Result<()> {
+    ensure_server().await;
+    let (_, mut host_client) = get_public_clients().await?;
+
+    info!("Sending GetNetworkInfo request");
+    let response = host_client
+        .get_network_info(GetNetworkInfoRequest {})
+        .await?
+        .into_inner();
+
+    assert!(
+        !response.devices.is_empty(),
+        "The list of network devices should not be empty"
+    );
+    info!("Received {} network devices", response.devices.len());
+
+    let lo = response
+        .devices
+        .iter()
+        .find(|d| d.name == "lo")
+        .context("Could not find the loopback interface 'lo'")?;
+
+    info!("Found loopback interface 'lo'");
+    assert_eq!(lo.name, "lo");
+    assert!(
+        lo.rx_packets > 0 || lo.tx_packets > 0,
+        "Loopback interface should have some packets transferred"
     );
 
     Ok(())

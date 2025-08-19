@@ -8,6 +8,8 @@ service HostService {
   rpc Hostname(HostnameRequest) returns (HostnameResponse);
   rpc GetMemory(MemoryRequest) returns (MemoryResponse);
   rpc GetCPUInfo(GetCPUInfoRequest) returns (GetCPUInfoResponse);
+  // Retrieves statistics for all network interfaces.
+  rpc GetNetworkInfo(GetNetworkInfoRequest) returns (GetNetworkInfoResponse);
   rpc Shutdown(ShutdownRequest) returns (ShutdownResponse);
   rpc Reboot(RebootRequest) returns (RebootResponse);
 
@@ -148,4 +150,30 @@ message CPUInfo {
   uint32 cache_alignment = 24;
   string address_sizes = 25;
   string power_management = 26;
+}
+
+message GetNetworkInfoRequest {}
+
+message GetNetworkInfoResponse {
+  repeated NetDev devices = 1;
+}
+
+message NetDev {
+  string name = 1;
+  uint64 rx_bytes = 2;
+  uint64 rx_packets = 3;
+  uint64 rx_errors = 4;
+  uint64 rx_dropped = 5;
+  uint64 rx_fifo = 6;
+  uint64 rx_frame = 7;
+  uint64 rx_compressed = 8;
+  uint64 rx_multicast = 9;
+  uint64 tx_bytes = 10;
+  uint64 tx_packets = 11;
+  uint64 tx_errors = 12;
+  uint64 tx_dropped = 13;
+  uint64 tx_fifo = 14;
+  uint64 tx_collisions = 15;
+  uint64 tx_carrier = 16;
+  uint64 tx_compressed = 17;
 }

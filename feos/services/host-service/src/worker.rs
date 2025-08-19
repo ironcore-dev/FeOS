@@ -1,9 +1,9 @@
 use crate::RestartSignal;
 use digest::Digest;
 use feos_proto::host_service::{
-    upgrade_request, CpuInfo, GetCpuInfoResponse, HostnameResponse, KernelLogEntry, MemInfo,
-    MemoryResponse, RebootRequest, RebootResponse, ShutdownRequest, ShutdownResponse,
-    UpgradeRequest, UpgradeResponse,
+    upgrade_request, CpuInfo, GetCpuInfoResponse, GetNetworkInfoResponse, HostnameResponse,
+    KernelLogEntry, MemInfo, MemoryResponse, NetDev, RebootRequest, RebootResponse,
+    ShutdownRequest, ShutdownResponse, UpgradeRequest, UpgradeResponse,
 };
 use log::{error, info, warn};
 use nix::sys::reboot::{reboot, RebootMode};
@@ -13,9 +13,9 @@ use std::collections::HashMap;
 use std::fs::Permissions;
 use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tempfile::NamedTempFile;
-use tokio::fs::File;
+use tokio::fs::{self, File};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
@@ -231,6 +231,81 @@ pub async fn handle_get_cpu_info(responder: oneshot::Sender<Result<GetCpuInfoRes
     if responder.send(result).is_err() {
         error!(
             "HOST_WORKER: Failed to send response for GetCPUInfo. API handler may have timed out."
+        );
+    }
+}
+
+async fn read_net_stat(base_path: &Path, stat_name: &str) -> u64 {
+    let stat_path = base_path.join(stat_name);
+    fs::read_to_string(stat_path)
+        .await
+        .ok()
+        .and_then(|s| s.trim().parse::<u64>().ok())
+        .unwrap_or(0)
+}
+
+async fn read_all_net_stats() -> Result<Vec<NetDev>, std::io::Error> {
+    let mut devices = Vec::new();
+    let mut entries = fs::read_dir("/sys/class/net").await?;
+
+    while let Some(entry) = entries.next_entry().await? {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+
+        let name = entry
+            .file_name()
+            .into_string()
+            .unwrap_or_else(|_| "invalid_utf8".to_string());
+        let stats_path = path.join("statistics");
+
+        if !stats_path.is_dir() {
+            continue;
+        }
+
+        let device = NetDev {
+            name,
+            rx_bytes: read_net_stat(&stats_path, "rx_bytes").await,
+            rx_packets: read_net_stat(&stats_path, "rx_packets").await,
+            rx_errors: read_net_stat(&stats_path, "rx_errors").await,
+            rx_dropped: read_net_stat(&stats_path, "rx_dropped").await,
+            rx_fifo: read_net_stat(&stats_path, "rx_fifo_errors").await,
+            rx_frame: read_net_stat(&stats_path, "rx_frame_errors").await,
+            rx_compressed: read_net_stat(&stats_path, "rx_compressed").await,
+            rx_multicast: read_net_stat(&stats_path, "multicast").await,
+            tx_bytes: read_net_stat(&stats_path, "tx_bytes").await,
+            tx_packets: read_net_stat(&stats_path, "tx_packets").await,
+            tx_errors: read_net_stat(&stats_path, "tx_errors").await,
+            tx_dropped: read_net_stat(&stats_path, "tx_dropped").await,
+            tx_fifo: read_net_stat(&stats_path, "tx_fifo_errors").await,
+            tx_collisions: read_net_stat(&stats_path, "collisions").await,
+            tx_carrier: read_net_stat(&stats_path, "tx_carrier_errors").await,
+            tx_compressed: read_net_stat(&stats_path, "tx_compressed").await,
+        };
+        devices.push(device);
+    }
+
+    Ok(devices)
+}
+
+pub async fn handle_get_network_info(
+    responder: oneshot::Sender<Result<GetNetworkInfoResponse, Status>>,
+) {
+    info!("HOST_WORKER: Processing GetNetworkInfo request.");
+    let result = match read_all_net_stats().await {
+        Ok(devices) => Ok(GetNetworkInfoResponse { devices }),
+        Err(e) => {
+            error!("HOST_WORKER: ERROR - Failed to get network info: {e}");
+            Err(Status::internal(format!(
+                "Failed to get network info from sysfs: {e}"
+            )))
+        }
+    };
+
+    if responder.send(result).is_err() {
+        error!(
+            "HOST_WORKER: Failed to send response for GetNetworkInfo. API handler may have timed out."
         );
     }
 }
