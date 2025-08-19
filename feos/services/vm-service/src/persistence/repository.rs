@@ -142,10 +142,10 @@ impl VmRepository {
         vm_id: Uuid,
         new_state: VmState,
         message: &str,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         let state_str = format!("VM_STATE_{new_state:?}").to_uppercase();
 
-        sqlx::query!(
+        let result = sqlx::query!(
             r#"
             UPDATE vms
             SET state = ?1, last_msg = ?2
@@ -157,7 +157,8 @@ impl VmRepository {
         )
         .execute(&self.pool)
         .await?;
-        Ok(())
+
+        Ok(result.rows_affected() > 0)
     }
 
     pub async fn update_vm_pid(&self, vm_id: Uuid, pid: i64) -> Result<()> {

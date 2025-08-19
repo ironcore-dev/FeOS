@@ -62,7 +62,7 @@ pub async fn handle_create_vm(
     image_uuid: String,
     responder: oneshot::Sender<Result<CreateVmResponse, Status>>,
     hypervisor: Arc<dyn Hypervisor>,
-    broadcast_tx: broadcast::Sender<VmEventWrapper>,
+    broadcast_tx: mpsc::Sender<VmEventWrapper>,
 ) {
     if responder
         .send(Ok(CreateVmResponse {
@@ -153,7 +153,7 @@ pub async fn handle_start_vm(
     req: StartVmRequest,
     responder: oneshot::Sender<Result<StartVmResponse, Status>>,
     hypervisor: Arc<dyn Hypervisor>,
-    broadcast_tx: broadcast::Sender<VmEventWrapper>,
+    broadcast_tx: mpsc::Sender<VmEventWrapper>,
 ) {
     let vm_id = req.vm_id.clone();
     let result = hypervisor.start_vm(req).await;
@@ -199,24 +199,34 @@ pub async fn handle_get_vm(
 pub async fn handle_stream_vm_events(
     req: StreamVmEventsRequest,
     stream_tx: mpsc::Sender<Result<VmEvent, Status>>,
-    hypervisor: Arc<dyn Hypervisor>,
     broadcast_tx: broadcast::Sender<VmEventWrapper>,
 ) {
-    let event_stream_result = hypervisor.stream_vm_events(req, broadcast_tx).await;
+    let mut broadcast_rx = broadcast_tx.subscribe();
+    let vm_id_to_watch = req.vm_id;
 
-    let mut event_rx = match event_stream_result {
-        Ok(rx) => rx,
-        Err(e) => {
-            let _ = stream_tx.send(Err(e.into())).await;
-            return;
-        }
-    };
+    let watcher_desc = vm_id_to_watch
+        .clone()
+        .unwrap_or_else(|| "all VMs".to_string());
 
-    while let Some(event_result) = event_rx.recv().await {
-        let grpc_result = event_result.map_err(Into::into);
-        if stream_tx.send(grpc_result).await.is_err() {
-            info!("VM_WORKER (Stream): Client disconnected. Closing bridge.");
-            break;
+    loop {
+        match broadcast_rx.recv().await {
+            Ok(VmEventWrapper { event, .. }) => {
+                if vm_id_to_watch.as_ref().is_none_or(|id| event.vm_id == *id) && stream_tx.send(Ok(event)).await.is_err() {
+                    info!("VM_WORKER (Stream): Client for '{watcher_desc}' disconnected.");
+                    break;
+                }
+            }
+            Err(broadcast::error::RecvError::Lagged(n)) => {
+                warn!(
+                    "VM_WORKER (Stream): Event stream for '{watcher_desc}' lagged by {n} messages."
+                );
+            }
+            Err(broadcast::error::RecvError::Closed) => {
+                info!(
+                    "VM_WORKER (Stream): Broadcast channel closed. Shutting down stream for '{watcher_desc}'."
+                );
+                break;
+            }
         }
     }
 }
@@ -227,7 +237,7 @@ pub async fn handle_delete_vm(
     process_id: Option<i64>,
     responder: oneshot::Sender<Result<DeleteVmResponse, Status>>,
     hypervisor: Arc<dyn Hypervisor>,
-    _broadcast_tx: broadcast::Sender<VmEventWrapper>,
+    _broadcast_tx: mpsc::Sender<VmEventWrapper>,
 ) {
     let vm_id = req.vm_id.clone();
     let result = hypervisor.delete_vm(req, process_id).await;
@@ -241,8 +251,8 @@ pub async fn handle_delete_vm(
                 };
                 if let Err(status) = client.delete_image(delete_req).await {
                     warn!(
-                        "VM_WORKER ({vm_id}): Failed to delete image {image_uuid}: {}. This may be expected if the image is shared or already deleted.",
-                        status.message()
+                        "VM_WORKER ({vm_id}): Failed to delete image {image_uuid}: {message}. This may be expected if the image is shared or already deleted.",
+                        message = status.message()
                     );
                 } else {
                     info!("VM_WORKER ({vm_id}): Successfully requested deletion of image {image_uuid}");
@@ -300,7 +310,7 @@ pub async fn handle_shutdown_vm(
     req: ShutdownVmRequest,
     responder: oneshot::Sender<Result<ShutdownVmResponse, Status>>,
     hypervisor: Arc<dyn Hypervisor>,
-    broadcast_tx: broadcast::Sender<VmEventWrapper>,
+    broadcast_tx: mpsc::Sender<VmEventWrapper>,
 ) {
     let vm_id = req.vm_id.clone();
     let result = hypervisor.shutdown_vm(req).await;
@@ -328,7 +338,7 @@ pub async fn handle_pause_vm(
     req: PauseVmRequest,
     responder: oneshot::Sender<Result<PauseVmResponse, Status>>,
     hypervisor: Arc<dyn Hypervisor>,
-    broadcast_tx: broadcast::Sender<VmEventWrapper>,
+    broadcast_tx: mpsc::Sender<VmEventWrapper>,
 ) {
     let vm_id = req.vm_id.clone();
     let result = hypervisor.pause_vm(req).await;
@@ -356,7 +366,7 @@ pub async fn handle_resume_vm(
     req: ResumeVmRequest,
     responder: oneshot::Sender<Result<ResumeVmResponse, Status>>,
     hypervisor: Arc<dyn Hypervisor>,
-    broadcast_tx: broadcast::Sender<VmEventWrapper>,
+    broadcast_tx: mpsc::Sender<VmEventWrapper>,
 ) {
     let vm_id = req.vm_id.clone();
     let result = hypervisor.resume_vm(req).await;

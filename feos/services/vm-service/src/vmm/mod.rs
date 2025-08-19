@@ -3,13 +3,12 @@ use feos_proto::vm_service::{
     AttachDiskRequest, AttachDiskResponse, CreateVmRequest, DeleteVmRequest, DeleteVmResponse,
     GetVmRequest, PauseVmRequest, PauseVmResponse, PingVmRequest, PingVmResponse,
     RemoveDiskRequest, RemoveDiskResponse, ResumeVmRequest, ResumeVmResponse, ShutdownVmRequest,
-    ShutdownVmResponse, StartVmRequest, StartVmResponse, StreamVmEventsRequest, VmEvent, VmInfo,
-    VmStateChangedEvent,
+    ShutdownVmResponse, StartVmRequest, StartVmResponse, VmEvent, VmInfo, VmStateChangedEvent,
 };
 use prost::Message;
 use prost_types::Any;
 use std::path::{Path, PathBuf};
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::mpsc;
 use tonic::Status;
 use uuid::Uuid;
 
@@ -65,7 +64,7 @@ pub trait Hypervisor: Send + Sync {
 
     async fn start_vm(&self, req: StartVmRequest) -> Result<StartVmResponse, VmmError>;
 
-    async fn healthcheck_vm(&self, vm_id: String, broadcast_tx: broadcast::Sender<VmEventWrapper>);
+    async fn healthcheck_vm(&self, vm_id: String, broadcast_tx: mpsc::Sender<VmEventWrapper>);
 
     async fn get_vm(&self, req: GetVmRequest) -> Result<VmInfo, VmmError>;
 
@@ -74,12 +73,6 @@ pub trait Hypervisor: Send + Sync {
         req: DeleteVmRequest,
         process_id: Option<i64>,
     ) -> Result<DeleteVmResponse, VmmError>;
-
-    async fn stream_vm_events(
-        &self,
-        req: StreamVmEventsRequest,
-        broadcast_tx: broadcast::Sender<VmEventWrapper>,
-    ) -> Result<mpsc::Receiver<Result<VmEvent, VmmError>>, VmmError>;
 
     async fn get_console_socket_path(&self, vm_id: &str) -> Result<PathBuf, VmmError>;
 
@@ -92,7 +85,7 @@ pub trait Hypervisor: Send + Sync {
 }
 
 pub async fn broadcast_state_change_event(
-    broadcast_tx: &broadcast::Sender<VmEventWrapper>,
+    broadcast_tx: &mpsc::Sender<VmEventWrapper>,
     vm_id: &str,
     component: &str,
     data: VmStateChangedEvent,
@@ -110,9 +103,10 @@ pub async fn broadcast_state_change_event(
 
     if broadcast_tx
         .send(VmEventWrapper { event, process_id })
+        .await
         .is_err()
     {
-        log::warn!("Failed to broadcast event for VM '{vm_id}': no active listeners.");
+        log::warn!("Failed to broadcast event for VM '{vm_id}': channel closed.");
     }
 }
 

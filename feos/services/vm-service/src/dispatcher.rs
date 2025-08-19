@@ -12,7 +12,7 @@ use feos_proto::{
         VmStateChangedEvent,
     },
 };
-use log::{error, info, warn};
+use log::{error, info, warn, debug};
 use prost::Message;
 use prost_types::Any;
 use std::sync::Arc;
@@ -22,24 +22,26 @@ use uuid::Uuid;
 
 pub struct VmServiceDispatcher {
     rx: mpsc::Receiver<Command>,
-    broadcast_tx: broadcast::Sender<VmEventWrapper>,
-    broadcast_rx_for_logger: broadcast::Receiver<VmEventWrapper>,
+    event_bus_tx: mpsc::Sender<VmEventWrapper>,
+    event_bus_rx_for_dispatcher: mpsc::Receiver<VmEventWrapper>,
+    status_channel_tx: broadcast::Sender<VmEventWrapper>,
     hypervisor: Arc<dyn Hypervisor>,
     repository: VmRepository,
 }
 
 impl VmServiceDispatcher {
     pub async fn new(rx: mpsc::Receiver<Command>, db_url: &str) -> Result<Self> {
-        let (broadcast_tx, _) = broadcast::channel(32);
-        let broadcast_rx_for_logger = broadcast_tx.subscribe();
+        let (event_bus_tx, event_bus_rx_for_dispatcher) = mpsc::channel(32);
+        let (status_channel_tx, _) = broadcast::channel(32);
         let hypervisor = Arc::from(factory(VmmType::CloudHypervisor));
         info!("VM_DISPATCHER: Connecting to persistence layer at {db_url}...");
         let repository = VmRepository::connect(db_url).await?;
         info!("VM_DISPATCHER: Persistence layer connected successfully.");
         Ok(Self {
             rx,
-            broadcast_tx,
-            broadcast_rx_for_logger,
+            event_bus_tx,
+            event_bus_rx_for_dispatcher,
+            status_channel_tx,
             hypervisor,
             repository,
         })
@@ -55,7 +57,7 @@ impl VmServiceDispatcher {
             }
         };
 
-        info!("VM_DISPATCHER: Requesting image pull for '{image_ref}'");
+        info!("VM_DISPATCHER: Requesting image pull for {image_ref}");
         let mut client = vmservice_helper::get_image_service_client()
             .await
             .map_err(|e| Status::unavailable(format!("Could not connect to ImageService: {e}")))?;
@@ -66,18 +68,20 @@ impl VmServiceDispatcher {
             })
             .await
             .map_err(|status| {
-                let msg = format!("PullImage RPC failed for '{image_ref}': {status}");
+                let msg = format!("PullImage RPC failed for {image_ref}: {status}");
                 error!("VM_DISPATCHER: {msg}");
                 Status::unavailable(msg)
             })?;
 
         let image_uuid = response.into_inner().image_uuid;
-        info!("VM_DISPATCHER: Image pull for '{image_ref}' initiated. UUID: {image_uuid}");
+        info!("VM_DISPATCHER: Image pull for {image_ref} initiated. UUID: {image_uuid}");
         Ok(image_uuid)
     }
 
     async fn handle_vm_event(&mut self, event_wrapper: VmEventWrapper) {
+        let event_to_forward = event_wrapper.clone();
         let event = event_wrapper.event;
+
         info!(
             "VM_DISPATCHER_LOGGER: Event for VM '{}': ID '{}', Component '{}', Data Type '{}'",
             event.vm_id,
@@ -90,8 +94,8 @@ impl VmServiceDispatcher {
             Ok(id) => id,
             Err(e) => {
                 error!(
-                    "DB_UPDATE: Could not parse UUID from event vm_id '{}': {}",
-                    &event.vm_id, e
+                    "DB_UPDATE: Could not parse UUID from event vm_id '{}': {e}",
+                    &event.vm_id
                 );
                 return;
             }
@@ -112,29 +116,44 @@ impl VmServiceDispatcher {
                             Ok(s) => s,
                             Err(e) => {
                                 error!(
-                                    "DB_UPDATE: Invalid VmState value '{}' in event: {}",
-                                    state_change.new_state, e
+                                    "DB_UPDATE: Invalid VmState value '{}' in event: {e}",
+                                    state_change.new_state
                                 );
                                 return;
                             }
                         };
 
                         info!(
-                            "DB_UPDATE: Updating status for VM {} to {:?} with message: '{}'",
-                            vm_id_uuid, new_state, &state_change.reason
+                            "DB_UPDATE: Updating status for VM {vm_id_uuid} to {new_state:?} with message: '{}'",
+                            state_change.reason
                         );
-                        if let Err(e) = self
+                        match self
                             .repository
                             .update_vm_status(vm_id_uuid, new_state, &state_change.reason)
                             .await
                         {
-                            error!("DB_UPDATE: Failed to update status for VM {vm_id_uuid}: {e}");
+                            Ok(true) => {
+                                if let Err(e) = self.status_channel_tx.send(event_to_forward) {
+                                    debug!(
+                                        "VM_DISPATCHER: Failed to forward successful VM status event for {}: {e}",
+                                        event.vm_id
+                                    );
+                                }
+                            }
+                            Ok(false) => {
+                                info!(
+                                    "DB_UPDATE: Update for VM {vm_id_uuid} was a no-op (record likely already deleted). Event not forwarded."
+                                );
+                            }
+                            Err(e) => {
+                                error!("DB_UPDATE: Failed to execute status update for VM {vm_id_uuid}: {e}");
+                            }
                         }
                     }
                     Err(e) => {
                         error!(
-                            "DB_UPDATE: Failed to decode VmStateChangedEvent for VM {}: {}",
-                            event.vm_id, e
+                            "DB_UPDATE: Failed to decode VmStateChangedEvent for VM {}: {e}",
+                            event.vm_id
                         );
                     }
                 }
@@ -149,22 +168,24 @@ impl VmServiceDispatcher {
                 biased;
                 Some(cmd) = self.rx.recv() => {
                     let hypervisor = self.hypervisor.clone();
-                    let broadcast_tx = self.broadcast_tx.clone();
+                    let event_bus_tx = self.event_bus_tx.clone();
+                    let status_channel_tx = self.status_channel_tx.clone();
+
                     match cmd {
                         Command::CreateVm(req, responder) => {
-                            self.handle_create_vm_command(req, responder, hypervisor, broadcast_tx).await;
+                            self.handle_create_vm_command(req, responder, hypervisor, event_bus_tx).await;
                         }
                         Command::StartVm(req, responder) => {
-                            tokio::spawn(worker::handle_start_vm(req, responder, hypervisor, broadcast_tx));
+                            tokio::spawn(worker::handle_start_vm(req, responder, hypervisor, event_bus_tx));
                         }
                         Command::GetVm(req, responder) => {
                             self.handle_get_vm_command(req, responder).await;
                         }
                         Command::StreamVmEvents(req, stream_tx) => {
-                            self.handle_stream_vm_events_command(req, stream_tx, hypervisor, broadcast_tx).await;
+                            self.handle_stream_vm_events_command(req, stream_tx, status_channel_tx).await;
                         }
                         Command::DeleteVm(req, responder) => {
-                            self.handle_delete_vm_command(req, responder, hypervisor, broadcast_tx).await;
+                            self.handle_delete_vm_command(req, responder, hypervisor, event_bus_tx).await;
                         }
                         Command::StreamVmConsole(input_stream, output_tx) => {
                             tokio::spawn(worker::handle_stream_vm_console(input_stream, output_tx, hypervisor));
@@ -176,13 +197,13 @@ impl VmServiceDispatcher {
                             tokio::spawn(worker::handle_ping_vm(req, responder, hypervisor));
                         }
                         Command::ShutdownVm(req, responder) => {
-                            tokio::spawn(worker::handle_shutdown_vm(req, responder, hypervisor, broadcast_tx));
+                            tokio::spawn(worker::handle_shutdown_vm(req, responder, hypervisor, event_bus_tx));
                         }
                         Command::PauseVm(req, responder) => {
-                            tokio::spawn(worker::handle_pause_vm(req, responder, hypervisor, broadcast_tx));
+                            tokio::spawn(worker::handle_pause_vm(req, responder, hypervisor, event_bus_tx));
                         }
                         Command::ResumeVm(req, responder) => {
-                            tokio::spawn(worker::handle_resume_vm(req, responder, hypervisor, broadcast_tx));
+                            tokio::spawn(worker::handle_resume_vm(req, responder, hypervisor, event_bus_tx));
                         }
                         Command::AttachDisk(req, responder) => {
                             tokio::spawn(worker::handle_attach_disk(req, responder, hypervisor));
@@ -192,7 +213,7 @@ impl VmServiceDispatcher {
                         }
                     }
                 },
-                Ok(event) = self.broadcast_rx_for_logger.recv() => {
+                Some(event) = self.event_bus_rx_for_dispatcher.recv() => {
                     self.handle_vm_event(event).await;
                 }
                 else => {
@@ -208,7 +229,7 @@ impl VmServiceDispatcher {
         req: CreateVmRequest,
         responder: oneshot::Sender<Result<CreateVmResponse, Status>>,
         hypervisor: Arc<dyn Hypervisor>,
-        broadcast_tx: broadcast::Sender<VmEventWrapper>,
+        event_bus_tx: mpsc::Sender<VmEventWrapper>,
     ) {
         let vm_id_res: Result<(Uuid, bool), Status> =
             if let Some(id_str) = req.vm_id.as_deref().filter(|s| !s.is_empty()) {
@@ -283,7 +304,7 @@ impl VmServiceDispatcher {
 
                 if let Err(e) = self.repository.save_vm(&record).await {
                     let status = Status::internal(format!("Failed to save VM to database: {e}"));
-                    error!("VM_DISPATCHER: {}", status.message());
+                    error!("VM_DISPATCHER: {message}", message = status.message());
                     if responder.send(Err(status)).is_err() {
                         error!("VM_DISPATCHER: Failed to send error response for CreateVm. Responder closed.");
                     }
@@ -297,7 +318,7 @@ impl VmServiceDispatcher {
                     image_uuid_str,
                     responder,
                     hypervisor,
-                    broadcast_tx,
+                    event_bus_tx,
                 ));
             }
             Err(status) => {
@@ -346,8 +367,7 @@ impl VmServiceDispatcher {
         &mut self,
         req: StreamVmEventsRequest,
         stream_tx: mpsc::Sender<Result<VmEvent, Status>>,
-        hypervisor: Arc<dyn Hypervisor>,
-        broadcast_tx: broadcast::Sender<VmEventWrapper>,
+        status_channel_tx: broadcast::Sender<VmEventWrapper>,
     ) {
         if let Some(vm_id_str) = req.vm_id.clone() {
             let vm_id = match Uuid::parse_str(&vm_id_str) {
@@ -369,8 +389,8 @@ impl VmServiceDispatcher {
             match self.repository.get_vm(vm_id).await {
                 Ok(Some(record)) => {
                     info!(
-                        "STREAM_EVENTS: Sending initial state for VM {}: {:?}",
-                        vm_id_str, record.status.state
+                        "STREAM_EVENTS: Sending initial state for VM {vm_id_str}: {:?}",
+                        record.status.state
                     );
                     let state_change_event = VmStateChangedEvent {
                         new_state: record.status.state as i32,
@@ -397,8 +417,7 @@ impl VmServiceDispatcher {
                     tokio::spawn(worker::handle_stream_vm_events(
                         req,
                         stream_tx,
-                        hypervisor,
-                        broadcast_tx,
+                        status_channel_tx,
                     ));
                 }
                 Ok(None) => {
@@ -484,8 +503,7 @@ impl VmServiceDispatcher {
             tokio::spawn(worker::handle_stream_vm_events(
                 req,
                 stream_tx,
-                hypervisor,
-                broadcast_tx,
+                status_channel_tx,
             ));
         }
     }
@@ -495,7 +513,7 @@ impl VmServiceDispatcher {
         req: DeleteVmRequest,
         responder: oneshot::Sender<Result<DeleteVmResponse, Status>>,
         hypervisor: Arc<dyn Hypervisor>,
-        broadcast_tx: broadcast::Sender<VmEventWrapper>,
+        event_bus_tx: mpsc::Sender<VmEventWrapper>,
     ) {
         let vm_id = match Uuid::parse_str(&req.vm_id) {
             Ok(id) => id,
@@ -524,7 +542,7 @@ impl VmServiceDispatcher {
                     process_id_to_kill,
                     responder,
                     hypervisor,
-                    broadcast_tx,
+                    event_bus_tx,
                 ));
             }
             Ok(None) => {
@@ -536,7 +554,7 @@ impl VmServiceDispatcher {
                     None,
                     responder,
                     hypervisor,
-                    broadcast_tx,
+                    event_bus_tx,
                 ));
             }
             Err(e) => {

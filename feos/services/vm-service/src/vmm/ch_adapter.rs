@@ -11,8 +11,7 @@ use feos_proto::vm_service::{
     net_config, AttachDiskRequest, AttachDiskResponse, CreateVmRequest, DeleteVmRequest,
     DeleteVmResponse, GetVmRequest, PauseVmRequest, PauseVmResponse, PingVmRequest, PingVmResponse,
     RemoveDiskRequest, RemoveDiskResponse, ResumeVmRequest, ResumeVmResponse, ShutdownVmRequest,
-    ShutdownVmResponse, StartVmRequest, StartVmResponse, StreamVmEventsRequest, VmConfig, VmEvent,
-    VmInfo, VmState,
+    ShutdownVmResponse, StartVmRequest, StartVmResponse, VmConfig, VmInfo, VmState,
 };
 use hyper_util::client::legacy::Client;
 use hyperlocal::{UnixClientExt, UnixConnector, Uri as HyperlocalUri};
@@ -23,7 +22,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::process::Command as TokioCommand;
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::mpsc;
 use tokio::time::{self, timeout, Duration};
 
 pub struct CloudHypervisorAdapter {
@@ -185,14 +184,14 @@ impl CloudHypervisorAdapter {
         if let Err(e) = tokio::fs::remove_file(socket_path).await {
             if e.kind() != std::io::ErrorKind::NotFound {
                 warn!(
-                    "CH_ADAPTER ({vm_id}): Failed to remove {socket_type} socket {}: {e}",
-                    socket_path.display()
+                    "CH_ADAPTER ({vm_id}): Failed to remove {socket_type} socket {path}: {e}",
+                    path = socket_path.display()
                 );
             }
         } else {
             info!(
-                "CH_ADAPTER ({vm_id}): Successfully removed {socket_type} socket {}",
-                socket_path.display()
+                "CH_ADAPTER ({vm_id}): Successfully removed {socket_type} socket {path}",
+                path = socket_path.display()
             );
         }
     }
@@ -258,7 +257,7 @@ impl Hypervisor for CloudHypervisorAdapter {
         Ok(StartVmResponse {})
     }
 
-    async fn healthcheck_vm(&self, vm_id: String, broadcast_tx: broadcast::Sender<VmEventWrapper>) {
+    async fn healthcheck_vm(&self, vm_id: String, broadcast_tx: mpsc::Sender<VmEventWrapper>) {
         info!("CH_ADAPTER ({vm_id}): Starting healthcheck monitoring.");
         let mut interval = time::interval(Duration::from_secs(10));
 
@@ -324,35 +323,35 @@ impl Hypervisor for CloudHypervisorAdapter {
         if let Ok(api_client) = self.get_ch_api_client(&req.vm_id) {
             if let Err(e) = api_client.delete_vm().await {
                 warn!(
-                    "CH_ADAPTER ({}): API call to delete VM failed: {e}. This might happen if the process is already gone. Continuing cleanup.",
-                    req.vm_id
+                    "CH_ADAPTER ({vm_id}): API call to delete VM failed: {e}. This might happen if the process is already gone. Continuing cleanup.",
+                    vm_id = req.vm_id
                 );
             } else {
                 info!(
-                    "CH_ADAPTER ({}): Successfully deleted hypervisor process via API.",
-                    req.vm_id
+                    "CH_ADAPTER ({vm_id}): Successfully deleted hypervisor process via API.",
+                    vm_id = req.vm_id
                 );
             }
         }
 
         if let Some(pid_val) = process_id {
             info!(
-                "CH_ADAPTER ({}): Attempting to kill process with PID: {pid_val}",
-                req.vm_id
+                "CH_ADAPTER ({vm_id}): Attempting to kill process with PID: {pid_val}",
+                vm_id = req.vm_id
             );
             let pid = Pid::from_raw(pid_val as i32);
             match kill(pid, Signal::SIGKILL) {
                 Ok(_) => info!(
-                    "CH_ADAPTER ({}): Successfully sent SIGKILL to process {pid_val}.",
-                    req.vm_id
+                    "CH_ADAPTER ({vm_id}): Successfully sent SIGKILL to process {pid_val}.",
+                    vm_id = req.vm_id
                 ),
                 Err(nix::Error::ESRCH) => info!(
-                    "CH_ADAPTER ({}): Process {pid_val} already exited.",
-                    req.vm_id
+                    "CH_ADAPTER ({vm_id}): Process {pid_val} already exited.",
+                    vm_id = req.vm_id
                 ),
                 Err(e) => warn!(
-                    "CH_ADAPTER ({}): Failed to kill process {pid_val}: {e}. It might already be gone.",
-                    req.vm_id
+                    "CH_ADAPTER ({vm_id}): Failed to kill process {pid_val}: {e}. It might already be gone.",
+                    vm_id = req.vm_id
                 ),
             }
         }
@@ -367,45 +366,6 @@ impl Hypervisor for CloudHypervisorAdapter {
             .await;
 
         Ok(DeleteVmResponse {})
-    }
-
-    async fn stream_vm_events(
-        &self,
-        req: StreamVmEventsRequest,
-        broadcast_tx: broadcast::Sender<VmEventWrapper>,
-    ) -> Result<mpsc::Receiver<Result<VmEvent, VmmError>>, VmmError> {
-        let (tx, rx) = mpsc::channel(32);
-        let mut broadcast_rx = broadcast_tx.subscribe();
-        let vm_id_to_watch = req.vm_id;
-
-        tokio::spawn(async move {
-            let watcher_desc = vm_id_to_watch
-                .clone()
-                .unwrap_or_else(|| "all VMs".to_string());
-            loop {
-                match broadcast_rx.recv().await {
-                    Ok(VmEventWrapper { event, .. }) => {
-                        if vm_id_to_watch.as_ref().is_none_or(|id| event.vm_id == *id)
-                            && tx.send(Ok(event)).await.is_err()
-                        {
-                            info!("gRPC event stream for '{watcher_desc}' disconnected.");
-                            break;
-                        }
-                    }
-                    Err(broadcast::error::RecvError::Lagged(n)) => {
-                        warn!("Event stream for '{watcher_desc}' lagged by {n} messages.");
-                    }
-                    Err(broadcast::error::RecvError::Closed) => {
-                        info!(
-                            "Broadcast channel closed. Shutting down stream for '{watcher_desc}'."
-                        );
-                        break;
-                    }
-                }
-            }
-        });
-
-        Ok(rx)
     }
 
     async fn get_console_socket_path(&self, vm_id: &str) -> Result<PathBuf, VmmError> {
