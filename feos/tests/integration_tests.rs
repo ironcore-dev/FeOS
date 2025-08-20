@@ -188,6 +188,34 @@ async fn wait_for_vm_state(
     ))
 }
 
+async fn wait_for_target_state(
+    stream: &mut tonic::Streaming<VmEvent>,
+    target_state: VmState,
+) -> Result<()> {
+    while let Some(event_res) = stream.next().await {
+        let event = event_res?;
+        let any_data = event.data.expect("Event should have data payload");
+        if any_data.type_url == "type.googleapis.com/feos.vm.vmm.api.v1.VmStateChangedEvent" {
+            let state_change = VmStateChangedEvent::decode(&*any_data.value)?;
+            let new_state =
+                VmState::try_from(state_change.new_state).unwrap_or(VmState::Unspecified);
+
+            info!(
+                "Received VM state change event: new_state={:?}, reason='{}'",
+                new_state, state_change.reason
+            );
+
+            if new_state == target_state {
+                return Ok(());
+            }
+        }
+    }
+    Err(anyhow::anyhow!(
+        "Event stream ended before VM reached {:?} state.",
+        target_state
+    ))
+}
+
 #[tokio::test]
 async fn test_create_and_start_vm() -> Result<()> {
     if skip_if_ch_binary_missing() {
@@ -292,6 +320,115 @@ async fn test_create_and_start_vm() -> Result<()> {
 }
 
 #[tokio::test]
+async fn test_vm_healthcheck_and_crash_recovery() -> Result<()> {
+    if skip_if_ch_binary_missing() {
+        return Ok(());
+    }
+
+    ensure_server().await;
+    let (mut vm_client, _) = get_public_clients().await?;
+
+    let image_ref = TEST_IMAGE_REF.clone();
+    let vm_config = VmConfig {
+        cpus: Some(CpuConfig {
+            boot_vcpus: 1,
+            max_vcpus: 1,
+        }),
+        memory: Some(MemoryConfig { size_mib: 1024 }),
+        image_ref,
+        disks: vec![],
+        net: vec![],
+        ignition: None,
+    };
+    let create_req = CreateVmRequest {
+        config: Some(vm_config),
+        vm_id: None,
+    };
+
+    info!("Sending CreateVm request for healthcheck test");
+    let create_res = vm_client.create_vm(create_req).await?.into_inner();
+    let vm_id = create_res.vm_id;
+    info!("VM created with ID: {}", vm_id);
+
+    let mut guard = VmGuard {
+        vm_id: vm_id.clone(),
+        pid: None,
+        cleanup_disabled: false,
+    };
+
+    info!("Connecting to StreamVmEvents stream for vm_id: {}", &vm_id);
+    let events_req = StreamVmEventsRequest {
+        vm_id: Some(vm_id.clone()),
+        ..Default::default()
+    };
+    let mut stream = vm_client.stream_vm_events(events_req).await?.into_inner();
+
+    timeout(
+        Duration::from_secs(180),
+        wait_for_vm_state(&mut stream, VmState::Created),
+    )
+    .await
+    .expect("Timed out waiting for VM to become created")?;
+    info!("VM is in CREATED state");
+
+    info!("Sending StartVm request for vm_id: {}", &vm_id);
+    let start_req = StartVmRequest {
+        vm_id: vm_id.clone(),
+    };
+    vm_client.start_vm(start_req).await?;
+
+    timeout(
+        Duration::from_secs(30),
+        wait_for_vm_state(&mut stream, VmState::Running),
+    )
+    .await
+    .expect("Timed out waiting for VM to become running")?;
+    info!("VM is in RUNNING state");
+
+    info!("Pinging VMM for vm_id: {}", &vm_id);
+    let ping_req = PingVmRequest {
+        vm_id: vm_id.clone(),
+    };
+    let ping_res = vm_client.ping_vm(ping_req).await?.into_inner();
+    info!("VMM Ping successful, PID: {}", ping_res.pid);
+    let pid_to_kill = Pid::from_raw(ping_res.pid as i32);
+    guard.pid = Some(pid_to_kill);
+
+    info!(
+        "Forcefully killing hypervisor process with PID: {}",
+        pid_to_kill
+    );
+    kill(pid_to_kill, Signal::SIGKILL).context("Failed to kill hypervisor process")?;
+    info!("Successfully sent SIGKILL to process {}", pid_to_kill);
+
+    timeout(
+        Duration::from_secs(30),
+        wait_for_target_state(&mut stream, VmState::Crashed),
+    )
+    .await
+    .expect("Timed out waiting for VM to enter Crashed state")?;
+    info!("VM is in CRASHED state as expected");
+
+    info!("Deleting crashed VM: {}", &vm_id);
+    let delete_req = DeleteVmRequest {
+        vm_id: vm_id.clone(),
+    };
+    vm_client.delete_vm(delete_req).await?.into_inner();
+    info!("DeleteVm call successful for crashed VM");
+
+    let socket_path = format!("{}/{}", VM_API_SOCKET_DIR, &vm_id);
+    assert!(
+        !Path::new(&socket_path).exists(),
+        "Socket file '{}' should not exist after DeleteVm",
+        socket_path
+    );
+    info!("Verified VM API socket is deleted: {}", socket_path);
+
+    guard.cleanup_disabled = true;
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_hostname_retrieval() -> Result<()> {
     ensure_server().await;
     let (_, mut host_client) = get_public_clients().await?;
@@ -319,7 +456,6 @@ async fn test_get_memory_info() -> Result<()> {
     ensure_server().await;
     let (_, mut host_client) = get_public_clients().await?;
 
-    // 1. Read local /proc/meminfo to get the ground truth
     let file = File::open("/proc/meminfo")?;
     let reader = BufReader::new(file);
     let mut local_memtotal = 0;
@@ -340,11 +476,9 @@ async fn test_get_memory_info() -> Result<()> {
     );
     info!("Local MemTotal from /proc/meminfo: {} kB", local_memtotal);
 
-    // 2. Make the gRPC call
     info!("Sending GetMemory request");
     let response = host_client.get_memory(MemoryRequest {}).await?.into_inner();
 
-    // 3. Validate the response
     let mem_info = response
         .mem_info
         .context("MemoryInfo was not present in the response")?;
