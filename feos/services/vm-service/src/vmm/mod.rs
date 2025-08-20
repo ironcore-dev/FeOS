@@ -8,7 +8,7 @@ use feos_proto::vm_service::{
 use prost::Message;
 use prost_types::Any;
 use std::path::{Path, PathBuf};
-use tokio::sync::mpsc;
+use tokio::sync::{broadcast, mpsc};
 use tonic::Status;
 use uuid::Uuid;
 
@@ -64,7 +64,12 @@ pub trait Hypervisor: Send + Sync {
 
     async fn start_vm(&self, req: StartVmRequest) -> Result<StartVmResponse, VmmError>;
 
-    async fn healthcheck_vm(&self, vm_id: String, broadcast_tx: mpsc::Sender<VmEventWrapper>);
+    async fn healthcheck_vm(
+        &self,
+        vm_id: String,
+        broadcast_tx: mpsc::Sender<VmEventWrapper>,
+        cancel_bus: broadcast::Receiver<Uuid>,
+    );
 
     async fn get_vm(&self, req: GetVmRequest) -> Result<VmInfo, VmmError>;
 

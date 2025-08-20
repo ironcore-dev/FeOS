@@ -27,12 +27,14 @@ pub struct VmServiceDispatcher {
     status_channel_tx: broadcast::Sender<VmEventWrapper>,
     hypervisor: Arc<dyn Hypervisor>,
     repository: VmRepository,
+    healthcheck_cancel_bus: broadcast::Sender<Uuid>,
 }
 
 impl VmServiceDispatcher {
     pub async fn new(rx: mpsc::Receiver<Command>, db_url: &str) -> Result<Self> {
         let (event_bus_tx, event_bus_rx_for_dispatcher) = mpsc::channel(32);
         let (status_channel_tx, _) = broadcast::channel(32);
+        let (healthcheck_cancel_bus, _) = broadcast::channel::<Uuid>(32);
         let hypervisor = Arc::from(factory(VmmType::CloudHypervisor));
         info!("VM_DISPATCHER: Connecting to persistence layer at {db_url}...");
         let repository = VmRepository::connect(db_url).await?;
@@ -44,6 +46,7 @@ impl VmServiceDispatcher {
             status_channel_tx,
             hypervisor,
             repository,
+            healthcheck_cancel_bus,
         })
     }
 
@@ -170,13 +173,15 @@ impl VmServiceDispatcher {
                     let hypervisor = self.hypervisor.clone();
                     let event_bus_tx = self.event_bus_tx.clone();
                     let status_channel_tx = self.status_channel_tx.clone();
+                    let healthcheck_cancel_bus_tx = self.healthcheck_cancel_bus.clone();
 
                     match cmd {
                         Command::CreateVm(req, responder) => {
                             self.handle_create_vm_command(req, responder, hypervisor, event_bus_tx).await;
                         }
                         Command::StartVm(req, responder) => {
-                            tokio::spawn(worker::handle_start_vm(req, responder, hypervisor, event_bus_tx));
+                            let cancel_bus = healthcheck_cancel_bus_tx.subscribe();
+                            tokio::spawn(worker::handle_start_vm(req, responder, hypervisor, event_bus_tx, cancel_bus));
                         }
                         Command::GetVm(req, responder) => {
                             self.handle_get_vm_command(req, responder).await;
@@ -536,6 +541,12 @@ impl VmServiceDispatcher {
                 }
                 info!("VM_DISPATCHER: Deleted record for VM {vm_id} from database.");
 
+                if let Err(e) = self.healthcheck_cancel_bus.send(vm_id) {
+                    warn!(
+                        "VM_DISPATCHER: Failed to send healthcheck cancellation for {vm_id}: {e}"
+                    );
+                }
+
                 tokio::spawn(worker::handle_delete_vm(
                     req,
                     image_uuid_to_delete,
@@ -548,6 +559,13 @@ impl VmServiceDispatcher {
             Ok(None) => {
                 let msg = format!("VM with ID {vm_id} not found in database for deletion");
                 warn!("VM_DISPATCHER: {msg}. Still attempting hypervisor cleanup.");
+
+                if let Err(e) = self.healthcheck_cancel_bus.send(vm_id) {
+                    warn!(
+                        "VM_DISPATCHER: Failed to send healthcheck cancellation for {vm_id}: {e}"
+                    );
+                }
+
                 tokio::spawn(worker::handle_delete_vm(
                     req,
                     String::new(),

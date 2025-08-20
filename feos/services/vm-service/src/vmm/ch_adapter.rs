@@ -15,15 +15,16 @@ use feos_proto::vm_service::{
 };
 use hyper_util::client::legacy::Client;
 use hyperlocal::{UnixClientExt, UnixConnector, Uri as HyperlocalUri};
-use log::{info, warn};
+use log::{error, info, warn};
 use nix::sys::signal::{kill, Signal};
 use nix::unistd::{self, Pid};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::process::Command as TokioCommand;
-use tokio::sync::mpsc;
+use tokio::sync::{broadcast, mpsc};
 use tokio::time::{self, timeout, Duration};
+use uuid::Uuid;
 
 pub struct CloudHypervisorAdapter {
     ch_binary_path: PathBuf,
@@ -257,36 +258,56 @@ impl Hypervisor for CloudHypervisorAdapter {
         Ok(StartVmResponse {})
     }
 
-    async fn healthcheck_vm(&self, vm_id: String, broadcast_tx: mpsc::Sender<VmEventWrapper>) {
+    async fn healthcheck_vm(
+        &self,
+        vm_id: String,
+        broadcast_tx: mpsc::Sender<VmEventWrapper>,
+        mut cancel_bus: broadcast::Receiver<Uuid>,
+    ) {
         info!("CH_ADAPTER ({vm_id}): Starting healthcheck monitoring.");
         let mut interval = time::interval(Duration::from_secs(10));
+        let vm_id_uuid = match Uuid::parse_str(&vm_id) {
+            Ok(id) => id,
+            Err(e) => {
+                error!("CH_ADAPTER ({vm_id}): Invalid UUID format, cannot start healthcheck: {e}");
+                return;
+            }
+        };
 
         loop {
-            interval.tick().await;
-            log::debug!("CH_ADAPTER ({vm_id}): Performing healthcheck ping.");
-            let req = PingVmRequest {
-                vm_id: vm_id.clone(),
-            };
+            tokio::select! {
+                _ = interval.tick() => {
+                    log::debug!("CH_ADAPTER ({vm_id}): Performing healthcheck ping.");
+                    let req = PingVmRequest {
+                        vm_id: vm_id.clone(),
+                    };
 
-            match self.ping_vm(req).await {
-                Ok(_) => {
-                    log::debug!("CH_ADAPTER ({vm_id}): Healthcheck ping successful.");
+                    if let Err(e) = self.ping_vm(req).await {
+                        warn!("CH_ADAPTER ({vm_id}): Healthcheck failed: {e}. VM is considered unhealthy.");
+                        super::broadcast_state_change_event(
+                            &broadcast_tx,
+                            &vm_id,
+                            "vm-health-monitor",
+                            feos_proto::vm_service::VmStateChangedEvent {
+                                new_state: VmState::Crashed as i32,
+                                reason: format!("Healthcheck failed: {e}"),
+                            },
+                            None,
+                        )
+                        .await;
+                        break;
+                    } else {
+                        log::debug!("CH_ADAPTER ({vm_id}): Healthcheck ping successful.");
+                    }
                 }
-                Err(e) => {
-                    warn!(
-                        "CH_ADAPTER ({vm_id}): Healthcheck failed: {e}. VM is considered unhealthy."
-                    );
-                    super::broadcast_state_change_event(
-                        &broadcast_tx,
-                        &vm_id,
-                        "vm-health-monitor",
-                        feos_proto::vm_service::VmStateChangedEvent {
-                            new_state: VmState::Crashed as i32,
-                            reason: format!("Healthcheck failed: {e}"),
-                        },
-                        None,
-                    )
-                    .await;
+                Ok(cancelled_vm_id) = cancel_bus.recv() => {
+                    if cancelled_vm_id == vm_id_uuid {
+                        info!("CH_ADAPTER ({vm_id}): Received cancellation signal. Stopping healthcheck.");
+                        break;
+                    }
+                }
+                else => {
+                    info!("CH_ADAPTER ({vm_id}): Healthcheck cancellation channel closed. Stopping healthcheck.");
                     break;
                 }
             }

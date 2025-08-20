@@ -15,6 +15,7 @@ use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio_stream::StreamExt;
 use tonic::{Status, Streaming};
+use uuid::Uuid;
 
 async fn wait_for_image_ready(image_uuid: &str, image_ref: &str) -> Result<(), VmmError> {
     let mut client = vmservice_helper::get_image_service_client()
@@ -154,6 +155,7 @@ pub async fn handle_start_vm(
     responder: oneshot::Sender<Result<StartVmResponse, Status>>,
     hypervisor: Arc<dyn Hypervisor>,
     broadcast_tx: mpsc::Sender<VmEventWrapper>,
+    cancel_bus: broadcast::Receiver<Uuid>,
 ) {
     let vm_id = req.vm_id.clone();
     let result = hypervisor.start_vm(req).await;
@@ -175,7 +177,7 @@ pub async fn handle_start_vm(
         let health_broadcast_tx = broadcast_tx.clone();
         tokio::spawn(async move {
             health_hypervisor
-                .healthcheck_vm(vm_id, health_broadcast_tx)
+                .healthcheck_vm(vm_id, health_broadcast_tx, cancel_bus)
                 .await;
         });
     }
