@@ -210,6 +210,21 @@ async fn get_vm_info(client: &mut VmServiceClient<Channel>, vm_id: String) -> Re
         if let Some(mem) = config.memory {
             println!("    Memory: {} MiB", mem.size_mib);
         }
+        if !config.net.is_empty() {
+            println!("    Network Devices:");
+            for (i, net_conf) in config.net.iter().enumerate() {
+                if let Some(backend) = &net_conf.backend {
+                    match backend {
+                        net_config::Backend::VfioPci(pci) => {
+                            println!("      Device {}: PCI Passthrough - {}", i, pci.bdf);
+                        }
+                        net_config::Backend::Tap(tap) => {
+                            println!("      Device {}: TAP - {}", i, tap.tap_name);
+                        }
+                    }
+                }
+            }
+        }
     }
     Ok(())
 }
