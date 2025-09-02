@@ -1,7 +1,7 @@
 use feos_proto::host_service::{
-    GetCpuInfoResponse, GetNetworkInfoResponse, HostnameResponse, KernelLogEntry, MemoryResponse,
-    RebootRequest, RebootResponse, ShutdownRequest, ShutdownResponse, UpgradeRequest,
-    UpgradeResponse,
+    FeosLogEntry, GetCpuInfoResponse, GetNetworkInfoResponse, HostnameResponse, KernelLogEntry,
+    MemoryResponse, RebootRequest, RebootResponse, ShutdownRequest, ShutdownResponse,
+    UpgradeRequest, UpgradeResponse,
 };
 use std::path::PathBuf;
 use tokio::sync::{mpsc, oneshot};
@@ -22,6 +22,7 @@ pub enum Command {
         oneshot::Sender<Result<UpgradeResponse, Status>>,
     ),
     StreamKernelLogs(mpsc::Sender<Result<KernelLogEntry, Status>>),
+    StreamFeOSLogs(mpsc::Sender<Result<FeosLogEntry, Status>>),
     Shutdown(
         ShutdownRequest,
         oneshot::Sender<Result<ShutdownResponse, Status>>,

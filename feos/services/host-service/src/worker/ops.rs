@@ -1,7 +1,11 @@
 use crate::RestartSignal;
 use digest::Digest;
-use feos_proto::host_service::{upgrade_request, KernelLogEntry, UpgradeRequest, UpgradeResponse};
+use feos_proto::host_service::{
+    upgrade_request, FeosLogEntry, KernelLogEntry, UpgradeRequest, UpgradeResponse,
+};
+use feos_utils::feos_logger::LogHandle;
 use log::{error, info, warn};
+use prost_types::Timestamp;
 use sha2::Sha256;
 use std::fs::Permissions;
 use std::io::Write;
@@ -17,6 +21,46 @@ use tonic::{Status, Streaming};
 const UPGRADE_DIR: &str = "/var/lib/feos/upgrade";
 const ELF_MAGIC: [u8; 4] = [0x7f, 0x45, 0x4c, 0x46];
 const KMSG_PATH: &str = "/dev/kmsg";
+
+pub async fn handle_stream_feos_logs(
+    log_handle: LogHandle,
+    grpc_tx: mpsc::Sender<Result<FeosLogEntry, Status>>,
+) {
+    info!("HOST_WORKER: Starting new FeOS log stream.");
+    let mut reader = match log_handle.new_reader().await {
+        Ok(r) => r,
+        Err(e) => {
+            error!("HOST_WORKER: Failed to create log reader: {e}");
+            if grpc_tx
+                .send(Err(Status::internal("Failed to create log reader")))
+                .await
+                .is_err()
+            {
+                warn!("HOST_WORKER: gRPC client for FeOS logs disconnected before error could be sent.");
+            }
+            return;
+        }
+    };
+
+    while let Some(entry) = reader.next().await {
+        let feos_log_entry = FeosLogEntry {
+            seq: entry.seq,
+            timestamp: Some(Timestamp {
+                seconds: entry.timestamp.timestamp(),
+                nanos: entry.timestamp.timestamp_subsec_nanos() as i32,
+            }),
+            level: entry.level.to_string(),
+            target: entry.target,
+            message: entry.message,
+        };
+
+        if grpc_tx.send(Ok(feos_log_entry)).await.is_err() {
+            info!("HOST_WORKER: Log stream client disconnected.");
+            break;
+        }
+    }
+    info!("HOST_WORKER: FeOS log stream finished.");
+}
 
 pub async fn handle_stream_kernel_logs(grpc_tx: mpsc::Sender<Result<KernelLogEntry, Status>>) {
     info!("HOST_WORKER: Opening {KMSG_PATH} for streaming kernel logs.");

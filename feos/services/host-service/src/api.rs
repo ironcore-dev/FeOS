@@ -1,9 +1,10 @@
 use crate::Command;
 use feos_proto::host_service::{
-    host_service_server::HostService, GetCpuInfoRequest, GetCpuInfoResponse, GetNetworkInfoRequest,
-    GetNetworkInfoResponse, HostnameRequest, HostnameResponse, KernelLogEntry, MemoryRequest,
-    MemoryResponse, RebootRequest, RebootResponse, ShutdownRequest, ShutdownResponse,
-    StreamKernelLogsRequest, UpgradeRequest, UpgradeResponse,
+    host_service_server::HostService, FeosLogEntry, GetCpuInfoRequest, GetCpuInfoResponse,
+    GetNetworkInfoRequest, GetNetworkInfoResponse, HostnameRequest, HostnameResponse,
+    KernelLogEntry, MemoryRequest, MemoryResponse, RebootRequest, RebootResponse, ShutdownRequest,
+    ShutdownResponse, StreamFeosLogsRequest, StreamKernelLogsRequest, UpgradeRequest,
+    UpgradeResponse,
 };
 use log::info;
 use std::pin::Pin;
@@ -25,6 +26,7 @@ impl HostApiHandler {
 impl HostService for HostApiHandler {
     type StreamKernelLogsStream =
         Pin<Box<dyn Stream<Item = Result<KernelLogEntry, Status>> + Send>>;
+    type StreamFeOSLogsStream = Pin<Box<dyn Stream<Item = Result<FeosLogEntry, Status>> + Send>>;
 
     async fn hostname(
         &self,
@@ -180,6 +182,21 @@ impl HostService for HostApiHandler {
         info!("HOST_API_HANDLER: Received StreamKernelLogs request.");
         let (stream_tx, stream_rx) = mpsc::channel(128);
         let cmd = Command::StreamKernelLogs(stream_tx);
+        self.dispatcher_tx
+            .send(cmd)
+            .await
+            .map_err(|e| Status::internal(format!("Failed to send command to dispatcher: {e}")))?;
+        let output_stream = ReceiverStream::new(stream_rx);
+        Ok(Response::new(Box::pin(output_stream)))
+    }
+
+    async fn stream_fe_os_logs(
+        &self,
+        _request: Request<StreamFeosLogsRequest>,
+    ) -> Result<Response<Self::StreamFeOSLogsStream>, Status> {
+        info!("HOST_API_HANDLER: Received StreamFeOSLogs request.");
+        let (stream_tx, stream_rx) = mpsc::channel(128);
+        let cmd = Command::StreamFeOSLogs(stream_tx);
         self.dispatcher_tx
             .send(cmd)
             .await

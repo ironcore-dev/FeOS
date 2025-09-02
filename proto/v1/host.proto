@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package feos.host.v1;
 
+import "google/protobuf/timestamp.proto";
+
 // HostService provides information about the host system.
 service HostService {
   // Retrieves the hostname of the machine running the service.
@@ -20,6 +22,9 @@ service HostService {
 
   // Streams kernel log messages from /dev/kmsg.
   rpc StreamKernelLogs(StreamKernelLogsRequest) returns (stream KernelLogEntry);
+
+  // Streams logs from the internal FeOS logger.
+  rpc StreamFeOSLogs(StreamFeosLogsRequest) returns (stream FeosLogEntry);
 }
 
 message HostnameRequest {}
@@ -176,4 +181,14 @@ message NetDev {
   uint64 tx_collisions = 15;
   uint64 tx_carrier = 16;
   uint64 tx_compressed = 17;
+}
+
+message StreamFeosLogsRequest {}
+
+message FeosLogEntry {
+  uint64 seq = 1;
+  google.protobuf.Timestamp timestamp = 2;
+  string level = 3;
+  string target = 4;
+  string message = 5;
 }

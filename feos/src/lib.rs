@@ -4,6 +4,9 @@ use feos_proto::{
     image_service::image_service_server::ImageServiceServer,
     vm_service::vm_service_server::VmServiceServer,
 };
+use feos_utils::filesystem::mount_virtual_filesystems;
+use feos_utils::host::info::is_running_on_vm;
+use feos_utils::network::{configure_network_devices, configure_sriov};
 use host_service::{
     api::HostApiHandler, dispatcher::HostServiceDispatcher, Command as HostCommand, RestartSignal,
 };
@@ -23,16 +26,12 @@ use tokio::fs::{self, File};
 use tokio::{net::UnixListener, sync::mpsc};
 use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::Server;
-use utils::filesystem::mount_virtual_filesystems;
-use utils::host::info::is_running_on_vm;
-use utils::network::{configure_network_devices, configure_sriov};
 use vm_service::{
     api::VmApiHandler, dispatcher::VmServiceDispatcher, Command as VmCommand, DEFAULT_VM_DB_URL,
     VM_API_SOCKET_DIR, VM_CONSOLE_DIR,
 };
 
 const VFS_NUM: u32 = 125;
-pub mod utils;
 
 pub async fn run_server(restarted_after_upgrade: bool) -> Result<()> {
     println!(
@@ -47,6 +46,12 @@ pub async fn run_server(restarted_after_upgrade: bool) -> Result<()> {
     ",
         env!("CARGO_PKG_VERSION")
     );
+
+    let log_handle = feos_utils::feos_logger::Builder::new()
+        .filter_level(log::LevelFilter::Info)
+        .max_history(100)
+        .init()
+        .expect("Failed to initialize feos_logger");
 
     if !Uid::current().is_root() {
         warn!("Not running as root! (uid: {})", Uid::current());
@@ -126,7 +131,7 @@ pub async fn run_server(restarted_after_upgrade: bool) -> Result<()> {
     info!("MAIN: VM Service is configured.");
 
     let (host_tx, host_rx) = mpsc::channel::<HostCommand>(32);
-    let host_dispatcher = HostServiceDispatcher::new(host_rx, restart_tx.clone());
+    let host_dispatcher = HostServiceDispatcher::new(host_rx, restart_tx.clone(), log_handle);
     tokio::spawn(async move {
         host_dispatcher.run().await;
     });

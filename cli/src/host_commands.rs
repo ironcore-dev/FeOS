@@ -4,7 +4,7 @@ use digest::Digest;
 use feos_proto::host_service::{
     host_service_client::HostServiceClient, upgrade_request, GetCpuInfoRequest,
     GetNetworkInfoRequest, HostnameRequest, MemoryRequest, RebootRequest, ShutdownRequest,
-    StreamKernelLogsRequest, UpgradeMetadata, UpgradeRequest,
+    StreamFeosLogsRequest, StreamKernelLogsRequest, UpgradeMetadata, UpgradeRequest,
 };
 use sha2::Sha256;
 use std::path::PathBuf;
@@ -41,6 +41,8 @@ pub enum HostCommand {
     },
     /// Stream kernel logs from /dev/kmsg
     Klogs,
+    /// Stream logs from the internal FeOS logger
+    Flogs,
     /// Shutdown the host machine
     Shutdown,
     /// Reboot the host machine
@@ -59,6 +61,7 @@ pub async fn handle_host_command(args: HostArgs) -> Result<()> {
         HostCommand::NetworkInfo => get_network_info(&mut client).await?,
         HostCommand::Upgrade { binary_path } => upgrade_feos(&mut client, binary_path).await?,
         HostCommand::Klogs => stream_klogs(&mut client).await?,
+        HostCommand::Flogs => stream_flogs(&mut client).await?,
         HostCommand::Shutdown => shutdown_host(&mut client).await?,
         HostCommand::Reboot => reboot_host(&mut client).await?,
     }
@@ -231,6 +234,36 @@ async fn stream_klogs(client: &mut HostServiceClient<Channel>) -> Result<()> {
         }
     }
 
+    Ok(())
+}
+
+async fn stream_flogs(client: &mut HostServiceClient<Channel>) -> Result<()> {
+    println!("Streaming FeOS logs... Press Ctrl+C to stop.");
+    let request = StreamFeosLogsRequest {};
+    let mut stream = client.stream_fe_os_logs(request).await?.into_inner();
+
+    while let Some(entry_res) = stream.next().await {
+        match entry_res {
+            Ok(entry) => {
+                let ts = entry
+                    .timestamp
+                    .map(|t| {
+                        chrono::DateTime::from_timestamp(t.seconds, t.nanos as u32)
+                            .unwrap_or_default()
+                            .to_rfc3339()
+                    })
+                    .unwrap_or_default();
+                println!(
+                    "[{ts} {:<5} {}] {}",
+                    entry.level, entry.target, entry.message
+                );
+            }
+            Err(status) => {
+                eprintln!("Error in FeOS log stream: {status}");
+                break;
+            }
+        }
+    }
     Ok(())
 }
 

@@ -1,9 +1,7 @@
 use anyhow::Result;
 use clap::Parser;
-use main_server::{
-    run_server,
-    utils::filesystem::{get_root_fstype, move_root},
-};
+use feos_utils::filesystem::{get_root_fstype, move_root};
+use main_server::run_server;
 use nix::unistd::execv;
 use std::env;
 use std::ffi::CString;
@@ -37,12 +35,6 @@ async fn main() -> Result<()> {
             return Err(anyhow::anyhow!("execv failed to replace process"));
         }
     }
-
-    let _handle = main_server::utils::feos_logger::Builder::new()
-        .filter_level(log::LevelFilter::Info)
-        .max_history(50)
-        .init()
-        .expect("Failed to initialize feos_logger");
 
     run_server(args.restarted_after_upgrade).await
 }

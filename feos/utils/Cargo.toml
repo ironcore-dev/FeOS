@@ -1,0 +1,20 @@
+[package]
+name = "feos-utils"
+version = "0.2.0"
+edition = "2021"
+
+[dependencies]
+# Add any dependencies that the utils modules themselves need.
+# Looking at your files, you'll need:
+log = { workspace = true }
+nix = { workspace = true }
+chrono = { workspace = true }
+tokio = { workspace = true }
+termcolor = "1.1"
+dhcproto = { workspace = true }
+futures = { workspace = true }
+netlink-packet-route = { workspace = true }
+pnet = { workspace = true }
+rtnetlink = { workspace = true }
+socket2 = { workspace = true }
+libc = { workspace = true }

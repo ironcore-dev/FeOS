@@ -50,8 +50,6 @@ async fn ensure_server() {
 }
 
 async fn setup_server() -> Arc<tokio::runtime::Runtime> {
-    let _ = env_logger::builder().is_test(true).try_init();
-
     let temp_dir = TEMP_DIR_GUARD.get_or_init(|| {
         tempfile::Builder::new()
             .prefix("feos-test-")
@@ -70,7 +68,7 @@ async fn setup_server() -> Arc<tokio::runtime::Runtime> {
         .build()
         .expect("Failed to create a new Tokio runtime for the server");
 
-    runtime.spawn(async {
+    runtime.spawn(async move {
         if let Err(e) = main_server::run_server(false).await {
             panic!("Test server failed to run: {}", e);
         }

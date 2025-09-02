@@ -1,15 +1,25 @@
 use crate::{worker, Command, RestartSignal};
+use feos_utils::feos_logger::LogHandle;
 use log::info;
 use tokio::sync::mpsc;
 
 pub struct HostServiceDispatcher {
     rx: mpsc::Receiver<Command>,
     restart_tx: mpsc::Sender<RestartSignal>,
+    log_handle: LogHandle,
 }
 
 impl HostServiceDispatcher {
-    pub fn new(rx: mpsc::Receiver<Command>, restart_tx: mpsc::Sender<RestartSignal>) -> Self {
-        Self { rx, restart_tx }
+    pub fn new(
+        rx: mpsc::Receiver<Command>,
+        restart_tx: mpsc::Sender<RestartSignal>,
+        log_handle: LogHandle,
+    ) -> Self {
+        Self {
+            rx,
+            restart_tx,
+            log_handle,
+        }
     }
 
     pub async fn run(mut self) {
@@ -34,6 +44,10 @@ impl HostServiceDispatcher {
                 }
                 Command::StreamKernelLogs(stream_tx) => {
                     tokio::spawn(worker::handle_stream_kernel_logs(stream_tx));
+                }
+                Command::StreamFeOSLogs(stream_tx) => {
+                    let log_handle = self.log_handle.clone();
+                    tokio::spawn(worker::handle_stream_feos_logs(log_handle, stream_tx));
                 }
                 Command::Shutdown(req, responder) => {
                     tokio::spawn(worker::handle_shutdown(req, responder));

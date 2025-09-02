@@ -12,6 +12,7 @@ name = "main_server"
 path = "src/lib.rs"
 
 [dependencies]
+feos-utils = { path = "utils" }
 vm-service = { path = "services/vm-service" }
 host-service = { path = "services/host-service" }
 image-service = { path = "services/image-service" }
@@ -36,10 +37,11 @@ pnet = { workspace = true }
 dhcproto = { workspace = true }
 socket2 = { workspace = true }
 futures = { workspace = true }
-chrono = "0.4"
+chrono = { workspace = true }
 termcolor = "1.1"
 
 [dev-dependencies]
+feos-utils = { path = "utils" }
 vm-service = { path = "services/vm-service" }
 image-service = { path = "services/image-service"}
 host-service = { path = "services/host-service"}

@@ -666,6 +666,7 @@ dependencies = [
  "dotenvy",
  "env_logger",
  "feos-proto",
+ "feos-utils",
  "futures",
  "host-service",
  "image-service",
@@ -694,6 +695,7 @@ name = "feos-cli"
 version = "0.2.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "clap",
  "crossterm",
  "digest",
@@ -711,12 +713,30 @@ dependencies = [
 
 [[package]]
 name = "feos-proto"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "prost",
  "prost-types",
  "tonic",
  "tonic-build",
+]
+
+[[package]]
+name = "feos-utils"
+version = "0.2.0"
+dependencies = [
+ "chrono",
+ "dhcproto",
+ "futures",
+ "libc",
+ "log",
+ "netlink-packet-route",
+ "nix 0.29.0",
+ "pnet",
+ "rtnetlink",
+ "socket2",
+ "termcolor",
+ "tokio",
 ]
 
 [[package]]
@@ -1045,6 +1065,7 @@ dependencies = [
  "anyhow",
  "digest",
  "feos-proto",
+ "feos-utils",
  "hex",
  "log",
  "nix 0.29.0",
