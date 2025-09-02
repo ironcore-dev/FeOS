@@ -13,6 +13,7 @@ use feos_proto::{
     },
 };
 use log::{debug, error, info, warn};
+use nix::unistd::Pid;
 use prost::Message;
 use prost_types::Any;
 use std::sync::Arc;
@@ -165,6 +166,59 @@ impl VmServiceDispatcher {
     }
 
     pub async fn run(mut self) {
+        info!("VM_DISPATCHER: Running initial sanity check...");
+        match self.repository.list_all_vms().await {
+            Ok(vms) => {
+                if vms.is_empty() {
+                    info!("VM_DISPATCHER (Sanity Check): No VMs found in persistence, check complete.");
+                } else {
+                    info!("VM_DISPATCHER (Sanity Check): Found {} VMs in persistence, checking status...", vms.len());
+                    for vm in vms {
+                        if let Some(pid) = vm.status.process_id {
+                            let pid_obj = Pid::from_raw(pid as i32);
+                            let process_exists = nix::sys::signal::kill(pid_obj, None).is_ok();
+
+                            if process_exists {
+                                info!("VM_DISPATCHER (Sanity Check): Found running VM {} (PID: {}) from previous session. Starting health monitor.", vm.vm_id, pid);
+                                let cancel_bus = self.healthcheck_cancel_bus.subscribe();
+                                worker::start_healthcheck_monitor(
+                                    vm.vm_id.to_string(),
+                                    self.hypervisor.clone(),
+                                    self.event_bus_tx.clone(),
+                                    cancel_bus,
+                                );
+                            } else {
+                                warn!("VM_DISPATCHER (Sanity Check): Found VM {} in DB with PID {}, but process does not exist. Cleaning up.", vm.vm_id, pid);
+                                let (resp_tx, resp_rx) = oneshot::channel();
+                                let req = DeleteVmRequest {
+                                    vm_id: vm.vm_id.to_string(),
+                                };
+                                let vm_id_for_log = vm.vm_id;
+
+                                self.handle_delete_vm_command(
+                                    req,
+                                    resp_tx,
+                                    self.hypervisor.clone(),
+                                    self.event_bus_tx.clone(),
+                                )
+                                .await;
+
+                                match resp_rx.await {
+                                    Ok(Ok(_)) => info!("VM_DISPATCHER (Sanity Check): Successfully cleaned up zombie VM {vm_id_for_log}."),
+                                    Ok(Err(status)) => error!("VM_DISPATCHER (Sanity Check): Failed to clean up zombie VM {vm_id_for_log}: {status}"),
+                                    Err(_) => error!("VM_DISPATCHER (Sanity Check): Cleanup task for zombie VM {vm_id_for_log} did not return a response."),
+                                }
+                            }
+                        }
+                    }
+                    info!("VM_DISPATCHER (Sanity Check): Check complete.");
+                }
+            }
+            Err(e) => {
+                error!("VM_DISPATCHER (Sanity Check): Failed to list VMs from repository: {e}. Skipping check.");
+            }
+        }
+
         info!("VM_DISPATCHER: Running and waiting for commands and events.");
         loop {
             tokio::select! {

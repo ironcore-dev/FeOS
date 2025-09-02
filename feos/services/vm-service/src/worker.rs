@@ -150,6 +150,21 @@ pub async fn handle_create_vm(
     }
 }
 
+pub fn start_healthcheck_monitor(
+    vm_id: String,
+    hypervisor: Arc<dyn Hypervisor>,
+    broadcast_tx: mpsc::Sender<VmEventWrapper>,
+    cancel_bus: broadcast::Receiver<Uuid>,
+) {
+    let health_hypervisor = hypervisor;
+    let health_broadcast_tx = broadcast_tx;
+    tokio::spawn(async move {
+        health_hypervisor
+            .healthcheck_vm(vm_id, health_broadcast_tx, cancel_bus)
+            .await;
+    });
+}
+
 pub async fn handle_start_vm(
     req: StartVmRequest,
     responder: oneshot::Sender<Result<StartVmResponse, Status>>,
@@ -173,13 +188,7 @@ pub async fn handle_start_vm(
         )
         .await;
 
-        let health_hypervisor = hypervisor.clone();
-        let health_broadcast_tx = broadcast_tx.clone();
-        tokio::spawn(async move {
-            health_hypervisor
-                .healthcheck_vm(vm_id, health_broadcast_tx, cancel_bus)
-                .await;
-        });
+        start_healthcheck_monitor(vm_id, hypervisor, broadcast_tx, cancel_bus);
     }
 
     if responder.send(result.map_err(Into::into)).is_err() {
