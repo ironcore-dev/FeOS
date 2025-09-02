@@ -38,9 +38,11 @@ async fn main() -> Result<()> {
         }
     }
 
-    env_logger::Builder::new()
+    let _handle = main_server::utils::feos_logger::Builder::new()
         .filter_level(log::LevelFilter::Info)
-        .init();
+        .max_history(50)
+        .init()
+        .expect("Failed to initialize feos_logger");
 
     run_server(args.restarted_after_upgrade).await
 }

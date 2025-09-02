@@ -36,6 +36,8 @@ pnet = { workspace = true }
 dhcproto = { workspace = true }
 socket2 = { workspace = true }
 futures = { workspace = true }
+chrono = "0.4"
+termcolor = "1.1"
 
 [dev-dependencies]
 vm-service = { path = "services/vm-service" }
