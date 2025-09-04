@@ -11,9 +11,9 @@ use tonic::{Status, Streaming};
 
 pub mod api;
 pub mod dispatcher;
+pub mod dispatcher_handlers;
 pub mod persistence;
 pub mod vmm;
-pub mod vmservice_helper;
 pub mod worker;
 
 pub const DEFAULT_VM_DB_URL: &str = "sqlite:/var/lib/feos/vms.db";

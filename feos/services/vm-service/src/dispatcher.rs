@@ -1,24 +1,18 @@
 use crate::{
-    persistence::{repository::VmRepository, VmRecord, VmStatus},
+    dispatcher_handlers::{
+        handle_create_vm_command, handle_delete_vm_command, handle_get_vm_command,
+        handle_list_vms_command, handle_stream_vm_events_command, perform_startup_sanity_check,
+    },
+    persistence::repository::VmRepository,
     vmm::{factory, Hypervisor, VmmType},
-    vmservice_helper, worker, Command, VmEventWrapper,
+    worker, Command, VmEventWrapper,
 };
 use anyhow::Result;
-use feos_proto::{
-    image_service::PullImageRequest,
-    vm_service::{
-        CreateVmRequest, CreateVmResponse, DeleteVmRequest, DeleteVmResponse, GetVmRequest,
-        ListVmsRequest, ListVmsResponse, StreamVmEventsRequest, VmEvent, VmInfo, VmState,
-        VmStateChangedEvent,
-    },
-};
-use log::{debug, error, info, warn};
-use nix::unistd::Pid;
+use feos_proto::vm_service::{VmState, VmStateChangedEvent};
+use log::{debug, error, info};
 use prost::Message;
-use prost_types::Any;
 use std::sync::Arc;
-use tokio::sync::{broadcast, mpsc, oneshot};
-use tonic::Status;
+use tokio::sync::{broadcast, mpsc};
 use uuid::Uuid;
 
 pub struct VmServiceDispatcher {
@@ -51,35 +45,77 @@ impl VmServiceDispatcher {
         })
     }
 
-    async fn initiate_image_pull_for_vm(&self, req: &CreateVmRequest) -> Result<String, Status> {
-        let image_ref = match req.config.as_ref() {
-            Some(config) if !config.image_ref.is_empty() => config.image_ref.clone(),
-            _ => {
-                return Err(Status::invalid_argument(
-                    "VmConfig with a non-empty image_ref is required",
-                ));
+    pub async fn run(mut self) {
+        perform_startup_sanity_check(
+            &self.repository,
+            self.hypervisor.clone(),
+            self.event_bus_tx.clone(),
+            &self.healthcheck_cancel_bus,
+        )
+        .await;
+
+        info!("VM_DISPATCHER: Running and waiting for commands and events.");
+        loop {
+            tokio::select! {
+                biased;
+                Some(cmd) = self.rx.recv() => {
+                    let hypervisor = self.hypervisor.clone();
+                    let event_bus_tx = self.event_bus_tx.clone();
+                    let status_channel_tx = self.status_channel_tx.clone();
+                    let healthcheck_cancel_bus_tx = self.healthcheck_cancel_bus.clone();
+
+                    match cmd {
+                        Command::CreateVm(req, responder) => {
+                            handle_create_vm_command(&self.repository, req, responder, hypervisor, event_bus_tx).await;
+                        }
+                        Command::StartVm(req, responder) => {
+                            let cancel_bus = healthcheck_cancel_bus_tx.subscribe();
+                            tokio::spawn(worker::handle_start_vm(req, responder, hypervisor, event_bus_tx, cancel_bus));
+                        }
+                        Command::GetVm(req, responder) => {
+                            handle_get_vm_command(&self.repository, req, responder).await;
+                        }
+                        Command::StreamVmEvents(req, stream_tx) => {
+                            handle_stream_vm_events_command(&self.repository, req, stream_tx, status_channel_tx).await;
+                        }
+                        Command::DeleteVm(req, responder) => {
+                            handle_delete_vm_command(&self.repository, &self.healthcheck_cancel_bus, req, responder, hypervisor, event_bus_tx).await;
+                        }
+                        Command::StreamVmConsole(input_stream, output_tx) => {
+                            tokio::spawn(worker::handle_stream_vm_console(input_stream, output_tx, hypervisor));
+                        }
+                        Command::ListVms(req, responder) => {
+                            handle_list_vms_command(&self.repository, req, responder).await;
+                        }
+                        Command::PingVm(req, responder) => {
+                            tokio::spawn(worker::handle_ping_vm(req, responder, hypervisor));
+                        }
+                        Command::ShutdownVm(req, responder) => {
+                            tokio::spawn(worker::handle_shutdown_vm(req, responder, hypervisor, event_bus_tx));
+                        }
+                        Command::PauseVm(req, responder) => {
+                            tokio::spawn(worker::handle_pause_vm(req, responder, hypervisor, event_bus_tx));
+                        }
+                        Command::ResumeVm(req, responder) => {
+                            tokio::spawn(worker::handle_resume_vm(req, responder, hypervisor, event_bus_tx));
+                        }
+                        Command::AttachDisk(req, responder) => {
+                            tokio::spawn(worker::handle_attach_disk(req, responder, hypervisor));
+                        }
+                        Command::RemoveDisk(req, responder) => {
+                            tokio::spawn(worker::handle_remove_disk(req, responder, hypervisor));
+                        }
+                    }
+                },
+                Some(event) = self.event_bus_rx_for_dispatcher.recv() => {
+                    self.handle_vm_event(event).await;
+                }
+                else => {
+                    info!("VM_DISPATCHER: A channel closed, shutting down.");
+                    break;
+                }
             }
-        };
-
-        info!("VM_DISPATCHER: Requesting image pull for {image_ref}");
-        let mut client = vmservice_helper::get_image_service_client()
-            .await
-            .map_err(|e| Status::unavailable(format!("Could not connect to ImageService: {e}")))?;
-
-        let response = client
-            .pull_image(PullImageRequest {
-                image_ref: image_ref.clone(),
-            })
-            .await
-            .map_err(|status| {
-                let msg = format!("PullImage RPC failed for {image_ref}: {status}");
-                error!("VM_DISPATCHER: {msg}");
-                Status::unavailable(msg)
-            })?;
-
-        let image_uuid = response.into_inner().image_uuid;
-        info!("VM_DISPATCHER: Image pull for {image_ref} initiated. UUID: {image_uuid}");
-        Ok(image_uuid)
+        }
     }
 
     async fn handle_vm_event(&mut self, event_wrapper: VmEventWrapper) {
@@ -114,556 +150,71 @@ impl VmServiceDispatcher {
 
         if let Some(data) = &event.data {
             if data.type_url.contains("VmStateChangedEvent") {
-                match VmStateChangedEvent::decode(&*data.value) {
-                    Ok(state_change) => {
-                        let new_state = match VmState::try_from(state_change.new_state) {
-                            Ok(s) => s,
-                            Err(e) => {
-                                error!(
-                                    "DB_UPDATE: Invalid VmState value '{}' in event: {e}",
-                                    state_change.new_state
-                                );
-                                return;
-                            }
-                        };
+                self.handle_vm_state_changed_event(
+                    data,
+                    vm_id_uuid,
+                    &event.vm_id,
+                    event_to_forward,
+                )
+                .await;
+            }
+        }
+    }
 
-                        info!(
-                            "DB_UPDATE: Updating status for VM {vm_id_uuid} to {new_state:?} with message: '{}'",
-                            state_change.reason
+    async fn handle_vm_state_changed_event(
+        &mut self,
+        data: &prost_types::Any,
+        vm_id_uuid: Uuid,
+        vm_id: &str,
+        event_to_forward: VmEventWrapper,
+    ) {
+        match VmStateChangedEvent::decode(&*data.value) {
+            Ok(state_change) => {
+                let new_state = match VmState::try_from(state_change.new_state) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        error!(
+                            "DB_UPDATE: Invalid VmState value '{}' in event: {e}",
+                            state_change.new_state
                         );
-                        match self
-                            .repository
-                            .update_vm_status(vm_id_uuid, new_state, &state_change.reason)
-                            .await
-                        {
-                            Ok(true) => {
-                                if let Err(e) = self.status_channel_tx.send(event_to_forward) {
-                                    debug!(
-                                        "VM_DISPATCHER: Failed to forward successful VM status event for {}: {e}",
-                                        event.vm_id
-                                    );
-                                }
-                            }
-                            Ok(false) => {
-                                info!(
-                                    "DB_UPDATE: Update for VM {vm_id_uuid} was a no-op (record likely already deleted). Event not forwarded."
-                                );
-                            }
-                            Err(e) => {
-                                error!("DB_UPDATE: Failed to execute status update for VM {vm_id_uuid}: {e}");
-                            }
+                        return;
+                    }
+                };
+
+                info!(
+                    "DB_UPDATE: Updating status for VM {vm_id_uuid} to {new_state:?} with message: '{}'",
+                    state_change.reason
+                );
+                match self
+                    .repository
+                    .update_vm_status(vm_id_uuid, new_state, &state_change.reason)
+                    .await
+                {
+                    Ok(true) => {
+                        if let Err(e) = self.status_channel_tx.send(event_to_forward) {
+                            debug!(
+                                "VM_DISPATCHER: Failed to forward successful VM status event for {}: {e}",
+                                vm_id
+                            );
                         }
+                    }
+                    Ok(false) => {
+                        info!(
+                            "DB_UPDATE: Update for VM {vm_id_uuid} was a no-op (record likely already deleted). Event not forwarded."
+                        );
                     }
                     Err(e) => {
                         error!(
-                            "DB_UPDATE: Failed to decode VmStateChangedEvent for VM {}: {e}",
-                            event.vm_id
+                            "DB_UPDATE: Failed to execute status update for VM {vm_id_uuid}: {e}"
                         );
                     }
-                }
-            }
-        }
-    }
-
-    pub async fn run(mut self) {
-        info!("VM_DISPATCHER: Running initial sanity check...");
-        match self.repository.list_all_vms().await {
-            Ok(vms) => {
-                if vms.is_empty() {
-                    info!("VM_DISPATCHER (Sanity Check): No VMs found in persistence, check complete.");
-                } else {
-                    info!("VM_DISPATCHER (Sanity Check): Found {} VMs in persistence, checking status...", vms.len());
-                    for vm in vms {
-                        if let Some(pid) = vm.status.process_id {
-                            let pid_obj = Pid::from_raw(pid as i32);
-                            let process_exists = nix::sys::signal::kill(pid_obj, None).is_ok();
-
-                            if process_exists {
-                                info!("VM_DISPATCHER (Sanity Check): Found running VM {} (PID: {}) from previous session. Starting health monitor.", vm.vm_id, pid);
-                                let cancel_bus = self.healthcheck_cancel_bus.subscribe();
-                                worker::start_healthcheck_monitor(
-                                    vm.vm_id.to_string(),
-                                    self.hypervisor.clone(),
-                                    self.event_bus_tx.clone(),
-                                    cancel_bus,
-                                );
-                            } else {
-                                warn!("VM_DISPATCHER (Sanity Check): Found VM {} in DB with PID {}, but process does not exist. Cleaning up.", vm.vm_id, pid);
-                                let (resp_tx, resp_rx) = oneshot::channel();
-                                let req = DeleteVmRequest {
-                                    vm_id: vm.vm_id.to_string(),
-                                };
-                                let vm_id_for_log = vm.vm_id;
-
-                                self.handle_delete_vm_command(
-                                    req,
-                                    resp_tx,
-                                    self.hypervisor.clone(),
-                                    self.event_bus_tx.clone(),
-                                )
-                                .await;
-
-                                match resp_rx.await {
-                                    Ok(Ok(_)) => info!("VM_DISPATCHER (Sanity Check): Successfully cleaned up zombie VM {vm_id_for_log}."),
-                                    Ok(Err(status)) => error!("VM_DISPATCHER (Sanity Check): Failed to clean up zombie VM {vm_id_for_log}: {status}"),
-                                    Err(_) => error!("VM_DISPATCHER (Sanity Check): Cleanup task for zombie VM {vm_id_for_log} did not return a response."),
-                                }
-                            }
-                        }
-                    }
-                    info!("VM_DISPATCHER (Sanity Check): Check complete.");
                 }
             }
             Err(e) => {
-                error!("VM_DISPATCHER (Sanity Check): Failed to list VMs from repository: {e}. Skipping check.");
-            }
-        }
-
-        info!("VM_DISPATCHER: Running and waiting for commands and events.");
-        loop {
-            tokio::select! {
-                biased;
-                Some(cmd) = self.rx.recv() => {
-                    let hypervisor = self.hypervisor.clone();
-                    let event_bus_tx = self.event_bus_tx.clone();
-                    let status_channel_tx = self.status_channel_tx.clone();
-                    let healthcheck_cancel_bus_tx = self.healthcheck_cancel_bus.clone();
-
-                    match cmd {
-                        Command::CreateVm(req, responder) => {
-                            self.handle_create_vm_command(req, responder, hypervisor, event_bus_tx).await;
-                        }
-                        Command::StartVm(req, responder) => {
-                            let cancel_bus = healthcheck_cancel_bus_tx.subscribe();
-                            tokio::spawn(worker::handle_start_vm(req, responder, hypervisor, event_bus_tx, cancel_bus));
-                        }
-                        Command::GetVm(req, responder) => {
-                            self.handle_get_vm_command(req, responder).await;
-                        }
-                        Command::StreamVmEvents(req, stream_tx) => {
-                            self.handle_stream_vm_events_command(req, stream_tx, status_channel_tx).await;
-                        }
-                        Command::DeleteVm(req, responder) => {
-                            self.handle_delete_vm_command(req, responder, hypervisor, event_bus_tx).await;
-                        }
-                        Command::StreamVmConsole(input_stream, output_tx) => {
-                            tokio::spawn(worker::handle_stream_vm_console(input_stream, output_tx, hypervisor));
-                        }
-                        Command::ListVms(req, responder) => {
-                            self.handle_list_vms_command(req, responder).await;
-                        }
-                        Command::PingVm(req, responder) => {
-                            tokio::spawn(worker::handle_ping_vm(req, responder, hypervisor));
-                        }
-                        Command::ShutdownVm(req, responder) => {
-                            tokio::spawn(worker::handle_shutdown_vm(req, responder, hypervisor, event_bus_tx));
-                        }
-                        Command::PauseVm(req, responder) => {
-                            tokio::spawn(worker::handle_pause_vm(req, responder, hypervisor, event_bus_tx));
-                        }
-                        Command::ResumeVm(req, responder) => {
-                            tokio::spawn(worker::handle_resume_vm(req, responder, hypervisor, event_bus_tx));
-                        }
-                        Command::AttachDisk(req, responder) => {
-                            tokio::spawn(worker::handle_attach_disk(req, responder, hypervisor));
-                        }
-                        Command::RemoveDisk(req, responder) => {
-                            tokio::spawn(worker::handle_remove_disk(req, responder, hypervisor));
-                        }
-                    }
-                },
-                Some(event) = self.event_bus_rx_for_dispatcher.recv() => {
-                    self.handle_vm_event(event).await;
-                }
-                else => {
-                    info!("VM_DISPATCHER: A channel closed, shutting down.");
-                    break;
-                }
-            }
-        }
-    }
-
-    async fn handle_create_vm_command(
-        &mut self,
-        req: CreateVmRequest,
-        responder: oneshot::Sender<Result<CreateVmResponse, Status>>,
-        hypervisor: Arc<dyn Hypervisor>,
-        event_bus_tx: mpsc::Sender<VmEventWrapper>,
-    ) {
-        let vm_id_res: Result<(Uuid, bool), Status> =
-            if let Some(id_str) = req.vm_id.as_deref().filter(|s| !s.is_empty()) {
-                match Uuid::parse_str(id_str) {
-                    Ok(id) if !id.is_nil() => Ok((id, true)),
-                    Ok(_) => Err(Status::invalid_argument(
-                        "Provided vm_id cannot be the nil UUID.",
-                    )),
-                    Err(_) => Err(Status::invalid_argument(
-                        "Provided vm_id is not a valid UUID format.",
-                    )),
-                }
-            } else {
-                Ok((Uuid::new_v4(), false))
-            };
-
-        let (vm_id, is_user_provided) = match vm_id_res {
-            Ok(val) => val,
-            Err(status) => {
-                if responder.send(Err(status)).is_err() {
-                    error!("VM_DISPATCHER: Failed to send error response for CreateVm. Responder closed.");
-                }
-                return;
-            }
-        };
-
-        if is_user_provided {
-            match self.repository.get_vm(vm_id).await {
-                Ok(Some(_)) => {
-                    let status =
-                        Status::already_exists(format!("VM with ID {vm_id} already exists."));
-                    if responder.send(Err(status)).is_err() {
-                        error!("VM_DISPATCHER: Failed to send error response for CreateVm. Responder closed.");
-                    }
-                    return;
-                }
-                Ok(None) => {}
-                Err(e) => {
-                    let status =
-                        Status::internal(format!("Failed to check DB for existing VM: {e}"));
-                    if responder.send(Err(status)).is_err() {
-                        error!("VM_DISPATCHER: Failed to send error response for CreateVm. Responder closed.");
-                    }
-                    return;
-                }
-            }
-        }
-
-        match self.initiate_image_pull_for_vm(&req).await {
-            Ok(image_uuid_str) => {
-                let image_uuid = match Uuid::parse_str(&image_uuid_str) {
-                    Ok(uuid) => uuid,
-                    Err(e) => {
-                        let status = Status::internal(format!("Failed to parse image UUID: {e}"));
-                        if responder.send(Err(status)).is_err() {
-                            error!("VM_DISPATCHER: Failed to send error response for CreateVm. Responder closed.");
-                        }
-                        return;
-                    }
-                };
-
-                let record = VmRecord {
-                    vm_id,
-                    image_uuid,
-                    status: VmStatus {
-                        state: VmState::Creating,
-                        last_msg: "VM creation initiated".to_string(),
-                        process_id: None,
-                    },
-                    config: req.config.clone().unwrap(),
-                };
-
-                if let Err(e) = self.repository.save_vm(&record).await {
-                    let status = Status::internal(format!("Failed to save VM to database: {e}"));
-                    error!("VM_DISPATCHER: {message}", message = status.message());
-                    if responder.send(Err(status)).is_err() {
-                        error!("VM_DISPATCHER: Failed to send error response for CreateVm. Responder closed.");
-                    }
-                    return;
-                }
-                info!("VM_DISPATCHER: Saved initial record for VM {vm_id}");
-
-                tokio::spawn(worker::handle_create_vm(
-                    vm_id.to_string(),
-                    req,
-                    image_uuid_str,
-                    responder,
-                    hypervisor,
-                    event_bus_tx,
-                ));
-            }
-            Err(status) => {
-                if responder.send(Err(status)).is_err() {
-                    error!("VM_DISPATCHER: Failed to send error response for CreateVm. Responder closed.");
-                }
-            }
-        }
-    }
-
-    async fn handle_get_vm_command(
-        &mut self,
-        req: GetVmRequest,
-        responder: oneshot::Sender<Result<VmInfo, Status>>,
-    ) {
-        let vm_id = match Uuid::parse_str(&req.vm_id) {
-            Ok(id) => id,
-            Err(_) => {
-                let _ = responder.send(Err(Status::invalid_argument("Invalid VM ID format.")));
-                return;
-            }
-        };
-
-        match self.repository.get_vm(vm_id).await {
-            Ok(Some(record)) => {
-                let vm_info = VmInfo {
-                    vm_id: record.vm_id.to_string(),
-                    state: record.status.state as i32,
-                    config: Some(record.config),
-                };
-                let _ = responder.send(Ok(vm_info));
-            }
-            Ok(None) => {
-                let _ = responder.send(Err(Status::not_found(format!(
-                    "VM with ID {vm_id} not found"
-                ))));
-            }
-            Err(e) => {
-                error!("Failed to get VM from database: {e}");
-                let _ = responder.send(Err(Status::internal("Failed to retrieve VM information.")));
-            }
-        }
-    }
-
-    async fn handle_stream_vm_events_command(
-        &mut self,
-        req: StreamVmEventsRequest,
-        stream_tx: mpsc::Sender<Result<VmEvent, Status>>,
-        status_channel_tx: broadcast::Sender<VmEventWrapper>,
-    ) {
-        if let Some(vm_id_str) = req.vm_id.clone() {
-            let vm_id = match Uuid::parse_str(&vm_id_str) {
-                Ok(id) => id,
-                Err(_) => {
-                    if stream_tx
-                        .send(Err(Status::invalid_argument("Invalid VM ID format.")))
-                        .await
-                        .is_err()
-                    {
-                        warn!(
-                            "STREAM_EVENTS: Client for {vm_id_str} disconnected before error could be sent."
-                        );
-                    }
-                    return;
-                }
-            };
-
-            match self.repository.get_vm(vm_id).await {
-                Ok(Some(record)) => {
-                    info!(
-                        "STREAM_EVENTS: Sending initial state for VM {vm_id_str}: {:?}",
-                        record.status.state
-                    );
-                    let state_change_event = VmStateChangedEvent {
-                        new_state: record.status.state as i32,
-                        reason: record.status.last_msg,
-                    };
-                    let initial_event = VmEvent {
-                        vm_id: vm_id_str.clone(),
-                        id: Uuid::new_v4().to_string(),
-                        component_id: "vm-service-db".to_string(),
-                        data: Some(Any {
-                            type_url: "type.googleapis.com/feos.vm.vmm.api.v1.VmStateChangedEvent"
-                                .to_string(),
-                            value: state_change_event.encode_to_vec(),
-                        }),
-                    };
-
-                    if stream_tx.send(Ok(initial_event)).await.is_err() {
-                        info!(
-                            "STREAM_EVENTS: Client for {vm_id_str} disconnected before live events could be streamed."
-                        );
-                        return;
-                    }
-
-                    tokio::spawn(worker::handle_stream_vm_events(
-                        req,
-                        stream_tx,
-                        status_channel_tx,
-                    ));
-                }
-                Ok(None) => {
-                    warn!("VM with ID {vm_id} not found");
-                    if stream_tx
-                        .send(Err(Status::not_found(format!(
-                            "VM with ID {vm_id} not found"
-                        ))))
-                        .await
-                        .is_err()
-                    {
-                        warn!(
-                            "STREAM_EVENTS: Client for {vm_id_str} disconnected before not-found error could be sent."
-                        );
-                    }
-                }
-                Err(e) => {
-                    error!(
-                        "STREAM_EVENTS: Failed to get VM {vm_id_str} from database for event stream: {e}"
-                    );
-                    if stream_tx
-                        .send(Err(Status::internal(
-                            "Failed to retrieve VM information for event stream.",
-                        )))
-                        .await
-                        .is_err()
-                    {
-                        warn!(
-                            "STREAM_EVENTS: Client for {vm_id_str} disconnected before internal-error could be sent."
-                        );
-                    }
-                }
-            }
-        } else {
-            info!("STREAM_EVENTS: Request to stream events for all VMs received.");
-            match self.repository.list_all_vms().await {
-                Ok(records) => {
-                    info!(
-                        "STREAM_EVENTS: Found {} existing VMs to send initial state for.",
-                        records.len()
-                    );
-                    for record in records {
-                        let state_change_event = VmStateChangedEvent {
-                            new_state: record.status.state as i32,
-                            reason: format!("Initial state from DB: {}", record.status.last_msg),
-                        };
-                        let initial_event = VmEvent {
-                            vm_id: record.vm_id.to_string(),
-                            id: Uuid::new_v4().to_string(),
-                            component_id: "vm-service-db".to_string(),
-                            data: Some(Any {
-                                type_url:
-                                    "type.googleapis.com/feos.vm.vmm.api.v1.VmStateChangedEvent"
-                                        .to_string(),
-                                value: state_change_event.encode_to_vec(),
-                            }),
-                        };
-
-                        if stream_tx.send(Ok(initial_event)).await.is_err() {
-                            info!("STREAM_EVENTS: Client for all VMs disconnected while sending initial states.");
-                            return;
-                        }
-                    }
-                }
-                Err(e) => {
-                    error!(
-                        "STREAM_EVENTS: Failed to list all VMs from database for event stream: {e}"
-                    );
-                    if stream_tx
-                        .send(Err(Status::internal(
-                            "Failed to retrieve initial VM list for event stream.",
-                        )))
-                        .await
-                        .is_err()
-                    {
-                        warn!("STREAM_EVENTS: Client for all VMs disconnected before internal-error could be sent.");
-                    }
-                    return;
-                }
-            }
-
-            info!("STREAM_EVENTS: Initial states sent. Starting live event stream for all VMs.");
-            tokio::spawn(worker::handle_stream_vm_events(
-                req,
-                stream_tx,
-                status_channel_tx,
-            ));
-        }
-    }
-
-    async fn handle_delete_vm_command(
-        &mut self,
-        req: DeleteVmRequest,
-        responder: oneshot::Sender<Result<DeleteVmResponse, Status>>,
-        hypervisor: Arc<dyn Hypervisor>,
-        event_bus_tx: mpsc::Sender<VmEventWrapper>,
-    ) {
-        let vm_id = match Uuid::parse_str(&req.vm_id) {
-            Ok(id) => id,
-            Err(_) => {
-                let _ = responder.send(Err(Status::invalid_argument("Invalid VM ID format.")));
-                return;
-            }
-        };
-
-        match self.repository.get_vm(vm_id).await {
-            Ok(Some(record)) => {
-                let image_uuid_to_delete = record.image_uuid.to_string();
-                let process_id_to_kill = record.status.process_id;
-
-                if let Err(e) = self.repository.delete_vm(vm_id).await {
-                    error!("Failed to delete VM {vm_id} from database: {e}");
-                    let _ =
-                        responder.send(Err(Status::internal("Failed to delete VM from database.")));
-                    return;
-                }
-                info!("VM_DISPATCHER: Deleted record for VM {vm_id} from database.");
-
-                if let Err(e) = self.healthcheck_cancel_bus.send(vm_id) {
-                    warn!(
-                        "VM_DISPATCHER: Failed to send healthcheck cancellation for {vm_id}: {e}"
-                    );
-                }
-
-                tokio::spawn(worker::handle_delete_vm(
-                    req,
-                    image_uuid_to_delete,
-                    process_id_to_kill,
-                    responder,
-                    hypervisor,
-                    event_bus_tx,
-                ));
-            }
-            Ok(None) => {
-                let msg = format!("VM with ID {vm_id} not found in database for deletion");
-                warn!("VM_DISPATCHER: {msg}. Still attempting hypervisor cleanup.");
-
-                if let Err(e) = self.healthcheck_cancel_bus.send(vm_id) {
-                    warn!(
-                        "VM_DISPATCHER: Failed to send healthcheck cancellation for {vm_id}: {e}"
-                    );
-                }
-
-                tokio::spawn(worker::handle_delete_vm(
-                    req,
-                    String::new(),
-                    None,
-                    responder,
-                    hypervisor,
-                    event_bus_tx,
-                ));
-            }
-            Err(e) => {
-                error!("Failed to get VM {vm_id} from database: {e}");
-                let _ =
-                    responder.send(Err(Status::internal("Failed to retrieve VM for deletion.")));
-            }
-        }
-    }
-
-    async fn handle_list_vms_command(
-        &mut self,
-        _req: ListVmsRequest,
-        responder: oneshot::Sender<Result<ListVmsResponse, Status>>,
-    ) {
-        match self.repository.list_all_vms().await {
-            Ok(records) => {
-                let vms = records
-                    .into_iter()
-                    .map(|record| VmInfo {
-                        vm_id: record.vm_id.to_string(),
-                        state: record.status.state as i32,
-                        config: Some(record.config),
-                    })
-                    .collect();
-
-                let response = ListVmsResponse { vms };
-                if responder.send(Ok(response)).is_err() {
-                    error!("VM_DISPATCHER: Failed to send response for ListVms.");
-                }
-            }
-            Err(e) => {
-                error!("VM_DISPATCHER: Failed to list VMs from database: {e}");
-                let status = Status::internal("Failed to retrieve VM list.");
-                if responder.send(Err(status)).is_err() {
-                    error!("VM_DISPATCHER: Failed to send error response for ListVms.");
-                }
+                error!(
+                    "DB_UPDATE: Failed to decode VmStateChangedEvent for VM {}: {e}",
+                    vm_id
+                );
             }
         }
     }
