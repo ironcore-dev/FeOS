@@ -193,8 +193,7 @@ impl VmServiceDispatcher {
                     Ok(true) => {
                         if let Err(e) = self.status_channel_tx.send(event_to_forward) {
                             debug!(
-                                "VM_DISPATCHER: Failed to forward successful VM status event for {}: {e}",
-                                vm_id
+                                "VM_DISPATCHER: Failed to forward successful VM status event for {vm_id}: {e}"
                             );
                         }
                     }
@@ -211,10 +210,7 @@ impl VmServiceDispatcher {
                 }
             }
             Err(e) => {
-                error!(
-                    "DB_UPDATE: Failed to decode VmStateChangedEvent for VM {}: {e}",
-                    vm_id
-                );
+                error!("DB_UPDATE: Failed to decode VmStateChangedEvent for VM {vm_id}: {e}");
             }
         }
     }

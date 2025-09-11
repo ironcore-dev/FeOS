@@ -6,6 +6,7 @@ use feos_proto::{
 };
 use feos_utils::filesystem::mount_virtual_filesystems;
 use feos_utils::host::info::is_running_on_vm;
+use feos_utils::host::memory::configure_hugepages;
 use feos_utils::network::{configure_network_devices, configure_sriov};
 use host_service::{
     api::HostApiHandler, dispatcher::HostServiceDispatcher, Command as HostCommand, RestartSignal,
@@ -32,6 +33,7 @@ use vm_service::{
 };
 
 const VFS_NUM: u32 = 125;
+const HUGEPAGES_NUM: u32 = 1024;
 
 pub async fn run_server(restarted_after_upgrade: bool) -> Result<()> {
     println!(
@@ -62,6 +64,11 @@ pub async fn run_server(restarted_after_upgrade: bool) -> Result<()> {
             info!("MAIN: Performing first-boot initialization...");
             info!("MAIN: Mounting virtual filesystems...");
             mount_virtual_filesystems();
+
+            info!("MAIN: Configuring hugepages...");
+            if let Err(e) = configure_hugepages(HUGEPAGES_NUM).await {
+                warn!("Failed to configure hugepages: {e}");
+            }
 
             let is_on_vm = is_running_on_vm().await.unwrap_or_else(|e| {
                 error!("Error checking VM status: {e}");

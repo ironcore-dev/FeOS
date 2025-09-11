@@ -51,6 +51,9 @@ pub enum VmCommand {
             help = "PCI device BDF to passthrough for networking (e.g., 0000:03:00.0)"
         )]
         pci_device: Vec<String>,
+
+        #[arg(long)]
+        hugepages: bool,
     },
     Start {
         #[arg(required = true)]
@@ -115,7 +118,19 @@ pub async fn handle_vm_command(args: VmArgs) -> Result<()> {
             memory,
             vm_id,
             pci_device,
-        } => create_vm(&mut client, image_ref, vcpus, memory, vm_id, pci_device).await?,
+            hugepages,
+        } => {
+            create_vm(
+                &mut client,
+                image_ref,
+                vcpus,
+                memory,
+                vm_id,
+                pci_device,
+                hugepages,
+            )
+            .await?
+        }
         VmCommand::Start { vm_id } => start_vm(&mut client, vm_id).await?,
         VmCommand::Info { vm_id } => get_vm_info(&mut client, vm_id).await?,
         VmCommand::List => list_vms(&mut client).await?,
@@ -142,6 +157,7 @@ async fn create_vm(
     memory: u64,
     vm_id: Option<String>,
     pci_devices: Vec<String>,
+    hugepages: bool,
 ) -> Result<()> {
     println!("Requesting VM creation with image: {image_ref}...");
 
@@ -162,7 +178,10 @@ async fn create_vm(
                 boot_vcpus: vcpus,
                 max_vcpus: vcpus,
             }),
-            memory: Some(MemoryConfig { size_mib: memory }),
+            memory: Some(MemoryConfig {
+                size_mib: memory,
+                hugepages,
+            }),
             image_ref,
             net: net_configs,
             ..Default::default()

@@ -120,6 +120,7 @@ impl CloudHypervisorAdapter {
             ch_vm_config.memory = Some(models::MemoryConfig {
                 size: mem.size_mib as i64 * 1024 * 1024,
                 shared: Some(true),
+                hugepages: Some(mem.hugepages),
                 ..Default::default()
             });
         }

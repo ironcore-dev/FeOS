@@ -229,7 +229,10 @@ async fn test_create_and_start_vm() -> Result<()> {
             boot_vcpus: 2,
             max_vcpus: 2,
         }),
-        memory: Some(MemoryConfig { size_mib: 2048 }),
+        memory: Some(MemoryConfig {
+            size_mib: 2048,
+            hugepages: false,
+        }),
         image_ref,
         disks: vec![],
         net: vec![],
@@ -332,7 +335,10 @@ async fn test_vm_healthcheck_and_crash_recovery() -> Result<()> {
             boot_vcpus: 1,
             max_vcpus: 1,
         }),
-        memory: Some(MemoryConfig { size_mib: 1024 }),
+        memory: Some(MemoryConfig {
+            size_mib: 1024,
+            hugepages: false,
+        }),
         image_ref,
         disks: vec![],
         net: vec![],

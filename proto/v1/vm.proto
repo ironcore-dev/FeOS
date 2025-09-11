@@ -135,6 +135,7 @@ message CpuConfig {
 
 message MemoryConfig {
   uint64 size_mib = 1; // Memory size in Megabytes (MiB).
+  bool hugepages = 2;
 }
 
 message DiskConfig {
