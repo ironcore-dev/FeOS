@@ -1,10 +1,10 @@
 use crate::Command;
 use feos_proto::host_service::{
     host_service_server::HostService, FeosLogEntry, GetCpuInfoRequest, GetCpuInfoResponse,
-    GetNetworkInfoRequest, GetNetworkInfoResponse, HostnameRequest, HostnameResponse,
-    KernelLogEntry, MemoryRequest, MemoryResponse, RebootRequest, RebootResponse, ShutdownRequest,
-    ShutdownResponse, StreamFeosLogsRequest, StreamKernelLogsRequest, UpgradeFeosBinaryRequest,
-    UpgradeFeosBinaryResponse,
+    GetNetworkInfoRequest, GetNetworkInfoResponse, GetVersionInfoRequest, GetVersionInfoResponse,
+    HostnameRequest, HostnameResponse, KernelLogEntry, MemoryRequest, MemoryResponse,
+    RebootRequest, RebootResponse, ShutdownRequest, ShutdownResponse, StreamFeosLogsRequest,
+    StreamKernelLogsRequest, UpgradeFeosBinaryRequest, UpgradeFeosBinaryResponse,
 };
 use log::info;
 use std::pin::Pin;
@@ -203,5 +203,26 @@ impl HostService for HostApiHandler {
             .map_err(|e| Status::internal(format!("Failed to send command to dispatcher: {e}")))?;
         let output_stream = ReceiverStream::new(stream_rx);
         Ok(Response::new(Box::pin(output_stream)))
+    }
+
+    async fn get_version_info(
+        &self,
+        _request: Request<GetVersionInfoRequest>,
+    ) -> Result<Response<GetVersionInfoResponse>, Status> {
+        info!("HOST_API_HANDLER: Received GetVersionInfo request.");
+        let (resp_tx, resp_rx) = oneshot::channel();
+        let cmd = Command::GetVersionInfo(resp_tx);
+        self.dispatcher_tx
+            .send(cmd)
+            .await
+            .map_err(|e| Status::internal(format!("Failed to send command to dispatcher: {e}")))?;
+
+        match resp_rx.await {
+            Ok(Ok(result)) => Ok(Response::new(result)),
+            Ok(Err(status)) => Err(status),
+            Err(_) => Err(Status::internal(
+                "Dispatcher task dropped response channel.",
+            )),
+        }
     }
 }

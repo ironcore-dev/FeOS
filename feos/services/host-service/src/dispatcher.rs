@@ -38,6 +38,9 @@ impl HostServiceDispatcher {
                 Command::GetNetworkInfo(responder) => {
                     tokio::spawn(worker::handle_get_network_info(responder));
                 }
+                Command::GetVersionInfo(responder) => {
+                    tokio::spawn(worker::handle_get_version_info(responder));
+                }
                 Command::UpgradeFeosBinary(req, responder) => {
                     let restart_tx = self.restart_tx.clone();
                     tokio::spawn(worker::handle_upgrade(restart_tx, req, responder));

@@ -23,6 +23,9 @@ service HostService {
 
   // Streams logs from the internal FeOS logger.
   rpc StreamFeOSLogs(StreamFeosLogsRequest) returns (stream FeosLogEntry);
+
+  // Retrieves version information about the host system.
+  rpc GetVersionInfo(GetVersionInfoRequest) returns (GetVersionInfoResponse);
 }
 
 message HostnameRequest {}
@@ -181,4 +184,13 @@ message FeosLogEntry {
   string level = 3;
   string target = 4;
   string message = 5;
+}
+
+message GetVersionInfoRequest {}
+
+message GetVersionInfoResponse {
+  // The version of the Linux kernel (e.g., from /proc/version).
+  string kernel_version = 1;
+  // The version of the running FeOS binary.
+  string feos_version = 2;
 }

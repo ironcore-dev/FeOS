@@ -1,6 +1,6 @@
 use feos_proto::host_service::{
-    CpuInfo, GetCpuInfoResponse, GetNetworkInfoResponse, HostnameResponse, MemInfo, MemoryResponse,
-    NetDev,
+    CpuInfo, GetCpuInfoResponse, GetNetworkInfoResponse, GetVersionInfoResponse, HostnameResponse,
+    MemInfo, MemoryResponse, NetDev,
 };
 use log::{error, info, warn};
 use nix::unistd;
@@ -22,7 +22,7 @@ pub async fn handle_hostname(responder: oneshot::Sender<Result<HostnameResponse,
         }
         Err(e) => {
             let msg = format!("Failed to get system hostname: {e}");
-            error!("HOST_WORKER: ERROR - {msg}");
+            error!("HOST_WORKER: {msg}");
             Err(Status::internal(msg))
         }
     };
@@ -117,7 +117,7 @@ pub async fn handle_get_memory(responder: oneshot::Sender<Result<MemoryResponse,
             mem_info: Some(mem_info),
         }),
         Err(e) => {
-            error!("HOST_WORKER: ERROR - Failed to get memory info: {e}");
+            error!("HOST_WORKER: Failed to get memory info: {e}");
             Err(Status::internal(format!("Failed to get memory info: {e}")))
         }
     };
@@ -208,7 +208,7 @@ pub async fn handle_get_cpu_info(responder: oneshot::Sender<Result<GetCpuInfoRes
     let result = match read_and_parse_cpuinfo().await {
         Ok(cpu_info) => Ok(GetCpuInfoResponse { cpu_info }),
         Err(e) => {
-            error!("HOST_WORKER: ERROR - Failed to get CPU info: {e}");
+            error!("HOST_WORKER: Failed to get CPU info: {e}");
             Err(Status::internal(format!("Failed to get CPU info: {e}")))
         }
     };
@@ -281,7 +281,7 @@ pub async fn handle_get_network_info(
     let result = match read_all_net_stats().await {
         Ok(devices) => Ok(GetNetworkInfoResponse { devices }),
         Err(e) => {
-            error!("HOST_WORKER: ERROR - Failed to get network info: {e}");
+            error!("HOST_WORKER: Failed to get network info: {e}");
             Err(Status::internal(format!(
                 "Failed to get network info from sysfs: {e}"
             )))
@@ -291,6 +291,35 @@ pub async fn handle_get_network_info(
     if responder.send(result).is_err() {
         error!(
             "HOST_WORKER: Failed to send response for GetNetworkInfo. API handler may have timed out."
+        );
+    }
+}
+
+pub async fn handle_get_version_info(
+    responder: oneshot::Sender<Result<GetVersionInfoResponse, Status>>,
+) {
+    info!("HOST_WORKER: Processing GetVersionInfo request.");
+
+    let kernel_version_res = fs::read_to_string("/proc/version").await;
+
+    let result = match kernel_version_res {
+        Ok(kernel_version) => {
+            let feos_version = env!("CARGO_PKG_VERSION").to_string();
+            Ok(GetVersionInfoResponse {
+                kernel_version: kernel_version.trim().to_string(),
+                feos_version,
+            })
+        }
+        Err(e) => {
+            let msg = format!("Failed to read kernel version from /proc/version: {e}");
+            error!("HOST_WORKER: {msg}");
+            Err(Status::internal(msg))
+        }
+    };
+
+    if responder.send(result).is_err() {
+        error!(
+            "HOST_WORKER: Failed to send response for GetVersionInfo. API handler may have timed out."
         );
     }
 }

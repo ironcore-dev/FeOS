@@ -2,8 +2,8 @@ use anyhow::{Context, Result};
 use clap::{Args, Subcommand};
 use feos_proto::host_service::{
     host_service_client::HostServiceClient, GetCpuInfoRequest, GetNetworkInfoRequest,
-    HostnameRequest, MemoryRequest, RebootRequest, ShutdownRequest, StreamFeosLogsRequest,
-    StreamKernelLogsRequest, UpgradeFeosBinaryRequest,
+    GetVersionInfoRequest, HostnameRequest, MemoryRequest, RebootRequest, ShutdownRequest,
+    StreamFeosLogsRequest, StreamKernelLogsRequest, UpgradeFeosBinaryRequest,
 };
 use tokio_stream::StreamExt;
 use tonic::transport::Channel;
@@ -47,6 +47,8 @@ pub enum HostCommand {
     Shutdown,
     /// Reboot the host machine
     Reboot,
+    /// Get kernel and FeOS version information
+    VersionInfo,
 }
 
 pub async fn handle_host_command(args: HostArgs) -> Result<()> {
@@ -66,6 +68,7 @@ pub async fn handle_host_command(args: HostArgs) -> Result<()> {
         HostCommand::Flogs => stream_flogs(&mut client).await?,
         HostCommand::Shutdown => shutdown_host(&mut client).await?,
         HostCommand::Reboot => reboot_host(&mut client).await?,
+        HostCommand::VersionInfo => get_version_info(&mut client).await?,
     }
 
     Ok(())
@@ -283,6 +286,15 @@ async fn upgrade_feos(
 
     println!("Upgrade request accepted by host.");
 
+    Ok(())
+}
+
+async fn get_version_info(client: &mut HostServiceClient<Channel>) -> Result<()> {
+    println!("Requesting version information...");
+    let request = GetVersionInfoRequest {};
+    let response = client.get_version_info(request).await?.into_inner();
+    println!("FeOS Version:    {}", response.feos_version);
+    println!("Kernel Version:  {}", response.kernel_version);
     Ok(())
 }
 
