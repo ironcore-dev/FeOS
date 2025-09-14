@@ -1,17 +1,11 @@
 use anyhow::{Context, Result};
 use clap::{Args, Subcommand};
-use digest::Digest;
 use feos_proto::host_service::{
-    host_service_client::HostServiceClient, upgrade_request, GetCpuInfoRequest,
-    GetNetworkInfoRequest, HostnameRequest, MemoryRequest, RebootRequest, ShutdownRequest,
-    StreamFeosLogsRequest, StreamKernelLogsRequest, UpgradeMetadata, UpgradeRequest,
+    host_service_client::HostServiceClient, GetCpuInfoRequest, GetNetworkInfoRequest,
+    HostnameRequest, MemoryRequest, RebootRequest, ShutdownRequest, StreamFeosLogsRequest,
+    StreamKernelLogsRequest, UpgradeFeosBinaryRequest,
 };
-use sha2::Sha256;
-use std::path::PathBuf;
-use tokio::fs::File;
-use tokio::io::AsyncReadExt;
-use tokio::sync::mpsc;
-use tokio_stream::{wrappers::ReceiverStream, StreamExt};
+use tokio_stream::StreamExt;
 use tonic::transport::Channel;
 
 #[derive(Args, Debug)]
@@ -36,8 +30,14 @@ pub enum HostCommand {
     CpuInfo,
     NetworkInfo,
     Upgrade {
-        #[arg(required = true)]
-        binary_path: PathBuf,
+        #[arg(long, required = true, help = "URL to fetch the new FeOS binary from")]
+        url: String,
+        #[arg(
+            long,
+            required = true,
+            help = "Hex-encoded SHA256 checksum for verification"
+        )]
+        sha256_sum: String,
     },
     /// Stream kernel logs from /dev/kmsg
     Klogs,
@@ -59,7 +59,9 @@ pub async fn handle_host_command(args: HostArgs) -> Result<()> {
         HostCommand::Memory => get_memory(&mut client).await?,
         HostCommand::CpuInfo => get_cpu_info(&mut client).await?,
         HostCommand::NetworkInfo => get_network_info(&mut client).await?,
-        HostCommand::Upgrade { binary_path } => upgrade_feos(&mut client, binary_path).await?,
+        HostCommand::Upgrade { url, sha256_sum } => {
+            upgrade_feos(&mut client, url, sha256_sum).await?
+        }
         HostCommand::Klogs => stream_klogs(&mut client).await?,
         HostCommand::Flogs => stream_flogs(&mut client).await?,
         HostCommand::Shutdown => shutdown_host(&mut client).await?,
@@ -267,76 +269,19 @@ async fn stream_flogs(client: &mut HostServiceClient<Channel>) -> Result<()> {
     Ok(())
 }
 
-async fn upgrade_feos(client: &mut HostServiceClient<Channel>, binary_path: PathBuf) -> Result<()> {
-    if !binary_path.exists() {
-        anyhow::bail!("Binary file not found at: {}", binary_path.display());
-    }
+async fn upgrade_feos(
+    client: &mut HostServiceClient<Channel>,
+    url: String,
+    sha256_sum: String,
+) -> Result<()> {
+    println!("Requesting FeOS upgrade from URL: {url}");
+    println!("Expected SHA256: {sha256_sum}");
 
-    println!("Calculating checksum for {}...", binary_path.display());
-    let mut file_for_hash = File::open(&binary_path).await?;
-    let mut hasher = Sha256::new();
-    let mut buffer = [0; 8192];
-    while let Ok(n) = file_for_hash.read(&mut buffer).await {
-        if n == 0 {
-            break;
-        }
-        hasher.update(&buffer[..n]);
-    }
-    let checksum = hex::encode(hasher.finalize());
-    println!("Checksum (SHA256): {checksum}");
+    let request = UpgradeFeosBinaryRequest { url, sha256_sum };
 
-    let (tx, rx) = mpsc::channel(4);
-    let request_stream = ReceiverStream::new(rx);
+    client.upgrade_feos_binary(request).await?;
 
-    let upload_task = tokio::spawn(async move {
-        let metadata = UpgradeMetadata {
-            sha256_sum: checksum,
-        };
-        let metadata_req = UpgradeRequest {
-            payload: Some(upgrade_request::Payload::Metadata(metadata)),
-        };
-        if tx.send(metadata_req).await.is_err() {
-            return;
-        }
-
-        let mut file = match File::open(&binary_path).await {
-            Ok(file) => file,
-            Err(e) => {
-                eprintln!("Failed to open file for upload: {e}");
-                return;
-            }
-        };
-
-        loop {
-            let mut chunk_buf = vec![0; 1024 * 64];
-            match file.read(&mut chunk_buf).await {
-                Ok(0) => break,
-                Ok(n) => {
-                    chunk_buf.truncate(n);
-                    let chunk_req = UpgradeRequest {
-                        payload: Some(upgrade_request::Payload::Chunk(chunk_buf)),
-                    };
-                    if tx.send(chunk_req).await.is_err() {
-                        break;
-                    }
-                }
-                Err(e) => {
-                    eprintln!("Error reading from file: {e}");
-                    break;
-                }
-            }
-        }
-    });
-
-    println!("Uploading new binary to host...");
-    let response = client
-        .upgrade_feos_binary(request_stream)
-        .await?
-        .into_inner();
-
-    println!("Server response: {}", response.message);
-
-    upload_task.await?;
+    println!("Upgrade request accepted by host.");
 
     Ok(())
 }

@@ -1,9 +1,13 @@
 use crate::RestartSignal;
 use digest::Digest;
 use feos_proto::host_service::{
-    upgrade_request, FeosLogEntry, KernelLogEntry, UpgradeRequest, UpgradeResponse,
+    FeosLogEntry, KernelLogEntry, UpgradeFeosBinaryRequest, UpgradeFeosBinaryResponse,
 };
 use feos_utils::feos_logger::LogHandle;
+use http_body_util::{BodyExt, Empty};
+use hyper::body::Bytes;
+use hyper_rustls::HttpsConnectorBuilder;
+use hyper_util::{client::legacy::Client, rt::TokioExecutor};
 use log::{error, info, warn};
 use prost_types::Timestamp;
 use sha2::Sha256;
@@ -15,8 +19,7 @@ use tempfile::NamedTempFile;
 use tokio::fs::File;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 use tokio::sync::{mpsc, oneshot};
-use tokio_stream::StreamExt;
-use tonic::{Status, Streaming};
+use tonic::Status;
 
 const UPGRADE_DIR: &str = "/var/lib/feos/upgrade";
 const ELF_MAGIC: [u8; 4] = [0x7f, 0x45, 0x4c, 0x46];
@@ -112,38 +115,54 @@ pub async fn handle_stream_kernel_logs(grpc_tx: mpsc::Sender<Result<KernelLogEnt
     }
 }
 
+async fn download_file(url: &str, temp_file_writer: &mut std::fs::File) -> Result<(), String> {
+    info!("HOST_WORKER: Starting download from {url}");
+
+    let https = HttpsConnectorBuilder::new()
+        .with_native_roots()
+        .map_err(|e| format!("Could not load native root certificates: {e}"))?
+        .https_or_http()
+        .enable_http1()
+        .build();
+
+    let client: Client<_, Empty<Bytes>> = Client::builder(TokioExecutor::new()).build(https);
+    let uri = url.parse::<hyper::Uri>().map_err(|e| e.to_string())?;
+    let mut res = client
+        .get(uri)
+        .await
+        .map_err(|e| format!("HTTP GET request failed: {e}"))?;
+
+    info!("HOST_WORKER: Download response status: {}", res.status());
+    if !res.status().is_success() {
+        return Err(format!("Download failed with status: {}", res.status()));
+    }
+
+    while let Some(next) = res.frame().await {
+        let frame = next.map_err(|e| format!("Error reading response frame: {e}"))?;
+        if let Some(chunk) = frame.data_ref() {
+            temp_file_writer
+                .write_all(chunk)
+                .map_err(|e| format!("Failed to write chunk to temp file: {e}"))?;
+        }
+    }
+
+    info!("HOST_WORKER: Download completed successfully.");
+    Ok(())
+}
+
 pub async fn handle_upgrade(
     restart_tx: mpsc::Sender<RestartSignal>,
-    mut stream: Streaming<UpgradeRequest>,
-    responder: oneshot::Sender<Result<UpgradeResponse, Status>>,
+    req: UpgradeFeosBinaryRequest,
+    responder: oneshot::Sender<Result<UpgradeFeosBinaryResponse, Status>>,
 ) {
-    info!("HOST_WORKER: Processing UpgradeFeosBinary request.");
+    info!(
+        "HOST_WORKER: Processing UpgradeFeosBinary request for url {}",
+        req.url
+    );
 
-    let expected_checksum = match stream.next().await {
-        Some(Ok(req)) => match req.payload {
-            Some(upgrade_request::Payload::Metadata(meta)) => {
-                info!(
-                    "HOST_WORKER: Received upgrade metadata. Checksum: {}",
-                    meta.sha256_sum
-                );
-                meta.sha256_sum
-            }
-            _ => {
-                let _ = responder.send(Err(Status::invalid_argument(
-                    "First message must be UpgradeMetadata.",
-                )));
-                return;
-            }
-        },
-        Some(Err(e)) => {
-            let _ = responder.send(Err(e));
-            return;
-        }
-        None => {
-            let _ = responder.send(Err(Status::invalid_argument("Empty request stream.")));
-            return;
-        }
-    };
+    if responder.send(Ok(UpgradeFeosBinaryResponse {})).is_err() {
+        warn!("HOST_WORKER: Could not send response for UpgradeFeosBinary. Client may have disconnected.");
+    }
 
     let temp_file = match tokio::task::block_in_place(|| {
         std::fs::create_dir_all(UPGRADE_DIR)?;
@@ -151,37 +170,22 @@ pub async fn handle_upgrade(
     }) {
         Ok(f) => f,
         Err(e) => {
-            let msg = format!("Failed to create temp file: {e}");
-            error!("HOST_WORKER: {msg}");
-            let _ = responder.send(Err(Status::internal(msg)));
+            error!("HOST_WORKER: Failed to create temp file: {e}");
             return;
         }
     };
-    let mut temp_file_writer = temp_file.reopen().unwrap();
 
-    while let Some(result) = stream.next().await {
-        match result {
-            Ok(req) => match req.payload {
-                Some(upgrade_request::Payload::Chunk(chunk)) => {
-                    if let Err(e) = temp_file_writer.write_all(&chunk) {
-                        let msg = format!("Failed to write to temp file: {e}");
-                        error!("HOST_WORKER: {msg}");
-                        let _ = responder.send(Err(Status::internal(msg)));
-                        return;
-                    }
-                }
-                _ => {
-                    let _ = responder.send(Err(Status::invalid_argument(
-                        "Subsequent messages must be binary chunks.",
-                    )));
-                    return;
-                }
-            },
-            Err(e) => {
-                let _ = responder.send(Err(e));
-                return;
-            }
+    let mut temp_file_writer = match temp_file.reopen() {
+        Ok(f) => f,
+        Err(e) => {
+            error!("HOST_WORKER: Failed to reopen temp file for writing: {e}");
+            return;
         }
+    };
+
+    if let Err(e) = download_file(&req.url, &mut temp_file_writer).await {
+        error!("HOST_WORKER: Failed to download binary: {e}");
+        return;
     }
 
     let temp_path = temp_file.path().to_path_buf();
@@ -189,25 +193,19 @@ pub async fn handle_upgrade(
     let mut file_to_hash = match File::open(&temp_path).await {
         Ok(f) => f,
         Err(e) => {
-            let msg = format!("Failed to reopen temp file for validation: {e}");
-            error!("HOST_WORKER: {msg}");
-            let _ = responder.send(Err(Status::internal(msg)));
+            error!("HOST_WORKER: Failed to reopen temp file for validation: {e}");
             return;
         }
     };
 
     let mut first_bytes = [0u8; 4];
     if file_to_hash.read_exact(&mut first_bytes).await.is_err() {
-        let _ = responder.send(Err(Status::invalid_argument(
-            "Received file is too small to be a valid binary.",
-        )));
+        error!("HOST_WORKER: Downloaded file is too small to be a valid binary.");
         return;
     }
 
     if first_bytes != ELF_MAGIC {
-        let _ = responder.send(Err(Status::invalid_argument(
-            "Uploaded file is not a valid ELF binary.",
-        )));
+        error!("HOST_WORKER: Downloaded file is not a valid ELF binary.");
         return;
     }
     hasher.update(first_bytes);
@@ -218,20 +216,18 @@ pub async fn handle_upgrade(
             Ok(0) => break,
             Ok(n) => hasher.update(&buf[..n]),
             Err(e) => {
-                let msg = format!("Failed to read temp file for hashing: {e}");
-                error!("HOST_WORKER: {msg}");
-                let _ = responder.send(Err(Status::internal(msg)));
+                error!("HOST_WORKER: Failed to read temp file for hashing: {e}");
                 return;
             }
         }
     }
     let actual_checksum = hex::encode(hasher.finalize());
 
-    if actual_checksum != expected_checksum {
-        let msg =
-            format!("Checksum mismatch. Expected: {expected_checksum}, Got: {actual_checksum}",);
-        warn!("HOST_WORKER: {msg}");
-        let _ = responder.send(Err(Status::invalid_argument(msg)));
+    if actual_checksum != req.sha256_sum {
+        error!(
+            "HOST_WORKER: Checksum mismatch. Expected: {}, Got: {}",
+            req.sha256_sum, actual_checksum
+        );
         return;
     }
     info!("HOST_WORKER: Checksum validation successful.");
@@ -242,24 +238,16 @@ pub async fn handle_upgrade(
         temp_file.persist(&final_path)?;
         std::fs::set_permissions(&final_path, perms)
     }) {
-        let msg = format!("Failed to persist and set permissions on new binary: {e}");
-        error!("HOST_WORKER: {msg}");
-        let _ = responder.send(Err(Status::internal(msg)));
+        error!("HOST_WORKER: Failed to persist and set permissions on new binary: {e}");
         return;
     }
 
     info!("HOST_WORKER: Staged new binary at {:?}", &final_path);
 
     if let Err(e) = restart_tx.send(RestartSignal(final_path)).await {
-        let msg = format!("Failed to send restart signal to main process: {e}");
-        error!("HOST_WORKER: CRITICAL - {msg}");
-        let _ = responder.send(Err(Status::internal(msg)));
+        error!("HOST_WORKER: CRITICAL - Failed to send restart signal to main process: {e}");
         return;
     }
 
-    info!("HOST_WORKER: Restart signal sent. Responding to client.");
-    let _ = responder.send(Ok(UpgradeResponse {
-        message: "Binary received and validated. System will now restart with the new binary."
-            .to_string(),
-    }));
+    info!("HOST_WORKER: Restart signal sent.");
 }

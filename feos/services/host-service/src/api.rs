@@ -3,14 +3,14 @@ use feos_proto::host_service::{
     host_service_server::HostService, FeosLogEntry, GetCpuInfoRequest, GetCpuInfoResponse,
     GetNetworkInfoRequest, GetNetworkInfoResponse, HostnameRequest, HostnameResponse,
     KernelLogEntry, MemoryRequest, MemoryResponse, RebootRequest, RebootResponse, ShutdownRequest,
-    ShutdownResponse, StreamFeosLogsRequest, StreamKernelLogsRequest, UpgradeRequest,
-    UpgradeResponse,
+    ShutdownResponse, StreamFeosLogsRequest, StreamKernelLogsRequest, UpgradeFeosBinaryRequest,
+    UpgradeFeosBinaryResponse,
 };
 use log::info;
 use std::pin::Pin;
 use tokio::sync::{mpsc, oneshot};
 use tokio_stream::{wrappers::ReceiverStream, Stream};
-use tonic::{Request, Response, Status, Streaming};
+use tonic::{Request, Response, Status};
 
 pub struct HostApiHandler {
     dispatcher_tx: mpsc::Sender<Command>,
@@ -156,11 +156,11 @@ impl HostService for HostApiHandler {
 
     async fn upgrade_feos_binary(
         &self,
-        request: Request<Streaming<UpgradeRequest>>,
-    ) -> Result<Response<UpgradeResponse>, Status> {
+        request: Request<UpgradeFeosBinaryRequest>,
+    ) -> Result<Response<UpgradeFeosBinaryResponse>, Status> {
         info!("HOST_API_HANDLER: Received UpgradeFeosBinary request.");
         let (resp_tx, resp_rx) = oneshot::channel();
-        let cmd = Command::UpgradeFeosBinary(Box::new(request.into_inner()), resp_tx);
+        let cmd = Command::UpgradeFeosBinary(request.into_inner(), resp_tx);
         self.dispatcher_tx
             .send(cmd)
             .await

@@ -15,10 +15,8 @@ service HostService {
   rpc Shutdown(ShutdownRequest) returns (ShutdownResponse);
   rpc Reboot(RebootRequest) returns (RebootResponse);
 
-  // Upgrades the running FeOS binary. This is a client-streaming RPC.
-  // The first message MUST contain the UpgradeMetadata, and subsequent messages
-  // MUST contain the binary data chunks.
-  rpc UpgradeFeosBinary(stream UpgradeRequest) returns (UpgradeResponse);
+  // Triggers an upgrade of the running FeOS binary by pulling it from a URL.
+  rpc UpgradeFeosBinary(UpgradeFeosBinaryRequest) returns (UpgradeFeosBinaryResponse);
 
   // Streams kernel log messages from /dev/kmsg.
   rpc StreamKernelLogs(StreamKernelLogsRequest) returns (stream KernelLogEntry);
@@ -33,22 +31,14 @@ message HostnameResponse {
   string hostname = 1;
 }
 
-message UpgradeRequest {
-  oneof payload {
-    UpgradeMetadata metadata = 1;
-    bytes chunk = 2;
-  }
+message UpgradeFeosBinaryRequest {
+  // The URL from which to download the new binary.
+  string url = 1;
+  // The SHA256 checksum of the binary file, hex-encoded, for verification.
+  string sha256_sum = 2;
 }
 
-message UpgradeMetadata {
-  // The SHA256 checksum of the binary file, hex-encoded.
-  string sha256_sum = 1;
-}
-
-message UpgradeResponse {
-  // A message indicating the result of the upgrade attempt.
-  string message = 1;
-}
+message UpgradeFeosBinaryResponse {}
 
 message StreamKernelLogsRequest {}
 

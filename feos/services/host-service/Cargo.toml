@@ -10,6 +10,11 @@ tempfile = { workspace = true }
 sha2 = { workspace = true }
 hex = { workspace = true }
 digest = { workspace = true }
+hyper = "1.4.0"
+hyper-util = { version = "0.1.3", features = ["full"] }
+hyper-rustls = "0.27.2"
+http-body-util = "0.1.2"
+rustls-pki-types = "1.0"
 
 # Workspace dependencies
 tokio = { workspace = true }

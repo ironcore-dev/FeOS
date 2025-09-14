@@ -1,11 +1,11 @@
 use feos_proto::host_service::{
     FeosLogEntry, GetCpuInfoResponse, GetNetworkInfoResponse, HostnameResponse, KernelLogEntry,
     MemoryResponse, RebootRequest, RebootResponse, ShutdownRequest, ShutdownResponse,
-    UpgradeRequest, UpgradeResponse,
+    UpgradeFeosBinaryRequest, UpgradeFeosBinaryResponse,
 };
 use std::path::PathBuf;
 use tokio::sync::{mpsc, oneshot};
-use tonic::{Status, Streaming};
+use tonic::Status;
 
 pub mod api;
 pub mod dispatcher;
@@ -18,8 +18,8 @@ pub enum Command {
     GetCPUInfo(oneshot::Sender<Result<GetCpuInfoResponse, Status>>),
     GetNetworkInfo(oneshot::Sender<Result<GetNetworkInfoResponse, Status>>),
     UpgradeFeosBinary(
-        Box<Streaming<UpgradeRequest>>,
-        oneshot::Sender<Result<UpgradeResponse, Status>>,
+        UpgradeFeosBinaryRequest,
+        oneshot::Sender<Result<UpgradeFeosBinaryResponse, Status>>,
     ),
     StreamKernelLogs(mpsc::Sender<Result<KernelLogEntry, Status>>),
     StreamFeOSLogs(mpsc::Sender<Result<FeosLogEntry, Status>>),
