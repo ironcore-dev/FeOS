@@ -10,6 +10,10 @@ members = [
 ]
 resolver = "2"
 
+[workspace.package]
+version = "0.2.1"
+edition = "2021"
+
 [workspace.dependencies]
 tokio = { version = "1.36.0", features = ["full"] }
 tokio-stream = { version = "0.1.15", features = ["net"] }
