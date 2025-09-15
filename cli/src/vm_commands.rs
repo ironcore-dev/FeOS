@@ -97,6 +97,33 @@ pub enum VmCommand {
         #[arg(required = true, help = "VM identifier")]
         vm_id: String,
     },
+    /// Create and start a virtual machine in one operation
+    CreateAndStart {
+        #[arg(
+            long,
+            required = true,
+            help = "Container image reference to use for the VM"
+        )]
+        image_ref: String,
+
+        #[arg(long, default_value_t = 1, help = "Number of virtual CPUs to allocate")]
+        vcpus: u32,
+
+        #[arg(long, default_value_t = 1024, help = "Memory size in MiB")]
+        memory: u64,
+
+        #[arg(long, help = "Optional custom VM identifier")]
+        vm_id: Option<String>,
+
+        #[arg(
+            long,
+            help = "PCI device BDF to passthrough for networking (e.g., 0000:03:00.0)"
+        )]
+        pci_device: Vec<String>,
+
+        #[arg(long, help = "Enable hugepages for memory allocation")]
+        hugepages: bool,
+    },
     /// Watch virtual machine state change events
     Events {
         #[arg(
@@ -163,6 +190,25 @@ pub async fn handle_vm_command(args: VmArgs) -> Result<()> {
         VmCommand::Pause { vm_id } => pause_vm(&mut client, vm_id).await?,
         VmCommand::Resume { vm_id } => resume_vm(&mut client, vm_id).await?,
         VmCommand::Delete { vm_id } => delete_vm(&mut client, vm_id).await?,
+        VmCommand::CreateAndStart {
+            image_ref,
+            vcpus,
+            memory,
+            vm_id,
+            pci_device,
+            hugepages,
+        } => {
+            create_and_start_vm(
+                &mut client,
+                image_ref,
+                vcpus,
+                memory,
+                vm_id,
+                pci_device,
+                hugepages,
+            )
+            .await?
+        }
         VmCommand::Events { vm_id } => watch_events(&mut client, vm_id).await?,
         VmCommand::Console { vm_id } => console_vm(&mut client, vm_id).await?,
         VmCommand::AttachDisk { vm_id, path } => attach_disk(&mut client, vm_id, path).await?,
@@ -172,6 +218,143 @@ pub async fn handle_vm_command(args: VmArgs) -> Result<()> {
     }
 
     Ok(())
+}
+
+async fn create_and_start_vm(
+    client: &mut VmServiceClient<Channel>,
+    image_ref: String,
+    vcpus: u32,
+    memory: u64,
+    vm_id: Option<String>,
+    pci_devices: Vec<String>,
+    hugepages: bool,
+) -> Result<()> {
+    println!("🚀 Starting create and start operation for VM with image: {image_ref}");
+
+    // Step 1: Create the VM
+    println!("📋 Step 1: Creating VM...");
+
+    let net_configs = pci_devices
+        .iter()
+        .map(|bdf| {
+            println!("   Adding PCI device: {bdf}");
+            NetConfig {
+                backend: Some(net_config::Backend::VfioPci(VfioPciConfig {
+                    bdf: bdf.clone(),
+                })),
+                ..Default::default()
+            }
+        })
+        .collect();
+
+    let request = CreateVmRequest {
+        config: Some(VmConfig {
+            cpus: Some(CpuConfig {
+                boot_vcpus: vcpus,
+                max_vcpus: vcpus,
+            }),
+            memory: Some(MemoryConfig {
+                size_mib: memory,
+                hugepages,
+            }),
+            image_ref: image_ref.clone(),
+            net: net_configs,
+            ..Default::default()
+        }),
+        vm_id: vm_id.clone(),
+    };
+
+    let response = client.create_vm(request).await?.into_inner();
+    let vm_id = response.vm_id;
+    println!("✅ VM created successfully with ID: {vm_id}");
+
+    // Step 2: Wait for VM to be in 'Created' state
+    println!("⏳ Step 2: Waiting for VM to reach 'Created' state...");
+    wait_for_vm_state(client, &vm_id, VmState::Created).await?;
+    println!("✅ VM is now in 'Created' state");
+
+    // Step 3: Start the VM
+    println!("🔄 Step 3: Starting VM...");
+    let start_request = StartVmRequest {
+        vm_id: vm_id.clone(),
+    };
+    client.start_vm(start_request).await?;
+    println!("✅ Start request sent successfully");
+
+    // Step 4: Wait for VM to be in 'Running' state
+    println!("⏳ Step 4: Waiting for VM to reach 'Running' state...");
+    wait_for_vm_state(client, &vm_id, VmState::Running).await?;
+    println!("🎉 VM '{vm_id}' is now running successfully!");
+
+    println!("Use 'feos-cli vm console {vm_id}' to connect to the VM console.");
+
+    Ok(())
+}
+
+async fn wait_for_vm_state(
+    client: &mut VmServiceClient<Channel>,
+    vm_id: &str,
+    target_state: VmState,
+) -> Result<()> {
+    let request = StreamVmEventsRequest {
+        vm_id: Some(vm_id.to_string()),
+        ..Default::default()
+    };
+
+    let mut stream = client.stream_vm_events(request).await?.into_inner();
+
+    // First, check current state
+    let get_request = GetVmRequest {
+        vm_id: vm_id.to_string(),
+    };
+    let current_vm = client.get_vm(get_request).await?.into_inner();
+    let current_state = VmState::try_from(current_vm.state).unwrap_or(VmState::Unspecified);
+
+    if current_state == target_state {
+        return Ok(());
+    }
+
+    println!("   Current state: {current_state:?}, waiting for: {target_state:?}");
+
+    // Listen for state changes
+    while let Some(event) = stream.next().await {
+        match event {
+            Ok(event) => {
+                if let Some(data) = event.data {
+                    if data
+                        .type_url
+                        .contains("feos.vm.vmm.api.v1.VmStateChangedEvent")
+                    {
+                        let state_change = VmStateChangedEvent::decode(&*data.value)?;
+                        let new_state = VmState::try_from(state_change.new_state)
+                            .unwrap_or(VmState::Unspecified);
+
+                        println!(
+                            "   State transition: {:?} ({})",
+                            new_state, state_change.reason
+                        );
+
+                        if new_state == target_state {
+                            return Ok(());
+                        }
+
+                        // Check for error states
+                        if new_state == VmState::Crashed {
+                            anyhow::bail!("VM entered crashed state: {}", state_change.reason);
+                        }
+                    }
+                }
+            }
+            Err(status) => {
+                anyhow::bail!("Error in event stream: {}", status);
+            }
+        }
+    }
+
+    anyhow::bail!(
+        "Event stream ended before reaching target state: {:?}",
+        target_state
+    )
 }
 
 async fn create_vm(
