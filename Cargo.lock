@@ -747,7 +747,7 @@ checksum = "37909eebbb50d72f9059c3b6d82c0463f2ff062c9e95845c43a6c9c0355411be"
 
 [[package]]
 name = "feos"
-version = "0.2.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -782,7 +782,7 @@ dependencies = [
 
 [[package]]
 name = "feos-cli"
-version = "0.2.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -803,7 +803,7 @@ dependencies = [
 
 [[package]]
 name = "feos-proto"
-version = "0.2.1"
+version = "0.2.0"
 dependencies = [
  "prost",
  "prost-types",
@@ -813,7 +813,7 @@ dependencies = [
 
 [[package]]
 name = "feos-utils"
-version = "0.2.1"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "dhcproto",
@@ -1156,7 +1156,7 @@ dependencies = [
 
 [[package]]
 name = "host-service"
-version = "0.2.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "digest",
@@ -1530,7 +1530,7 @@ dependencies = [
 
 [[package]]
 name = "image-service"
-version = "0.2.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "feos-proto",
@@ -3679,7 +3679,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vm-service"
-version = "0.2.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "cloud-hypervisor-client",
