@@ -33,17 +33,22 @@ pub struct VmArgs {
 
 #[derive(Subcommand, Debug)]
 pub enum VmCommand {
+    /// Create a new virtual machine with specified configuration
     Create {
-        #[arg(long, required = true)]
+        #[arg(
+            long,
+            required = true,
+            help = "Container image reference to use for the VM"
+        )]
         image_ref: String,
 
-        #[arg(long, default_value_t = 1)]
+        #[arg(long, default_value_t = 1, help = "Number of virtual CPUs to allocate")]
         vcpus: u32,
 
-        #[arg(long, default_value_t = 1024)]
+        #[arg(long, default_value_t = 1024, help = "Memory size in MiB")]
         memory: u64,
 
-        #[arg(long)]
+        #[arg(long, help = "Optional custom VM identifier")]
         vm_id: Option<String>,
 
         #[arg(
@@ -52,56 +57,75 @@ pub enum VmCommand {
         )]
         pci_device: Vec<String>,
 
-        #[arg(long)]
+        #[arg(long, help = "Enable hugepages for memory allocation")]
         hugepages: bool,
     },
+    /// Start an existing virtual machine
     Start {
-        #[arg(required = true)]
+        #[arg(required = true, help = "VM identifier")]
         vm_id: String,
     },
+    /// Get detailed information about a virtual machine
     Info {
-        #[arg(required = true)]
+        #[arg(required = true, help = "VM identifier")]
         vm_id: String,
     },
+    /// List all virtual machines
     List,
+    /// Ping a virtual machine's VMM to check status
     Ping {
-        #[arg(required = true)]
+        #[arg(required = true, help = "VM identifier")]
         vm_id: String,
     },
+    /// Gracefully shutdown a virtual machine
     Shutdown {
-        #[arg(required = true)]
+        #[arg(required = true, help = "VM identifier")]
         vm_id: String,
     },
+    /// Pause a running virtual machine
     Pause {
-        #[arg(required = true)]
+        #[arg(required = true, help = "VM identifier")]
         vm_id: String,
     },
+    /// Resume a paused virtual machine
     Resume {
-        #[arg(required = true)]
+        #[arg(required = true, help = "VM identifier")]
         vm_id: String,
     },
+    /// Delete a virtual machine
     Delete {
-        #[arg(required = true)]
+        #[arg(required = true, help = "VM identifier")]
         vm_id: String,
     },
+    /// Watch virtual machine state change events
     Events {
-        #[arg(long)]
+        #[arg(
+            long,
+            help = "VM identifier (optional, if not provided watches all VMs)"
+        )]
         vm_id: Option<String>,
     },
+    /// Connect to a virtual machine's console
     Console {
-        #[arg(required = true)]
+        #[arg(required = true, help = "VM identifier")]
         vm_id: String,
     },
+    /// Attach a disk to a running virtual machine
     AttachDisk {
-        #[arg(long, required = true)]
+        #[arg(long, required = true, help = "VM identifier")]
         vm_id: String,
-        #[arg(long, required = true)]
+        #[arg(long, required = true, help = "Path to the disk image file")]
         path: String,
     },
+    /// Remove a disk from a virtual machine
     RemoveDisk {
-        #[arg(long, required = true)]
+        #[arg(long, required = true, help = "VM identifier")]
         vm_id: String,
-        #[arg(long, required = true)]
+        #[arg(
+            long,
+            required = true,
+            help = "Device identifier of the disk to remove"
+        )]
         device_id: String,
     },
 }

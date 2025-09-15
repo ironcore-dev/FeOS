@@ -25,10 +25,15 @@ pub struct HostArgs {
 
 #[derive(Subcommand, Debug)]
 pub enum HostCommand {
+    /// Get the host machine's hostname
     Hostname,
+    /// Display detailed memory information from /proc/meminfo
     Memory,
+    /// Display CPU information from /proc/cpuinfo
     CpuInfo,
+    /// Display network interface statistics
     NetworkInfo,
+    /// Upgrade the FeOS binary from a remote URL
     Upgrade {
         #[arg(long, required = true, help = "URL to fetch the new FeOS binary from")]
         url: String,

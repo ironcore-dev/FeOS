@@ -27,17 +27,24 @@ pub struct ImageArgs {
 
 #[derive(Subcommand, Debug)]
 pub enum ImageCommand {
+    /// Pull a container image from a registry
     Pull {
-        #[arg(required = true)]
+        #[arg(
+            required = true,
+            help = "Container image reference to pull (e.g., docker.io/library/ubuntu:latest)"
+        )]
         image_ref: String,
     },
+    /// List all local container images
     List,
+    /// Watch the status of an image pull operation
     Watch {
-        #[arg(required = true)]
+        #[arg(required = true, help = "UUID of the image to watch")]
         image_uuid: String,
     },
+    /// Delete a local container image
     Delete {
-        #[arg(required = true)]
+        #[arg(required = true, help = "UUID of the image to delete")]
         image_uuid: String,
     },
 }
