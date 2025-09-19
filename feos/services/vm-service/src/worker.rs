@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2023 SAP SE or an SAP affiliate company and IronCore contributors
+// SPDX-License-Identifier: Apache-2.0
+
 use crate::{
     dispatcher_handlers::get_image_service_client, vmm::Hypervisor, vmm::VmmError, VmEventWrapper,
 };

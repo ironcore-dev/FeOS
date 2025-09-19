@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2023 SAP SE or an SAP affiliate company and IronCore contributors
+// SPDX-License-Identifier: Apache-2.0
+
 use crate::{
     dispatcher_handlers::{
         handle_create_vm_command, handle_delete_vm_command, handle_get_vm_command,

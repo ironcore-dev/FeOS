@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2023 SAP SE or an SAP affiliate company and IronCore contributors
+// SPDX-License-Identifier: Apache-2.0
+
 use crate::{FileCommand, ImageStateEvent, OrchestratorCommand};
 use feos_proto::image_service::{
     DeleteImageResponse, ImageInfo, ImageState, ImageStatusResponse, ListImagesResponse,

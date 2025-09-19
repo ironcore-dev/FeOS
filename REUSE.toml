@@ -1,0 +1,34 @@
+version = 1
+SPDX-PackageName = "FeOS"
+SPDX-PackageSupplier = "IronCore authors <ospo@sap.com>"
+SPDX-PackageDownloadLocation = "https://github.com/ironcore-dev/FeOS"
+
+
+[[annotations]]
+path = [
+    ".github/**",
+    "CODEOWNERS",
+    "Makefile",
+    "README.md",
+    "Cargo.lock",
+    "Cargo.toml",
+    ".gitignore",
+    "**/Cargo.toml",
+    "**/build.rs",
+    "**/*.sql",
+    "**/*.json",
+    "proto/v1/*.proto",
+]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2023 SAP SE or an SAP affiliate company and IronCore contributors"
+SPDX-License-Identifier = "Apache-2.0"
+
+[[annotations]]
+path = [
+    "hack/**",
+    "docs/**",
+    "**/README.md",
+]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2023 SAP SE or an SAP affiliate company and IronCore contributors"
+SPDX-License-Identifier = "Apache-2.0"

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2023 SAP SE or an SAP affiliate company and IronCore contributors
+// SPDX-License-Identifier: Apache-2.0
+
 use chrono::{DateTime, Utc};
 use log::{Level, LevelFilter, Log, Metadata, Record, SetLoggerError};
 use std::collections::VecDeque;
