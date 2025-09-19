@@ -3,7 +3,7 @@ IPAM ?=
 .PHONY: all clippy release run clean cli test
 
 clippy:
-	cargo clippy
+	cargo clippy --target=x86_64-unknown-linux-musl --all
 
 all: clippy
 	cargo build --target=x86_64-unknown-linux-musl --all
