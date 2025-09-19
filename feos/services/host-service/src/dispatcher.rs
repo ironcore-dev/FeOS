@@ -26,7 +26,7 @@ impl HostServiceDispatcher {
     }
 
     pub async fn run(mut self) {
-        info!("HOST_DISPATCHER: Running and waiting for commands.");
+        info!("HostDispatcher: Running and waiting for commands.");
         while let Some(cmd) = self.rx.recv().await {
             match cmd {
                 Command::GetHostname(responder) => {
@@ -63,6 +63,6 @@ impl HostServiceDispatcher {
                 }
             }
         }
-        info!("HOST_DISPATCHER: Channel closed, shutting down.");
+        info!("HostDispatcher: Channel closed, shutting down.");
     }
 }

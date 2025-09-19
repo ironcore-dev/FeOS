@@ -36,7 +36,7 @@ impl VmService for VmApiHandler {
         &self,
         request: Request<CreateVmRequest>,
     ) -> Result<Response<CreateVmResponse>, Status> {
-        info!("VM_API_HANDLER: Received CreateVm request.");
+        info!("VmApi: Received CreateVm request.");
         let (resp_tx, resp_rx) = oneshot::channel();
         let cmd = Command::CreateVm(request.into_inner(), resp_tx);
         self.dispatcher_tx
@@ -56,7 +56,7 @@ impl VmService for VmApiHandler {
         &self,
         request: Request<StartVmRequest>,
     ) -> Result<Response<StartVmResponse>, Status> {
-        info!("VM_API_HANDLER: Received StartVm request.");
+        info!("VmApi: Received StartVm request.");
         let (resp_tx, resp_rx) = oneshot::channel();
         let cmd = Command::StartVm(request.into_inner(), resp_tx);
         self.dispatcher_tx
@@ -73,7 +73,7 @@ impl VmService for VmApiHandler {
     }
 
     async fn get_vm(&self, request: Request<GetVmRequest>) -> Result<Response<VmInfo>, Status> {
-        info!("VM_API_HANDLER: Received GetVm request.");
+        info!("VmApi: Received GetVm request.");
         let (resp_tx, resp_rx) = oneshot::channel();
         let cmd = Command::GetVm(request.into_inner(), resp_tx);
         self.dispatcher_tx
@@ -93,7 +93,7 @@ impl VmService for VmApiHandler {
         &self,
         request: Request<StreamVmEventsRequest>,
     ) -> Result<Response<Self::StreamVmEventsStream>, Status> {
-        info!("VM_API_HANDLER: Received StreamVmEvents stream request.");
+        info!("VmApi: Received StreamVmEvents stream request.");
         let (stream_tx, stream_rx) = mpsc::channel(16);
         let cmd = Command::StreamVmEvents(request.into_inner(), stream_tx);
         self.dispatcher_tx
@@ -108,7 +108,7 @@ impl VmService for VmApiHandler {
         &self,
         request: Request<DeleteVmRequest>,
     ) -> Result<Response<DeleteVmResponse>, Status> {
-        info!("VM_API_HANDLER: Received DeleteVm request.");
+        info!("VmApi: Received DeleteVm request.");
         let (resp_tx, resp_rx) = oneshot::channel();
         let cmd = Command::DeleteVm(request.into_inner(), resp_tx);
         self.dispatcher_tx
@@ -128,7 +128,7 @@ impl VmService for VmApiHandler {
         &self,
         request: Request<Streaming<StreamVmConsoleRequest>>,
     ) -> Result<Response<Self::StreamVmConsoleStream>, Status> {
-        info!("VM_API_HANDLER: Received StreamVmConsole stream request.");
+        info!("VmApi: Received StreamVmConsole stream request.");
         let grpc_input_stream = request.into_inner();
         let (grpc_output_tx, grpc_output_rx) = mpsc::channel(32);
         let cmd = Command::StreamVmConsole(grpc_input_stream, grpc_output_tx);
@@ -144,7 +144,7 @@ impl VmService for VmApiHandler {
         &self,
         request: Request<ListVmsRequest>,
     ) -> Result<Response<ListVmsResponse>, Status> {
-        info!("VM_API_HANDLER: Received ListVms request.");
+        info!("VmApi: Received ListVms request.");
         let (resp_tx, resp_rx) = oneshot::channel();
         let cmd = Command::ListVms(request.into_inner(), resp_tx);
         self.dispatcher_tx
@@ -164,7 +164,7 @@ impl VmService for VmApiHandler {
         &self,
         request: Request<PingVmRequest>,
     ) -> Result<Response<PingVmResponse>, Status> {
-        info!("VM_API_HANDLER: Received PingVm request.");
+        info!("VmApi: Received PingVm request.");
         let (resp_tx, resp_rx) = oneshot::channel();
         let cmd = Command::PingVm(request.into_inner(), resp_tx);
         self.dispatcher_tx
@@ -184,7 +184,7 @@ impl VmService for VmApiHandler {
         &self,
         request: Request<ShutdownVmRequest>,
     ) -> Result<Response<ShutdownVmResponse>, Status> {
-        info!("VM_API_HANDLER: Received ShutdownVm request.");
+        info!("VmApi: Received ShutdownVm request.");
         let (resp_tx, resp_rx) = oneshot::channel();
         let cmd = Command::ShutdownVm(request.into_inner(), resp_tx);
         self.dispatcher_tx
@@ -204,7 +204,7 @@ impl VmService for VmApiHandler {
         &self,
         request: Request<PauseVmRequest>,
     ) -> Result<Response<PauseVmResponse>, Status> {
-        info!("VM_API_HANDLER: Received PauseVm request.");
+        info!("VmApi: Received PauseVm request.");
         let (resp_tx, resp_rx) = oneshot::channel();
         let cmd = Command::PauseVm(request.into_inner(), resp_tx);
         self.dispatcher_tx
@@ -224,7 +224,7 @@ impl VmService for VmApiHandler {
         &self,
         request: Request<ResumeVmRequest>,
     ) -> Result<Response<ResumeVmResponse>, Status> {
-        info!("VM_API_HANDLER: Received ResumeVm request.");
+        info!("VmApi: Received ResumeVm request.");
         let (resp_tx, resp_rx) = oneshot::channel();
         let cmd = Command::ResumeVm(request.into_inner(), resp_tx);
         self.dispatcher_tx
@@ -244,7 +244,7 @@ impl VmService for VmApiHandler {
         &self,
         request: Request<AttachDiskRequest>,
     ) -> Result<Response<AttachDiskResponse>, Status> {
-        info!("VM_API_HANDLER: Received AttachDisk request.");
+        info!("VmApi: Received AttachDisk request.");
         let (resp_tx, resp_rx) = oneshot::channel();
         let cmd = Command::AttachDisk(request.into_inner(), resp_tx);
         self.dispatcher_tx
@@ -264,7 +264,7 @@ impl VmService for VmApiHandler {
         &self,
         request: Request<RemoveDiskRequest>,
     ) -> Result<Response<RemoveDiskResponse>, Status> {
-        info!("VM_API_HANDLER: Received RemoveDisk request.");
+        info!("VmApi: Received RemoveDisk request.");
         let (resp_tx, resp_rx) = oneshot::channel();
         let cmd = Command::RemoveDisk(request.into_inner(), resp_tx);
         self.dispatcher_tx

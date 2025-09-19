@@ -39,11 +39,11 @@ impl FileStore {
     }
 
     pub async fn run(mut self) {
-        info!("FILESTORE_ACTOR: Running and waiting for file commands.");
+        info!("FileStore: Running and waiting for file commands.");
         while let Some(cmd) = self.command_rx.recv().await {
             self.handle_command(cmd).await;
         }
-        info!("FILESTORE_ACTOR: Channel closed, shutting down.");
+        info!("FileStore: Channel closed, shutting down.");
     }
 
     async fn handle_command(&mut self, cmd: FileCommand) {
@@ -54,7 +54,7 @@ impl FileStore {
                 image_data,
                 responder,
             } => {
-                info!("FILESTORE_ACTOR: Storing image {image_uuid}");
+                info!("FileStore: Storing image {image_uuid}");
                 let final_dir = Path::new(IMAGE_DIR).join(&image_uuid);
                 let result = Self::store_image_impl(&final_dir, &image_data, &image_ref).await;
                 let _ = responder.send(result);
@@ -63,13 +63,13 @@ impl FileStore {
                 image_uuid,
                 responder,
             } => {
-                info!("FILESTORE_ACTOR: Deleting image {image_uuid}");
+                info!("FileStore: Deleting image {image_uuid}");
                 let image_dir = Path::new(IMAGE_DIR).join(&image_uuid);
                 let result = fs::remove_dir_all(&image_dir).await;
                 let _ = responder.send(result);
             }
             FileCommand::ScanExistingImages { responder } => {
-                info!("FILESTORE_ACTOR: Scanning for existing images...");
+                info!("FileStore: Scanning for existing images...");
                 let store = Self::scan_images_impl().await;
                 let _ = responder.send(store);
             }
@@ -100,7 +100,7 @@ impl FileStore {
         let mut entries = match fs::read_dir(IMAGE_DIR).await {
             Ok(entries) => entries,
             Err(e) => {
-                error!("FILESTORE_ACTOR: Failed to read image directory {IMAGE_DIR}: {e}");
+                error!("FileStore: Failed to read image directory {IMAGE_DIR}: {e}");
                 return store;
             }
         };
@@ -125,16 +125,16 @@ impl FileStore {
                             };
                             store.insert(uuid.to_string(), image_info);
                         } else {
-                            warn!("FILESTORE_ACTOR: Could not parse metadata for {uuid}");
+                            warn!("FileStore: Could not parse metadata for {uuid}");
                         }
                     } else {
-                        warn!("FILESTORE_ACTOR: Could not read metadata for {uuid}");
+                        warn!("FileStore: Could not read metadata for {uuid}");
                     }
                 }
             }
         }
         info!(
-            "FILESTORE_ACTOR: Filesystem scan complete. Found {} images.",
+            "FileStore: Filesystem scan complete. Found {} images.",
             store.len()
         );
         store

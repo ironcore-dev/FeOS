@@ -79,11 +79,11 @@ pub async fn handle_create_vm(
         }))
         .is_err()
     {
-        error!("VM_WORKER ({vm_id}): Client disconnected before immediate response could be sent. Aborting creation.");
+        error!("VmWorker ({vm_id}): Client disconnected before immediate response could be sent. Aborting creation.");
         return;
     }
 
-    info!("VM_WORKER ({vm_id}): Starting creation process.");
+    info!("VmWorker ({vm_id}): Starting creation process.");
     crate::vmm::broadcast_state_change_event(
         &broadcast_tx,
         &vm_id,
@@ -103,11 +103,11 @@ pub async fn handle_create_vm(
         .unwrap_or_default();
 
     info!(
-        "VM_WORKER ({vm_id}): Waiting for image '{image_ref}' (uuid: {image_uuid}) to be ready..."
+        "VmWorker ({vm_id}): Waiting for image '{image_ref}' (uuid: {image_uuid}) to be ready..."
     );
     if let Err(e) = wait_for_image_ready(&image_uuid, &image_ref).await {
         let error_msg = e.to_string();
-        error!("VM_WORKER ({vm_id}): {error_msg}");
+        error!("VmWorker ({vm_id}): {error_msg}");
         crate::vmm::broadcast_state_change_event(
             &broadcast_tx,
             &vm_id,
@@ -121,13 +121,13 @@ pub async fn handle_create_vm(
         .await;
         return;
     }
-    info!("VM_WORKER ({vm_id}): Image '{image_ref}' (uuid: {image_uuid}) is ready.");
+    info!("VmWorker ({vm_id}): Image '{image_ref}' (uuid: {image_uuid}) is ready.");
 
     let result = hypervisor.create_vm(&vm_id, req, image_uuid).await;
 
     match result {
         Ok(pid) => {
-            info!("VM_WORKER ({vm_id}): Background creation process completed successfully.");
+            info!("VmWorker ({vm_id}): Background creation process completed successfully.");
             crate::vmm::broadcast_state_change_event(
                 &broadcast_tx,
                 &vm_id,
@@ -142,7 +142,7 @@ pub async fn handle_create_vm(
         }
         Err(e) => {
             let error_msg = e.to_string();
-            error!("VM_WORKER ({vm_id}): Background creation process failed: {error_msg}");
+            error!("VmWorker ({vm_id}): Background creation process failed: {error_msg}");
             crate::vmm::broadcast_state_change_event(
                 &broadcast_tx,
                 &vm_id,
@@ -200,7 +200,7 @@ pub async fn handle_start_vm(
     }
 
     if responder.send(result.map_err(Into::into)).is_err() {
-        error!("VM_WORKER: Failed to send response for StartVm.");
+        error!("VmWorker: Failed to send response for StartVm.");
     }
 }
 
@@ -211,7 +211,7 @@ pub async fn handle_get_vm(
 ) {
     let result = hypervisor.get_vm(req).await;
     if responder.send(result.map_err(Into::into)).is_err() {
-        error!("VM_WORKER: Failed to send response for GetVm.");
+        error!("VmWorker: Failed to send response for GetVm.");
     }
 }
 
@@ -233,18 +233,18 @@ pub async fn handle_stream_vm_events(
                 if vm_id_to_watch.as_ref().is_none_or(|id| event.vm_id == *id)
                     && stream_tx.send(Ok(event)).await.is_err()
                 {
-                    info!("VM_WORKER (Stream): Client for '{watcher_desc}' disconnected.");
+                    info!("VmWorker (Stream): Client for '{watcher_desc}' disconnected.");
                     break;
                 }
             }
             Err(broadcast::error::RecvError::Lagged(n)) => {
                 warn!(
-                    "VM_WORKER (Stream): Event stream for '{watcher_desc}' lagged by {n} messages."
+                    "VmWorker (Stream): Event stream for '{watcher_desc}' lagged by {n} messages."
                 );
             }
             Err(broadcast::error::RecvError::Closed) => {
                 info!(
-                    "VM_WORKER (Stream): Broadcast channel closed. Shutting down stream for '{watcher_desc}'."
+                    "VmWorker (Stream): Broadcast channel closed. Shutting down stream for '{watcher_desc}'."
                 );
                 break;
             }
@@ -264,7 +264,7 @@ pub async fn handle_delete_vm(
     let result = hypervisor.delete_vm(req, process_id).await;
 
     if !image_uuid.is_empty() {
-        info!("VM_WORKER ({vm_id}): Attempting to delete associated image with UUID: {image_uuid}");
+        info!("VmWorker ({vm_id}): Attempting to delete associated image with UUID: {image_uuid}");
         match get_image_service_client().await {
             Ok(mut client) => {
                 let delete_req = feos_proto::image_service::DeleteImageRequest {
@@ -272,23 +272,25 @@ pub async fn handle_delete_vm(
                 };
                 if let Err(status) = client.delete_image(delete_req).await {
                     warn!(
-                        "VM_WORKER ({vm_id}): Failed to delete image {image_uuid}: {message}. This may be expected if the image is shared or already deleted.",
+                        "VmWorker ({vm_id}): Failed to delete image {image_uuid}: {message}. This may be expected if the image is shared or already deleted.",
                         message = status.message()
                     );
                 } else {
-                    info!("VM_WORKER ({vm_id}): Successfully requested deletion of image {image_uuid}");
+                    info!(
+                        "VmWorker ({vm_id}): Successfully requested deletion of image {image_uuid}"
+                    );
                 }
             }
             Err(e) => {
-                warn!("VM_WORKER ({vm_id}): Could not connect to ImageService to delete image {image_uuid}: {e}");
+                warn!("VmWorker ({vm_id}): Could not connect to ImageService to delete image {image_uuid}: {e}");
             }
         }
     } else {
-        info!("VM_WORKER ({vm_id}): No image UUID provided, skipping image deletion.");
+        info!("VmWorker ({vm_id}): No image UUID provided, skipping image deletion.");
     }
 
     if responder.send(result.map_err(Into::into)).is_err() {
-        error!("VM_WORKER: Failed to send response for DeleteVm.");
+        error!("VmWorker: Failed to send response for DeleteVm.");
     }
 }
 
@@ -323,7 +325,7 @@ pub async fn handle_ping_vm(
 ) {
     let result = hypervisor.ping_vm(req).await;
     if responder.send(result.map_err(Into::into)).is_err() {
-        error!("VM_WORKER: Failed to send response for PingVm.");
+        error!("VmWorker: Failed to send response for PingVm.");
     }
 }
 
@@ -351,7 +353,7 @@ pub async fn handle_shutdown_vm(
     }
 
     if responder.send(result.map_err(Into::into)).is_err() {
-        error!("VM_WORKER: Failed to send response for ShutdownVm.");
+        error!("VmWorker: Failed to send response for ShutdownVm.");
     }
 }
 
@@ -379,7 +381,7 @@ pub async fn handle_pause_vm(
     }
 
     if responder.send(result.map_err(Into::into)).is_err() {
-        error!("VM_WORKER: Failed to send response for PauseVm.");
+        error!("VmWorker: Failed to send response for PauseVm.");
     }
 }
 
@@ -407,7 +409,7 @@ pub async fn handle_resume_vm(
     }
 
     if responder.send(result.map_err(Into::into)).is_err() {
-        error!("VM_WORKER: Failed to send response for ResumeVm.");
+        error!("VmWorker: Failed to send response for ResumeVm.");
     }
 }
 
@@ -418,7 +420,7 @@ pub async fn handle_attach_disk(
 ) {
     let result = hypervisor.attach_disk(req).await;
     if responder.send(result.map_err(Into::into)).is_err() {
-        error!("VM_WORKER: Failed to send response for AttachDisk.");
+        error!("VmWorker: Failed to send response for AttachDisk.");
     }
 }
 
@@ -429,7 +431,7 @@ pub async fn handle_remove_disk(
 ) {
     let result = hypervisor.remove_disk(req).await;
     if responder.send(result.map_err(Into::into)).is_err() {
-        error!("VM_WORKER: Failed to send response for RemoveDisk.");
+        error!("VmWorker: Failed to send response for RemoveDisk.");
     }
 }
 
@@ -481,13 +483,13 @@ async fn bridge_console_streams(
             tokio::select! {
                 biased;
                 _ = grpc_output_clone.closed() => {
-                    info!("VMM_HELPER (Console {}): gRPC client disconnected, terminating read task.", &read_task_vm_id);
+                    info!("VmmHelper (Console {}): gRPC client disconnected, terminating read task.", &read_task_vm_id);
                     break;
                 }
                 read_result = socket_reader.read(&mut buf) => {
                     match read_result {
                         Ok(0) => {
-                            info!("VMM_HELPER (Console {}): Console socket closed (EOF).", &read_task_vm_id);
+                            info!("VmmHelper (Console {}): Console socket closed (EOF).", &read_task_vm_id);
                             break;
                         }
                         Ok(n) => {
@@ -513,7 +515,7 @@ async fn bridge_console_streams(
                 Ok(msg) => match msg.payload {
                     Some(console_input::Payload::Data(ConsoleData { input })) => {
                         if let Err(e) = socket_writer.write_all(&input).await {
-                            warn!("VMM_HELPER (Console {}): Failed to write to socket: {}. VM may have shut down.", &write_task_vm_id, e);
+                            warn!("VmmHelper (Console {}): Failed to write to socket: {}. VM may have shut down.", &write_task_vm_id, e);
                             break;
                         }
                     }
@@ -534,7 +536,7 @@ async fn bridge_console_streams(
                 },
                 Err(e) => {
                     warn!(
-                        "VMM_HELPER (Console {}): Error reading from gRPC client stream: {}",
+                        "VmmHelper (Console {}): Error reading from gRPC client stream: {}",
                         &write_task_vm_id, e
                     );
                     break;

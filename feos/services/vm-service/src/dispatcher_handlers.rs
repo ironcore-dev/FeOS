@@ -50,7 +50,7 @@ async fn initiate_image_pull_for_vm(req: &CreateVmRequest) -> Result<String, Sta
         }
     };
 
-    info!("VM_DISPATCHER: Requesting image pull for {image_ref}");
+    info!("VmDispatcher: Requesting image pull for {image_ref}");
     let mut client = get_image_service_client()
         .await
         .map_err(|e| Status::unavailable(format!("Could not connect to ImageService: {e}")))?;
@@ -62,12 +62,12 @@ async fn initiate_image_pull_for_vm(req: &CreateVmRequest) -> Result<String, Sta
         .await
         .map_err(|status| {
             let msg = format!("PullImage RPC failed for {image_ref}: {status}");
-            error!("VM_DISPATCHER: {msg}");
+            error!("VmDispatcher: {msg}");
             Status::unavailable(msg)
         })?;
 
     let image_uuid = response.into_inner().image_uuid;
-    info!("VM_DISPATCHER: Image pull for {image_ref} initiated. UUID: {image_uuid}");
+    info!("VmDispatcher: Image pull for {image_ref} initiated. UUID: {image_uuid}");
     Ok(image_uuid)
 }
 
@@ -98,7 +98,7 @@ pub(crate) async fn handle_create_vm_command(
         Err(status) => {
             if responder.send(Err(status)).is_err() {
                 error!(
-                    "VM_DISPATCHER: Failed to send error response for CreateVm. Responder closed."
+                    "VmDispatcher: Failed to send error response for CreateVm. Responder closed."
                 );
             }
             return;
@@ -110,7 +110,7 @@ pub(crate) async fn handle_create_vm_command(
             Ok(Some(_)) => {
                 let status = Status::already_exists(format!("VM with ID {vm_id} already exists."));
                 if responder.send(Err(status)).is_err() {
-                    error!("VM_DISPATCHER: Failed to send error response for CreateVm. Responder closed.");
+                    error!("VmDispatcher: Failed to send error response for CreateVm. Responder closed.");
                 }
                 return;
             }
@@ -118,7 +118,7 @@ pub(crate) async fn handle_create_vm_command(
             Err(e) => {
                 let status = Status::internal(format!("Failed to check DB for existing VM: {e}"));
                 if responder.send(Err(status)).is_err() {
-                    error!("VM_DISPATCHER: Failed to send error response for CreateVm. Responder closed.");
+                    error!("VmDispatcher: Failed to send error response for CreateVm. Responder closed.");
                 }
                 return;
             }
@@ -132,7 +132,7 @@ pub(crate) async fn handle_create_vm_command(
                 Err(e) => {
                     let status = Status::internal(format!("Failed to parse image UUID: {e}"));
                     if responder.send(Err(status)).is_err() {
-                        error!("VM_DISPATCHER: Failed to send error response for CreateVm. Responder closed.");
+                        error!("VmDispatcher: Failed to send error response for CreateVm. Responder closed.");
                     }
                     return;
                 }
@@ -151,13 +151,13 @@ pub(crate) async fn handle_create_vm_command(
 
             if let Err(e) = repository.save_vm(&record).await {
                 let status = Status::internal(format!("Failed to save VM to database: {e}"));
-                error!("VM_DISPATCHER: {message}", message = status.message());
+                error!("VmDispatcher: {message}", message = status.message());
                 if responder.send(Err(status)).is_err() {
-                    error!("VM_DISPATCHER: Failed to send error response for CreateVm. Responder closed.");
+                    error!("VmDispatcher: Failed to send error response for CreateVm. Responder closed.");
                 }
                 return;
             }
-            info!("VM_DISPATCHER: Saved initial record for VM {vm_id}");
+            info!("VmDispatcher: Saved initial record for VM {vm_id}");
 
             tokio::spawn(worker::handle_create_vm(
                 vm_id.to_string(),
@@ -171,7 +171,7 @@ pub(crate) async fn handle_create_vm_command(
         Err(status) => {
             if responder.send(Err(status)).is_err() {
                 error!(
-                    "VM_DISPATCHER: Failed to send error response for CreateVm. Responder closed."
+                    "VmDispatcher: Failed to send error response for CreateVm. Responder closed."
                 );
             }
         }
@@ -228,7 +228,7 @@ pub(crate) async fn handle_stream_vm_events_command(
                     .is_err()
                 {
                     warn!(
-                        "STREAM_EVENTS: Client for {vm_id_str} disconnected before error could be sent."
+                        "StreamEvents: Client for {vm_id_str} disconnected before error could be sent."
                     );
                 }
                 return;
@@ -238,7 +238,7 @@ pub(crate) async fn handle_stream_vm_events_command(
         match repository.get_vm(vm_id).await {
             Ok(Some(record)) => {
                 info!(
-                    "STREAM_EVENTS: Sending initial state for VM {vm_id_str}: {:?}",
+                    "StreamEvents: Sending initial state for VM {vm_id_str}: {:?}",
                     record.status.state
                 );
                 let state_change_event = VmStateChangedEvent {
@@ -258,7 +258,7 @@ pub(crate) async fn handle_stream_vm_events_command(
 
                 if stream_tx.send(Ok(initial_event)).await.is_err() {
                     info!(
-                        "STREAM_EVENTS: Client for {vm_id_str} disconnected before live events could be streamed."
+                        "StreamEvents: Client for {vm_id_str} disconnected before live events could be streamed."
                     );
                     return;
                 }
@@ -279,13 +279,13 @@ pub(crate) async fn handle_stream_vm_events_command(
                     .is_err()
                 {
                     warn!(
-                        "STREAM_EVENTS: Client for {vm_id_str} disconnected before not-found error could be sent."
+                        "StreamEvents: Client for {vm_id_str} disconnected before not-found error could be sent."
                     );
                 }
             }
             Err(e) => {
                 error!(
-                    "STREAM_EVENTS: Failed to get VM {vm_id_str} from database for event stream: {e}"
+                    "StreamEvents: Failed to get VM {vm_id_str} from database for event stream: {e}"
                 );
                 if stream_tx
                     .send(Err(Status::internal(
@@ -295,17 +295,17 @@ pub(crate) async fn handle_stream_vm_events_command(
                     .is_err()
                 {
                     warn!(
-                        "STREAM_EVENTS: Client for {vm_id_str} disconnected before internal-error could be sent."
+                        "StreamEvents: Client for {vm_id_str} disconnected before internal-error could be sent."
                     );
                 }
             }
         }
     } else {
-        info!("STREAM_EVENTS: Request to stream events for all VMs received.");
+        info!("StreamEvents: Request to stream events for all VMs received.");
         match repository.list_all_vms().await {
             Ok(records) => {
                 info!(
-                    "STREAM_EVENTS: Found {} existing VMs to send initial state for.",
+                    "StreamEvents: Found {} existing VMs to send initial state for.",
                     records.len()
                 );
                 for record in records {
@@ -325,13 +325,13 @@ pub(crate) async fn handle_stream_vm_events_command(
                     };
 
                     if stream_tx.send(Ok(initial_event)).await.is_err() {
-                        info!("STREAM_EVENTS: Client for all VMs disconnected while sending initial states.");
+                        info!("StreamEvents: Client for all VMs disconnected while sending initial states.");
                         return;
                     }
                 }
             }
             Err(e) => {
-                error!("STREAM_EVENTS: Failed to list all VMs from database for event stream: {e}");
+                error!("StreamEvents: Failed to list all VMs from database for event stream: {e}");
                 if stream_tx
                     .send(Err(Status::internal(
                         "Failed to retrieve initial VM list for event stream.",
@@ -339,13 +339,13 @@ pub(crate) async fn handle_stream_vm_events_command(
                     .await
                     .is_err()
                 {
-                    warn!("STREAM_EVENTS: Client for all VMs disconnected before internal-error could be sent.");
+                    warn!("StreamEvents: Client for all VMs disconnected before internal-error could be sent.");
                 }
                 return;
             }
         }
 
-        info!("STREAM_EVENTS: Initial states sent. Starting live event stream for all VMs.");
+        info!("StreamEvents: Initial states sent. Starting live event stream for all VMs.");
         tokio::spawn(worker::handle_stream_vm_events(
             req,
             stream_tx,
@@ -380,10 +380,10 @@ pub(crate) async fn handle_delete_vm_command(
                 let _ = responder.send(Err(Status::internal("Failed to delete VM from database.")));
                 return;
             }
-            info!("VM_DISPATCHER: Deleted record for VM {vm_id} from database.");
+            info!("VmDispatcher: Deleted record for VM {vm_id} from database.");
 
             if let Err(e) = healthcheck_cancel_bus.send(vm_id) {
-                warn!("VM_DISPATCHER: Failed to send healthcheck cancellation for {vm_id}: {e}");
+                warn!("VmDispatcher: Failed to send healthcheck cancellation for {vm_id}: {e}");
             }
 
             tokio::spawn(worker::handle_delete_vm(
@@ -397,10 +397,10 @@ pub(crate) async fn handle_delete_vm_command(
         }
         Ok(None) => {
             let msg = format!("VM with ID {vm_id} not found in database for deletion");
-            warn!("VM_DISPATCHER: {msg}. Still attempting hypervisor cleanup.");
+            warn!("VmDispatcher: {msg}. Still attempting hypervisor cleanup.");
 
             if let Err(e) = healthcheck_cancel_bus.send(vm_id) {
-                warn!("VM_DISPATCHER: Failed to send healthcheck cancellation for {vm_id}: {e}");
+                warn!("VmDispatcher: Failed to send healthcheck cancellation for {vm_id}: {e}");
             }
 
             tokio::spawn(worker::handle_delete_vm(
@@ -437,14 +437,14 @@ pub(crate) async fn handle_list_vms_command(
 
             let response = ListVmsResponse { vms };
             if responder.send(Ok(response)).is_err() {
-                error!("VM_DISPATCHER: Failed to send response for ListVms.");
+                error!("VmDispatcher: Failed to send response for ListVms.");
             }
         }
         Err(e) => {
-            error!("VM_DISPATCHER: Failed to list VMs from database: {e}");
+            error!("VmDispatcher: Failed to list VMs from database: {e}");
             let status = Status::internal("Failed to retrieve VM list.");
             if responder.send(Err(status)).is_err() {
-                error!("VM_DISPATCHER: Failed to send error response for ListVms.");
+                error!("VmDispatcher: Failed to send error response for ListVms.");
             }
         }
     }
@@ -463,7 +463,7 @@ pub(crate) async fn check_and_cleanup_vms(
             let process_exists = nix::sys::signal::kill(pid_obj, None).is_ok();
 
             if process_exists {
-                info!("VM_DISPATCHER (Sanity Check): Found running VM {} (PID: {}) from previous session. Starting health monitor.", vm.vm_id, pid);
+                info!("VmDispatcher (Sanity Check): Found running VM {} (PID: {}) from previous session. Starting health monitor.", vm.vm_id, pid);
                 let cancel_bus = healthcheck_cancel_bus.subscribe();
                 worker::start_healthcheck_monitor(
                     vm.vm_id.to_string(),
@@ -472,7 +472,7 @@ pub(crate) async fn check_and_cleanup_vms(
                     cancel_bus,
                 );
             } else {
-                warn!("VM_DISPATCHER (Sanity Check): Found VM {} in DB with PID {}, but process does not exist. Cleaning up.", vm.vm_id, pid);
+                warn!("VmDispatcher (Sanity Check): Found VM {} in DB with PID {}, but process does not exist. Cleaning up.", vm.vm_id, pid);
                 let (resp_tx, resp_rx) = oneshot::channel();
                 let req = DeleteVmRequest {
                     vm_id: vm.vm_id.to_string(),
@@ -490,9 +490,9 @@ pub(crate) async fn check_and_cleanup_vms(
                 .await;
 
                 match resp_rx.await {
-                    Ok(Ok(_)) => info!("VM_DISPATCHER (Sanity Check): Successfully cleaned up zombie VM {vm_id_for_log}."),
-                    Ok(Err(status)) => error!("VM_DISPATCHER (Sanity Check): Failed to clean up zombie VM {vm_id_for_log}: {status}"),
-                    Err(_) => error!("VM_DISPATCHER (Sanity Check): Cleanup task for zombie VM {vm_id_for_log} did not return a response."),
+                    Ok(Ok(_)) => info!("VmDispatcher (Sanity Check): Successfully cleaned up zombie VM {vm_id_for_log}."),
+                    Ok(Err(status)) => error!("VmDispatcher (Sanity Check): Failed to clean up zombie VM {vm_id_for_log}: {status}"),
+                    Err(_) => error!("VmDispatcher (Sanity Check): Cleanup task for zombie VM {vm_id_for_log} did not return a response."),
                 }
             }
         }
@@ -505,14 +505,14 @@ pub(crate) async fn perform_startup_sanity_check(
     event_bus_tx: mpsc::Sender<VmEventWrapper>,
     healthcheck_cancel_bus: &broadcast::Sender<Uuid>,
 ) {
-    info!("VM_DISPATCHER: Running initial sanity check...");
+    info!("VmDispatcher: Running initial sanity check...");
     match repository.list_all_vms().await {
         Ok(vms) => {
             if vms.is_empty() {
-                info!("VM_DISPATCHER (Sanity Check): No VMs found in persistence, check complete.");
+                info!("VmDispatcher (Sanity Check): No VMs found in persistence, check complete.");
             } else {
                 info!(
-                    "VM_DISPATCHER (Sanity Check): Found {} VMs in persistence, checking status...",
+                    "VmDispatcher (Sanity Check): Found {} VMs in persistence, checking status...",
                     vms.len()
                 );
                 check_and_cleanup_vms(
@@ -523,11 +523,11 @@ pub(crate) async fn perform_startup_sanity_check(
                     vms,
                 )
                 .await;
-                info!("VM_DISPATCHER (Sanity Check): Check complete.");
+                info!("VmDispatcher (Sanity Check): Check complete.");
             }
         }
         Err(e) => {
-            error!("VM_DISPATCHER (Sanity Check): Failed to list VMs from repository: {e}. Skipping check.");
+            error!("VmDispatcher (Sanity Check): Failed to list VMs from repository: {e}. Skipping check.");
         }
     }
 }

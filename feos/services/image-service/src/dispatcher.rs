@@ -26,11 +26,11 @@ impl ImageServiceDispatcher {
     }
 
     pub async fn run(mut self) {
-        info!("GRPC_DISPATCHER: Running and waiting for API commands.");
+        info!("GrpcDispatcher: Running and waiting for API commands.");
         while let Some(cmd) = self.command_rx.recv().await {
             self.handle_command(cmd).await;
         }
-        info!("GRPC_DISPATCHER: Channel closed, shutting down.");
+        info!("GrpcDispatcher: Channel closed, shutting down.");
     }
 
     async fn handle_command(&mut self, cmd: Command) {
@@ -53,7 +53,7 @@ impl ImageServiceDispatcher {
         };
 
         if self.orchestrator_tx.send(orchestrator_cmd).await.is_err() {
-            log::error!("GRPC_DISPATCHER: Failed to send command to Orchestrator. The actor may have shut down.");
+            log::error!("GrpcDispatcher: Failed to send command to Orchestrator. The actor may have shut down.");
         }
     }
 }

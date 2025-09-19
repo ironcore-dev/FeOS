@@ -34,9 +34,9 @@ impl VmServiceDispatcher {
         let (status_channel_tx, _) = broadcast::channel(32);
         let (healthcheck_cancel_bus, _) = broadcast::channel::<Uuid>(32);
         let hypervisor = Arc::from(factory(VmmType::CloudHypervisor));
-        info!("VM_DISPATCHER: Connecting to persistence layer at {db_url}...");
+        info!("VmDispatcher: Connecting to persistence layer at {db_url}...");
         let repository = VmRepository::connect(db_url).await?;
-        info!("VM_DISPATCHER: Persistence layer connected successfully.");
+        info!("VmDispatcher: Persistence layer connected successfully.");
         Ok(Self {
             rx,
             event_bus_tx,
@@ -57,7 +57,7 @@ impl VmServiceDispatcher {
         )
         .await;
 
-        info!("VM_DISPATCHER: Running and waiting for commands and events.");
+        info!("VmDispatcher: Running and waiting for commands and events.");
         loop {
             tokio::select! {
                 biased;
@@ -114,7 +114,7 @@ impl VmServiceDispatcher {
                     self.handle_vm_event(event).await;
                 }
                 else => {
-                    info!("VM_DISPATCHER: A channel closed, shutting down.");
+                    info!("VmDispatcher: A channel closed, shutting down.");
                     break;
                 }
             }
@@ -126,7 +126,7 @@ impl VmServiceDispatcher {
         let event = event_wrapper.event;
 
         info!(
-            "VM_DISPATCHER_LOGGER: Event for VM '{}': ID '{}', Component '{}', Data Type '{}'",
+            "VmDispatcher_LOGGER: Event for VM '{}': ID '{}', Component '{}', Data Type '{}'",
             event.vm_id,
             event.id,
             event.component_id,
@@ -137,7 +137,7 @@ impl VmServiceDispatcher {
             Ok(id) => id,
             Err(e) => {
                 error!(
-                    "DB_UPDATE: Could not parse UUID from event vm_id '{}': {e}",
+                    "DatabaseUpdate: Could not parse UUID from event vm_id '{}': {e}",
                     &event.vm_id
                 );
                 return;
@@ -145,9 +145,9 @@ impl VmServiceDispatcher {
         };
 
         if let Some(pid) = event_wrapper.process_id {
-            info!("DB_UPDATE: Updating pid for VM {vm_id_uuid} to {pid}");
+            info!("DatabaseUpdate: Updating pid for VM {vm_id_uuid} to {pid}");
             if let Err(e) = self.repository.update_vm_pid(vm_id_uuid, pid).await {
-                error!("DB_UPDATE: Failed to update pid for VM {vm_id_uuid}: {e}");
+                error!("DatabaseUpdate: Failed to update pid for VM {vm_id_uuid}: {e}");
             }
         }
 
@@ -177,7 +177,7 @@ impl VmServiceDispatcher {
                     Ok(s) => s,
                     Err(e) => {
                         error!(
-                            "DB_UPDATE: Invalid VmState value '{}' in event: {e}",
+                            "DatabaseUpdate: Invalid VmState value '{}' in event: {e}",
                             state_change.new_state
                         );
                         return;
@@ -185,7 +185,7 @@ impl VmServiceDispatcher {
                 };
 
                 info!(
-                    "DB_UPDATE: Updating status for VM {vm_id_uuid} to {new_state:?} with message: '{}'",
+                    "DatabaseUpdate: Updating status for VM {vm_id_uuid} to {new_state:?} with message: '{}'",
                     state_change.reason
                 );
                 match self
@@ -196,24 +196,24 @@ impl VmServiceDispatcher {
                     Ok(true) => {
                         if let Err(e) = self.status_channel_tx.send(event_to_forward) {
                             debug!(
-                                "VM_DISPATCHER: Failed to forward successful VM status event for {vm_id}: {e}"
+                                "VmDispatcher: Failed to forward successful VM status event for {vm_id}: {e}"
                             );
                         }
                     }
                     Ok(false) => {
                         info!(
-                            "DB_UPDATE: Update for VM {vm_id_uuid} was a no-op (record likely already deleted). Event not forwarded."
+                            "DatabaseUpdate: Update for VM {vm_id_uuid} was a no-op (record likely already deleted). Event not forwarded."
                         );
                     }
                     Err(e) => {
                         error!(
-                            "DB_UPDATE: Failed to execute status update for VM {vm_id_uuid}: {e}"
+                            "DatabaseUpdate: Failed to execute status update for VM {vm_id_uuid}: {e}"
                         );
                     }
                 }
             }
             Err(e) => {
-                error!("DB_UPDATE: Failed to decode VmStateChangedEvent for VM {vm_id}: {e}");
+                error!("DatabaseUpdate: Failed to decode VmStateChangedEvent for VM {vm_id}: {e}");
             }
         }
     }

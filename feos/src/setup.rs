@@ -36,13 +36,13 @@ pub(crate) const VFS_NUM: u32 = 125;
 pub(crate) const HUGEPAGES_NUM: u32 = 1024;
 
 pub(crate) async fn initialize_vm_service(db_url: &str) -> Result<VmServiceServer<VmApiHandler>> {
-    info!("MAIN: Ensuring VM socket directory '{VM_API_SOCKET_DIR}' exists...");
+    info!("Main: Ensuring VM socket directory '{VM_API_SOCKET_DIR}' exists...");
     fs::create_dir_all(VM_API_SOCKET_DIR).await?;
-    info!("MAIN: Directory check complete. Path '{VM_API_SOCKET_DIR}' is ready.");
+    info!("Main: Directory check complete. Path '{VM_API_SOCKET_DIR}' is ready.");
 
-    info!("MAIN: Ensuring VM console directory '{VM_CONSOLE_DIR}' exists...");
+    info!("Main: Ensuring VM console directory '{VM_CONSOLE_DIR}' exists...");
     fs::create_dir_all(VM_CONSOLE_DIR).await?;
-    info!("MAIN: Directory check complete. Path '{VM_CONSOLE_DIR}' is ready.");
+    info!("Main: Directory check complete. Path '{VM_CONSOLE_DIR}' is ready.");
 
     let (vm_tx, vm_rx) = mpsc::channel::<VmCommand>(32);
     let vm_dispatcher = VmServiceDispatcher::new(vm_rx, db_url).await?;
@@ -51,7 +51,7 @@ pub(crate) async fn initialize_vm_service(db_url: &str) -> Result<VmServiceServe
     });
     let vm_api_handler = VmApiHandler::new(vm_tx);
     let vm_service = VmServiceServer::new(vm_api_handler);
-    info!("MAIN: VM Service is configured.");
+    info!("Main: VM Service is configured.");
 
     Ok(vm_service)
 }
@@ -67,50 +67,50 @@ pub(crate) fn initialize_host_service(
     });
     let host_api_handler = HostApiHandler::new(host_tx);
     let host_service = HostServiceServer::new(host_api_handler);
-    info!("MAIN: Host Service is configured.");
+    info!("Main: Host Service is configured.");
 
     host_service
 }
 
 pub(crate) async fn initialize_image_service() -> Result<ImageServiceServer<ImageApiHandler>> {
-    info!("MAIN: Ensuring image directory '{IMAGE_DIR}' exists...");
+    info!("Main: Ensuring image directory '{IMAGE_DIR}' exists...");
     fs::create_dir_all(IMAGE_DIR).await?;
-    info!("MAIN: Directory check complete. Path '{IMAGE_DIR}' is ready.");
+    info!("Main: Directory check complete. Path '{IMAGE_DIR}' is ready.");
 
     let filestore_actor = FileStore::new();
     let filestore_tx = filestore_actor.get_command_sender();
     tokio::spawn(async move {
         filestore_actor.run().await;
     });
-    info!("MAIN: FileStore actor for Image Service has been started.");
+    info!("Main: FileStore actor for Image Service has been started.");
 
     let orchestrator_actor = Orchestrator::new(filestore_tx);
     let orchestrator_tx = orchestrator_actor.get_command_sender();
     tokio::spawn(async move {
         orchestrator_actor.run().await;
     });
-    info!("MAIN: Orchestrator actor for Image Service has been started.");
+    info!("Main: Orchestrator actor for Image Service has been started.");
 
     let grpc_dispatcher = ImageServiceDispatcher::new(orchestrator_tx);
     let grpc_dispatcher_tx = grpc_dispatcher.get_command_sender();
     tokio::spawn(async move {
         grpc_dispatcher.run().await;
     });
-    info!("MAIN: gRPC Dispatcher for Image Service has been started.");
+    info!("Main: gRPC Dispatcher for Image Service has been started.");
 
     let image_api_handler = ImageApiHandler::new(grpc_dispatcher_tx);
     let image_service = ImageServiceServer::new(image_api_handler);
-    info!("MAIN: Image Service is configured.");
+    info!("Main: Image Service is configured.");
 
     Ok(image_service)
 }
 
 pub(crate) async fn perform_first_boot_initialization() -> Result<()> {
-    info!("MAIN: Performing first-boot initialization...");
-    info!("MAIN: Mounting virtual filesystems...");
+    info!("Main: Performing first-boot initialization...");
+    info!("Main: Mounting virtual filesystems...");
     mount_virtual_filesystems();
 
-    info!("MAIN: Configuring hugepages...");
+    info!("Main: Configuring hugepages...");
     if let Err(e) = configure_hugepages(HUGEPAGES_NUM).await {
         warn!("Failed to configure hugepages: {e}");
     }
@@ -120,12 +120,12 @@ pub(crate) async fn perform_first_boot_initialization() -> Result<()> {
         false // Default to false in case of error
     });
 
-    info!("MAIN: Configuring network devices...");
+    info!("Main: Configuring network devices...");
     if let Some((delegated_prefix, delegated_prefix_length)) = configure_network_devices()
         .await
         .expect("could not configure network devices")
     {
-        info!("MAIN: Delegated prefix: {delegated_prefix}/{delegated_prefix_length}");
+        info!("Main: Delegated prefix: {delegated_prefix}/{delegated_prefix_length}");
     }
 
     if !is_on_vm {
@@ -142,7 +142,7 @@ pub(crate) async fn setup_database() -> Result<String> {
     dotenvy::dotenv().ok();
 
     let db_url = env::var("DATABASE_URL").unwrap_or_else(|_| {
-        info!("MAIN: DATABASE_URL not set, using default '{DEFAULT_VM_DB_URL}'");
+        info!("Main: DATABASE_URL not set, using default '{DEFAULT_VM_DB_URL}'");
         DEFAULT_VM_DB_URL.to_string()
     });
 
@@ -150,14 +150,14 @@ pub(crate) async fn setup_database() -> Result<String> {
         let db_path = Path::new(db_path_str);
         if let Some(db_dir) = db_path.parent() {
             info!(
-                "MAIN: Ensuring database directory '{}' exists...",
+                "Main: Ensuring database directory '{}' exists...",
                 db_dir.display()
             );
             fs::create_dir_all(db_dir).await?;
         }
         if !db_path.exists() {
             info!(
-                "MAIN: Database file does not exist, creating at '{}'...",
+                "Main: Database file does not exist, creating at '{}'...",
                 db_path.display()
             );
             File::create(db_path).await?;
@@ -168,7 +168,7 @@ pub(crate) async fn setup_database() -> Result<String> {
 }
 
 pub(crate) fn handle_upgrade(new_binary_path: &Path) -> Result<()> {
-    info!("MAIN: Upgrade signal received. New binary at {new_binary_path:?}. Preparing to execv.");
+    info!("Main: Upgrade signal received. New binary at {new_binary_path:?}. Preparing to execv.");
 
     let current_exe = match std::env::current_exe() {
         Ok(path) => path,
@@ -177,16 +177,16 @@ pub(crate) fn handle_upgrade(new_binary_path: &Path) -> Result<()> {
             panic!("FATAL: Could not get current executable path: {e}");
         }
     };
-    info!("MAIN: Current binary is at {:?}", &current_exe);
+    info!("Main: Current binary is at {:?}", &current_exe);
 
     let rename_result = std::fs::rename(new_binary_path, &current_exe);
 
     match rename_result {
         Ok(_) => {
-            info!("MAIN: Successfully replaced on-disk binary via atomic rename.");
+            info!("Main: Successfully replaced on-disk binary via atomic rename.");
         }
         Err(e) if e.raw_os_error() == Some(libc::EXDEV) => {
-            info!("MAIN: Cross-device link detected. Falling back to copy-then-rename strategy.");
+            info!("Main: Cross-device link detected. Falling back to copy-then-rename strategy.");
             let staging_path = current_exe.with_extension("staging");
             if let Err(copy_err) = std::fs::copy(new_binary_path, &staging_path) {
                 error!(
@@ -214,7 +214,7 @@ pub(crate) fn handle_upgrade(new_binary_path: &Path) -> Result<()> {
                 return Ok(());
             }
             let _ = std::fs::remove_file(new_binary_path);
-            info!("MAIN: Successfully replaced on-disk binary via copy-then-rename.");
+            info!("Main: Successfully replaced on-disk binary via copy-then-rename.");
         }
         Err(e) => {
             error!(
@@ -237,7 +237,7 @@ pub(crate) fn handle_upgrade(new_binary_path: &Path) -> Result<()> {
     let cstr_path = CString::new(current_exe.into_os_string().into_vec()).unwrap();
 
     info!(
-        "MAIN: Executing new binary with arguments: {:?}",
+        "Main: Executing new binary with arguments: {:?}",
         &cstr_args
     );
     let Err(e) = nix::unistd::execv(&cstr_path, &cstr_args);

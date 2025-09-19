@@ -44,9 +44,9 @@ impl VmRepository {
             .connect(db_url)
             .await?;
 
-        info!("PERSISTENCE: Running database migrations...");
+        info!("Persistence: Running database migrations...");
         sqlx::migrate!("./migrations").run(&pool).await?;
-        info!("PERSISTENCE: Database migrations completed.");
+        info!("Persistence: Database migrations completed.");
 
         Ok(Self { pool })
     }

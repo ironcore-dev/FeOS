@@ -58,11 +58,11 @@ impl Orchestrator {
             }
         }
 
-        info!("ORCHESTRATOR: Running and waiting for commands.");
+        info!("Orchestrator: Running and waiting for commands.");
         while let Some(cmd) = self.command_rx.recv().await {
             self.handle_command(cmd).await;
         }
-        info!("ORCHESTRATOR: Channel closed, shutting down.");
+        info!("Orchestrator: Channel closed, shutting down.");
     }
 
     async fn handle_command(&mut self, cmd: OrchestratorCommand) {
@@ -72,7 +72,7 @@ impl Orchestrator {
                 responder,
             } => {
                 let image_uuid = Uuid::new_v4().to_string();
-                info!("ORCHESTRATOR: Start pull for '{image_ref}', assigned UUID {image_uuid}");
+                info!("Orchestrator: Start pull for '{image_ref}', assigned UUID {image_uuid}");
 
                 self.store.insert(
                     image_uuid.clone(),
@@ -99,7 +99,7 @@ impl Orchestrator {
                 image_ref,
                 image_data,
             } => {
-                info!("ORCHESTRATOR: Finalizing pull for {image_uuid}");
+                info!("Orchestrator: Finalizing pull for {image_uuid}");
                 let (responder, resp_rx) = oneshot::channel();
                 let file_cmd = FileCommand::StoreImage {
                     image_uuid: image_uuid.clone(),
@@ -109,28 +109,28 @@ impl Orchestrator {
                 };
 
                 if self.filestore_tx.send(file_cmd).await.is_err() {
-                    error!("ORCHESTRATOR: Failed to send StoreImage command to FileStore.");
+                    error!("Orchestrator: Failed to send StoreImage command to FileStore.");
                     self.update_and_broadcast_state(image_uuid, ImageState::PullFailed);
                     return;
                 }
 
                 match resp_rx.await {
                     Ok(Ok(())) => {
-                        info!("ORCHESTRATOR: FileStore successfully stored image {image_uuid}");
+                        info!("Orchestrator: FileStore successfully stored image {image_uuid}");
                         self.update_and_broadcast_state(image_uuid, ImageState::Ready);
                     }
                     Ok(Err(e)) => {
-                        error!("ORCHESTRATOR: FileStore failed to store image {image_uuid}: {e}");
+                        error!("Orchestrator: FileStore failed to store image {image_uuid}: {e}");
                         self.update_and_broadcast_state(image_uuid, ImageState::PullFailed);
                     }
                     Err(_) => {
-                        error!("ORCHESTRATOR: FileStore actor dropped response channel for {image_uuid}");
+                        error!("Orchestrator: FileStore actor dropped response channel for {image_uuid}");
                         self.update_and_broadcast_state(image_uuid, ImageState::PullFailed);
                     }
                 }
             }
             OrchestratorCommand::FailPull { image_uuid, error } => {
-                error!("ORCHESTRATOR: Pull failed for {image_uuid}: {error}");
+                error!("Orchestrator: Pull failed for {image_uuid}: {error}");
                 self.update_and_broadcast_state(image_uuid, ImageState::PullFailed);
             }
             OrchestratorCommand::ListImages { responder } => {
@@ -141,7 +141,7 @@ impl Orchestrator {
                 image_uuid,
                 responder,
             } => {
-                info!("ORCHESTRATOR: Deleting image {image_uuid}");
+                info!("Orchestrator: Deleting image {image_uuid}");
                 self.store.remove(&image_uuid);
 
                 let (file_resp_tx, file_resp_rx) = oneshot::channel();
@@ -151,10 +151,10 @@ impl Orchestrator {
                 };
 
                 if self.filestore_tx.send(file_cmd).await.is_err() {
-                    error!("ORCHESTRATOR: Failed to send DeleteImage command to FileStore.");
+                    error!("Orchestrator: Failed to send DeleteImage command to FileStore.");
                 } else if let Ok(Err(e)) = file_resp_rx.await {
                     if e.kind() != std::io::ErrorKind::NotFound {
-                        warn!("ORCHESTRATOR: FileStore failed to delete {image_uuid}: {e}");
+                        warn!("Orchestrator: FileStore failed to delete {image_uuid}: {e}");
                     }
                 }
 
@@ -191,7 +191,7 @@ impl Orchestrator {
     fn broadcast_state_change(&self, image_uuid: String, state: ImageState) {
         let event = ImageStateEvent { image_uuid, state };
         if self.broadcast_tx.send(event).is_err() {
-            info!("ORCHESTRATOR: Broadcast failed, no active listeners.");
+            info!("Orchestrator: Broadcast failed, no active listeners.");
         }
     }
 }
@@ -210,7 +210,7 @@ impl From<PullError> for String {
 }
 
 async fn download_layer_data(image_ref: &str) -> Result<Vec<u8>, PullError> {
-    info!("WORKER(pull): fetching image: {image_ref}");
+    info!("ImagePuller: fetching image: {image_ref}");
     let reference = Reference::try_from(image_ref.to_string()).map_err(PullError::Parse)?;
     let accepted_media_types = vec![
         ROOTFS_MEDIA_TYPE,
@@ -233,7 +233,7 @@ async fn download_layer_data(image_ref: &str) -> Result<Vec<u8>, PullError> {
         )
         .await
         .map_err(PullError::Oci)?;
-    info!("WORKER(pull): image data pulled for {image_ref}");
+    info!("ImagePuller: image data pulled for {image_ref}");
 
     let rootfs_layer = image_data
         .layers
@@ -257,7 +257,7 @@ pub async fn pull_oci_image(
                 image_data,
             };
             if command_tx.send(cmd).await.is_err() {
-                error!("WORKER(pull): Failed to send FinalizePull command. Actor may be down.");
+                error!("ImagePuller: Failed to send FinalizePull command. Actor may be down.");
             }
         }
         Err(e) => {
@@ -266,7 +266,7 @@ pub async fn pull_oci_image(
                 error: e.into(),
             };
             if command_tx.send(cmd).await.is_err() {
-                error!("WORKER(pull): Failed to send FailPull command. Actor may be down.");
+                error!("ImagePuller: Failed to send FailPull command. Actor may be down.");
             }
         }
     }
@@ -278,7 +278,7 @@ pub async fn watch_image_status_stream(
     stream_sender: mpsc::Sender<Result<ImageStatusResponse, Status>>,
     mut broadcast_rx: broadcast::Receiver<ImageStateEvent>,
 ) {
-    info!("WORKER(watch): Starting watch stream for {image_uuid_to_watch}");
+    info!("ImageWatcher: Starting watch stream for {image_uuid_to_watch}");
 
     let initial_response = ImageStatusResponse {
         state: initial_state as i32,
@@ -290,7 +290,9 @@ pub async fn watch_image_status_stream(
         message: format!("Initial state: {initial_state:?}"),
     };
     if stream_sender.send(Ok(initial_response)).await.is_err() {
-        info!("WORKER(watch): Client disconnected before initial state send for {image_uuid_to_watch}");
+        info!(
+            "ImageWatcher: Client disconnected before initial state send for {image_uuid_to_watch}"
+        );
         return;
     }
 
@@ -298,7 +300,9 @@ pub async fn watch_image_status_stream(
         initial_state,
         ImageState::Ready | ImageState::PullFailed | ImageState::NotFound
     ) {
-        info!("WORKER(watch): Closing stream for {image_uuid_to_watch} due to terminal initial state.");
+        info!(
+            "ImageWatcher: Closing stream for {image_uuid_to_watch} due to terminal initial state."
+        );
         return;
     }
 
@@ -307,7 +311,7 @@ pub async fn watch_image_status_stream(
             Ok(event) => {
                 if event.image_uuid == image_uuid_to_watch {
                     info!(
-                        "WORKER(watch): Got relevant event for {image_uuid_to_watch}: {:?}",
+                        "ImageWatcher: Got relevant event for {image_uuid_to_watch}: {:?}",
                         event.state
                     );
                     let response = ImageStatusResponse {
@@ -321,7 +325,7 @@ pub async fn watch_image_status_stream(
                     };
 
                     if stream_sender.send(Ok(response)).await.is_err() {
-                        info!("WORKER(watch): Client disconnected. Closing watch for {image_uuid_to_watch}");
+                        info!("ImageWatcher: Client disconnected. Closing watch for {image_uuid_to_watch}");
                         break;
                     }
 
@@ -329,16 +333,16 @@ pub async fn watch_image_status_stream(
                         event.state,
                         ImageState::Ready | ImageState::PullFailed | ImageState::NotFound
                     ) {
-                        info!("WORKER(watch): Reached terminal state. Closing watch for {image_uuid_to_watch}");
+                        info!("ImageWatcher: Reached terminal state. Closing watch for {image_uuid_to_watch}");
                         break;
                     }
                 }
             }
             Err(broadcast::error::RecvError::Lagged(n)) => {
-                warn!("WORKER(watch): Stream for {image_uuid_to_watch} lagged by {n} messages. Continuing.");
+                warn!("ImageWatcher: Stream for {image_uuid_to_watch} lagged by {n} messages. Continuing.");
             }
             Err(broadcast::error::RecvError::Closed) => {
-                info!("WORKER(watch): Broadcast channel closed. Shutting down watch for {image_uuid_to_watch}");
+                info!("ImageWatcher: Broadcast channel closed. Shutting down watch for {image_uuid_to_watch}");
                 break;
             }
         }

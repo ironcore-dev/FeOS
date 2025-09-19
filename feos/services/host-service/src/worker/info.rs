@@ -15,7 +15,7 @@ use tokio::sync::oneshot;
 use tonic::Status;
 
 pub async fn handle_hostname(responder: oneshot::Sender<Result<HostnameResponse, Status>>) {
-    info!("HOST_WORKER: Processing Hostname request.");
+    info!("HostWorker: Processing Hostname request.");
     let result = match unistd::gethostname() {
         Ok(host) => {
             let hostname = host
@@ -25,15 +25,13 @@ pub async fn handle_hostname(responder: oneshot::Sender<Result<HostnameResponse,
         }
         Err(e) => {
             let msg = format!("Failed to get system hostname: {e}");
-            error!("HOST_WORKER: {msg}");
+            error!("HostWorker: {msg}");
             Err(Status::internal(msg))
         }
     };
 
     if responder.send(result).is_err() {
-        error!(
-            "HOST_WORKER: Failed to send response for Hostname. API handler may have timed out."
-        );
+        error!("HostWorker: Failed to send response for Hostname. API handler may have timed out.");
     }
 }
 
@@ -114,20 +112,20 @@ async fn read_and_parse_meminfo() -> Result<MemInfo, std::io::Error> {
 }
 
 pub async fn handle_get_memory(responder: oneshot::Sender<Result<MemoryResponse, Status>>) {
-    info!("HOST_WORKER: Processing GetMemory request.");
+    info!("HostWorker: Processing GetMemory request.");
     let result = match read_and_parse_meminfo().await {
         Ok(mem_info) => Ok(MemoryResponse {
             mem_info: Some(mem_info),
         }),
         Err(e) => {
-            error!("HOST_WORKER: Failed to get memory info: {e}");
+            error!("HostWorker: Failed to get memory info: {e}");
             Err(Status::internal(format!("Failed to get memory info: {e}")))
         }
     };
 
     if responder.send(result).is_err() {
         error!(
-            "HOST_WORKER: Failed to send response for GetMemory. API handler may have timed out."
+            "HostWorker: Failed to send response for GetMemory. API handler may have timed out."
         );
     }
 }
@@ -207,18 +205,18 @@ async fn read_and_parse_cpuinfo() -> Result<Vec<CpuInfo>, std::io::Error> {
 }
 
 pub async fn handle_get_cpu_info(responder: oneshot::Sender<Result<GetCpuInfoResponse, Status>>) {
-    info!("HOST_WORKER: Processing GetCPUInfo request.");
+    info!("HostWorker: Processing GetCPUInfo request.");
     let result = match read_and_parse_cpuinfo().await {
         Ok(cpu_info) => Ok(GetCpuInfoResponse { cpu_info }),
         Err(e) => {
-            error!("HOST_WORKER: Failed to get CPU info: {e}");
+            error!("HostWorker: Failed to get CPU info: {e}");
             Err(Status::internal(format!("Failed to get CPU info: {e}")))
         }
     };
 
     if responder.send(result).is_err() {
         error!(
-            "HOST_WORKER: Failed to send response for GetCPUInfo. API handler may have timed out."
+            "HostWorker: Failed to send response for GetCPUInfo. API handler may have timed out."
         );
     }
 }
@@ -280,11 +278,11 @@ async fn read_all_net_stats() -> Result<Vec<NetDev>, std::io::Error> {
 pub async fn handle_get_network_info(
     responder: oneshot::Sender<Result<GetNetworkInfoResponse, Status>>,
 ) {
-    info!("HOST_WORKER: Processing GetNetworkInfo request.");
+    info!("HostWorker: Processing GetNetworkInfo request.");
     let result = match read_all_net_stats().await {
         Ok(devices) => Ok(GetNetworkInfoResponse { devices }),
         Err(e) => {
-            error!("HOST_WORKER: Failed to get network info: {e}");
+            error!("HostWorker: Failed to get network info: {e}");
             Err(Status::internal(format!(
                 "Failed to get network info from sysfs: {e}"
             )))
@@ -293,7 +291,7 @@ pub async fn handle_get_network_info(
 
     if responder.send(result).is_err() {
         error!(
-            "HOST_WORKER: Failed to send response for GetNetworkInfo. API handler may have timed out."
+            "HostWorker: Failed to send response for GetNetworkInfo. API handler may have timed out."
         );
     }
 }
@@ -301,7 +299,7 @@ pub async fn handle_get_network_info(
 pub async fn handle_get_version_info(
     responder: oneshot::Sender<Result<GetVersionInfoResponse, Status>>,
 ) {
-    info!("HOST_WORKER: Processing GetVersionInfo request.");
+    info!("HostWorker: Processing GetVersionInfo request.");
 
     let kernel_version_res = fs::read_to_string("/proc/version").await;
 
@@ -315,14 +313,14 @@ pub async fn handle_get_version_info(
         }
         Err(e) => {
             let msg = format!("Failed to read kernel version from /proc/version: {e}");
-            error!("HOST_WORKER: {msg}");
+            error!("HostWorker: {msg}");
             Err(Status::internal(msg))
         }
     };
 
     if responder.send(result).is_err() {
         error!(
-            "HOST_WORKER: Failed to send response for GetVersionInfo. API handler may have timed out."
+            "HostWorker: Failed to send response for GetVersionInfo. API handler may have timed out."
         );
     }
 }

@@ -35,7 +35,7 @@ impl HostService for HostApiHandler {
         &self,
         _request: Request<HostnameRequest>,
     ) -> Result<Response<HostnameResponse>, Status> {
-        info!("HOST_API_HANDLER: Received Hostname request.");
+        info!("HostApi: Received Hostname request.");
         let (resp_tx, resp_rx) = oneshot::channel();
         let cmd = Command::GetHostname(resp_tx);
         self.dispatcher_tx
@@ -56,7 +56,7 @@ impl HostService for HostApiHandler {
         &self,
         _request: Request<MemoryRequest>,
     ) -> Result<Response<MemoryResponse>, Status> {
-        info!("HOST_API_HANDLER: Received GetMemory request.");
+        info!("HostApi: Received GetMemory request.");
         let (resp_tx, resp_rx) = oneshot::channel();
         let cmd = Command::GetMemory(resp_tx);
         self.dispatcher_tx
@@ -77,7 +77,7 @@ impl HostService for HostApiHandler {
         &self,
         _request: Request<GetCpuInfoRequest>,
     ) -> Result<Response<GetCpuInfoResponse>, Status> {
-        info!("HOST_API_HANDLER: Received GetCPUInfo request.");
+        info!("HostApi: Received GetCPUInfo request.");
         let (resp_tx, resp_rx) = oneshot::channel();
         let cmd = Command::GetCPUInfo(resp_tx);
         self.dispatcher_tx
@@ -98,7 +98,7 @@ impl HostService for HostApiHandler {
         &self,
         _request: Request<GetNetworkInfoRequest>,
     ) -> Result<Response<GetNetworkInfoResponse>, Status> {
-        info!("HOST_API_HANDLER: Received GetNetworkInfo request.");
+        info!("HostApi: Received GetNetworkInfo request.");
         let (resp_tx, resp_rx) = oneshot::channel();
         let cmd = Command::GetNetworkInfo(resp_tx);
         self.dispatcher_tx
@@ -119,7 +119,7 @@ impl HostService for HostApiHandler {
         &self,
         request: Request<ShutdownRequest>,
     ) -> Result<Response<ShutdownResponse>, Status> {
-        info!("HOST_API_HANDLER: Received Shutdown request.");
+        info!("HostApi: Received Shutdown request.");
         let (resp_tx, resp_rx) = oneshot::channel();
         let cmd = Command::Shutdown(request.into_inner(), resp_tx);
         self.dispatcher_tx
@@ -140,7 +140,7 @@ impl HostService for HostApiHandler {
         &self,
         request: Request<RebootRequest>,
     ) -> Result<Response<RebootResponse>, Status> {
-        info!("HOST_API_HANDLER: Received Reboot request.");
+        info!("HostApi: Received Reboot request.");
         let (resp_tx, resp_rx) = oneshot::channel();
         let cmd = Command::Reboot(request.into_inner(), resp_tx);
         self.dispatcher_tx
@@ -161,7 +161,7 @@ impl HostService for HostApiHandler {
         &self,
         request: Request<UpgradeFeosBinaryRequest>,
     ) -> Result<Response<UpgradeFeosBinaryResponse>, Status> {
-        info!("HOST_API_HANDLER: Received UpgradeFeosBinary request.");
+        info!("HostApi: Received UpgradeFeosBinary request.");
         let (resp_tx, resp_rx) = oneshot::channel();
         let cmd = Command::UpgradeFeosBinary(request.into_inner(), resp_tx);
         self.dispatcher_tx
@@ -182,7 +182,7 @@ impl HostService for HostApiHandler {
         &self,
         _request: Request<StreamKernelLogsRequest>,
     ) -> Result<Response<Self::StreamKernelLogsStream>, Status> {
-        info!("HOST_API_HANDLER: Received StreamKernelLogs request.");
+        info!("HostApi: Received StreamKernelLogs request.");
         let (stream_tx, stream_rx) = mpsc::channel(128);
         let cmd = Command::StreamKernelLogs(stream_tx);
         self.dispatcher_tx
@@ -197,7 +197,7 @@ impl HostService for HostApiHandler {
         &self,
         _request: Request<StreamFeosLogsRequest>,
     ) -> Result<Response<Self::StreamFeOSLogsStream>, Status> {
-        info!("HOST_API_HANDLER: Received StreamFeOSLogs request.");
+        info!("HostApi: Received StreamFeOSLogs request.");
         let (stream_tx, stream_rx) = mpsc::channel(128);
         let cmd = Command::StreamFeOSLogs(stream_tx);
         self.dispatcher_tx
@@ -212,7 +212,7 @@ impl HostService for HostApiHandler {
         &self,
         _request: Request<GetVersionInfoRequest>,
     ) -> Result<Response<GetVersionInfoResponse>, Status> {
-        info!("HOST_API_HANDLER: Received GetVersionInfo request.");
+        info!("HostApi: Received GetVersionInfo request.");
         let (resp_tx, resp_rx) = oneshot::channel();
         let cmd = Command::GetVersionInfo(resp_tx);
         self.dispatcher_tx

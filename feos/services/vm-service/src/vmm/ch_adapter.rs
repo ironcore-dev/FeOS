@@ -80,7 +80,7 @@ impl CloudHypervisorAdapter {
                 "Timed out waiting for API socket".to_string(),
             ));
         }
-        info!("CH_ADAPTER ({vm_id}): API socket is available.");
+        info!("CloudHypervisorAdapter ({vm_id}): API socket is available.");
 
         let client = self.get_ch_api_client(vm_id)?;
         tokio::fs::create_dir_all(VM_CONSOLE_DIR)
@@ -180,7 +180,7 @@ impl CloudHypervisorAdapter {
             .await
             .map_err(|e| VmmError::ApiOperationFailed(format!("vm.create API call failed: {e}")))?;
 
-        info!("CH_ADAPTER ({vm_id}): vm.create API call successful.");
+        info!("CloudHypervisorAdapter ({vm_id}): vm.create API call successful.");
 
         Ok::<(), VmmError>(())
     }
@@ -189,13 +189,13 @@ impl CloudHypervisorAdapter {
         if let Err(e) = tokio::fs::remove_file(socket_path).await {
             if e.kind() != std::io::ErrorKind::NotFound {
                 warn!(
-                    "CH_ADAPTER ({vm_id}): Failed to remove {socket_type} socket {path}: {e}",
+                    "CloudHypervisorAdapter ({vm_id}): Failed to remove {socket_type} socket {path}: {e}",
                     path = socket_path.display()
                 );
             }
         } else {
             info!(
-                "CH_ADAPTER ({vm_id}): Successfully removed {socket_type} socket {path}",
+                "CloudHypervisorAdapter ({vm_id}): Successfully removed {socket_type} socket {path}",
                 path = socket_path.display()
             );
         }
@@ -210,7 +210,7 @@ impl Hypervisor for CloudHypervisorAdapter {
         req: CreateVmRequest,
         image_uuid: String,
     ) -> Result<Option<i64>, VmmError> {
-        info!("CH_ADAPTER: Creating VM with provided ID: {vm_id}");
+        info!("CloudHypervisorAdapter: Creating VM with provided ID: {vm_id}");
 
         let config = req
             .config
@@ -218,7 +218,7 @@ impl Hypervisor for CloudHypervisorAdapter {
 
         let api_socket_path = PathBuf::from(VM_API_SOCKET_DIR).join(vm_id);
 
-        info!("CH_ADAPTER ({vm_id}): Spawning cloud-hypervisor process...");
+        info!("CloudHypervisorAdapter ({vm_id}): Spawning cloud-hypervisor process...");
         let mut child = unsafe {
             TokioCommand::new(&self.ch_binary_path)
                 .arg("--api-socket")
@@ -242,7 +242,7 @@ impl Hypervisor for CloudHypervisorAdapter {
                     Ok(_) => Ok(pid),
                     Err(e) => {
                         if let Err(kill_err) = child.kill().await {
-                             warn!("CH_ADAPTER ({vm_id}): Failed to kill child process after creation failure: {kill_err}");
+                             warn!("CloudHypervisorAdapter ({vm_id}): Failed to kill child process after creation failure: {kill_err}");
                         }
                         let _ = child.wait().await;
                         Err(e)
@@ -268,12 +268,12 @@ impl Hypervisor for CloudHypervisorAdapter {
         broadcast_tx: mpsc::Sender<VmEventWrapper>,
         mut cancel_bus: broadcast::Receiver<Uuid>,
     ) {
-        info!("CH_ADAPTER ({vm_id}): Starting healthcheck monitoring.");
+        info!("CloudHypervisorAdapter ({vm_id}): Starting healthcheck monitoring.");
         let mut interval = time::interval(Duration::from_secs(10));
         let vm_id_uuid = match Uuid::parse_str(&vm_id) {
             Ok(id) => id,
             Err(e) => {
-                error!("CH_ADAPTER ({vm_id}): Invalid UUID format, cannot start healthcheck: {e}");
+                error!("CloudHypervisorAdapter ({vm_id}): Invalid UUID format, cannot start healthcheck: {e}");
                 return;
             }
         };
@@ -281,13 +281,13 @@ impl Hypervisor for CloudHypervisorAdapter {
         loop {
             tokio::select! {
                 _ = interval.tick() => {
-                    log::debug!("CH_ADAPTER ({vm_id}): Performing healthcheck ping.");
+                    log::debug!("CloudHypervisorAdapter ({vm_id}): Performing healthcheck ping.");
                     let req = PingVmRequest {
                         vm_id: vm_id.clone(),
                     };
 
                     if let Err(e) = self.ping_vm(req).await {
-                        warn!("CH_ADAPTER ({vm_id}): Healthcheck failed: {e}. VM is considered unhealthy.");
+                        warn!("CloudHypervisorAdapter ({vm_id}): Healthcheck failed: {e}. VM is considered unhealthy.");
                         super::broadcast_state_change_event(
                             &broadcast_tx,
                             &vm_id,
@@ -301,22 +301,22 @@ impl Hypervisor for CloudHypervisorAdapter {
                         .await;
                         break;
                     } else {
-                        log::debug!("CH_ADAPTER ({vm_id}): Healthcheck ping successful.");
+                        log::debug!("CloudHypervisorAdapter ({vm_id}): Healthcheck ping successful.");
                     }
                 }
                 Ok(cancelled_vm_id) = cancel_bus.recv() => {
                     if cancelled_vm_id == vm_id_uuid {
-                        info!("CH_ADAPTER ({vm_id}): Received cancellation signal. Stopping healthcheck.");
+                        info!("CloudHypervisorAdapter ({vm_id}): Received cancellation signal. Stopping healthcheck.");
                         break;
                     }
                 }
                 else => {
-                    info!("CH_ADAPTER ({vm_id}): Healthcheck cancellation channel closed. Stopping healthcheck.");
+                    info!("CloudHypervisorAdapter ({vm_id}): Healthcheck cancellation channel closed. Stopping healthcheck.");
                     break;
                 }
             }
         }
-        info!("CH_ADAPTER ({vm_id}): Stopping healthcheck monitoring.");
+        info!("CloudHypervisorAdapter ({vm_id}): Stopping healthcheck monitoring.");
     }
 
     async fn get_vm(&self, req: GetVmRequest) -> Result<VmInfo, VmmError> {
@@ -348,12 +348,12 @@ impl Hypervisor for CloudHypervisorAdapter {
         if let Ok(api_client) = self.get_ch_api_client(&req.vm_id) {
             if let Err(e) = api_client.delete_vm().await {
                 warn!(
-                    "CH_ADAPTER ({vm_id}): API call to delete VM failed: {e}. This might happen if the process is already gone. Continuing cleanup.",
+                    "CloudHypervisorAdapter ({vm_id}): API call to delete VM failed: {e}. This might happen if the process is already gone. Continuing cleanup.",
                     vm_id = req.vm_id
                 );
             } else {
                 info!(
-                    "CH_ADAPTER ({vm_id}): Successfully deleted hypervisor process via API.",
+                    "CloudHypervisorAdapter ({vm_id}): Successfully deleted hypervisor process via API.",
                     vm_id = req.vm_id
                 );
             }
@@ -361,21 +361,21 @@ impl Hypervisor for CloudHypervisorAdapter {
 
         if let Some(pid_val) = process_id {
             info!(
-                "CH_ADAPTER ({vm_id}): Attempting to kill process with PID: {pid_val}",
+                "CloudHypervisorAdapter ({vm_id}): Attempting to kill process with PID: {pid_val}",
                 vm_id = req.vm_id
             );
             let pid = Pid::from_raw(pid_val as i32);
             match kill(pid, Signal::SIGKILL) {
                 Ok(_) => info!(
-                    "CH_ADAPTER ({vm_id}): Successfully sent SIGKILL to process {pid_val}.",
+                    "CloudHypervisorAdapter ({vm_id}): Successfully sent SIGKILL to process {pid_val}.",
                     vm_id = req.vm_id
                 ),
                 Err(nix::Error::ESRCH) => info!(
-                    "CH_ADAPTER ({vm_id}): Process {pid_val} already exited.",
+                    "CloudHypervisorAdapter ({vm_id}): Process {pid_val} already exited.",
                     vm_id = req.vm_id
                 ),
                 Err(e) => warn!(
-                    "CH_ADAPTER ({vm_id}): Failed to kill process {pid_val}: {e}. It might already be gone.",
+                    "CloudHypervisorAdapter ({vm_id}): Failed to kill process {pid_val}: {e}. It might already be gone.",
                     vm_id = req.vm_id
                 ),
             }

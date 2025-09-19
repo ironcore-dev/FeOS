@@ -32,17 +32,17 @@ pub async fn handle_stream_feos_logs(
     log_handle: LogHandle,
     grpc_tx: mpsc::Sender<Result<FeosLogEntry, Status>>,
 ) {
-    info!("HOST_WORKER: Starting new FeOS log stream.");
+    info!("HostWorker: Starting new FeOS log stream.");
     let mut reader = match log_handle.new_reader().await {
         Ok(r) => r,
         Err(e) => {
-            error!("HOST_WORKER: Failed to create log reader: {e}");
+            error!("HostWorker: Failed to create log reader: {e}");
             if grpc_tx
                 .send(Err(Status::internal("Failed to create log reader")))
                 .await
                 .is_err()
             {
-                warn!("HOST_WORKER: gRPC client for FeOS logs disconnected before error could be sent.");
+                warn!("HostWorker: gRPC client for FeOS logs disconnected before error could be sent.");
             }
             return;
         }
@@ -61,36 +61,36 @@ pub async fn handle_stream_feos_logs(
         };
 
         if grpc_tx.send(Ok(feos_log_entry)).await.is_err() {
-            info!("HOST_WORKER: Log stream client disconnected.");
+            info!("HostWorker: Log stream client disconnected.");
             break;
         }
     }
-    info!("HOST_WORKER: FeOS log stream finished.");
+    info!("HostWorker: FeOS log stream finished.");
 }
 
 pub async fn handle_stream_kernel_logs(grpc_tx: mpsc::Sender<Result<KernelLogEntry, Status>>) {
-    info!("HOST_WORKER: Opening {KMSG_PATH} for streaming kernel logs.");
+    info!("HostWorker: Opening {KMSG_PATH} for streaming kernel logs.");
 
     let file = match File::open(KMSG_PATH).await {
         Ok(f) => f,
         Err(e) => {
             let msg = format!("Failed to open {KMSG_PATH}: {e}");
-            error!("HOST_WORKER: {msg}");
+            error!("HostWorker: {msg}");
             if grpc_tx.send(Err(Status::internal(msg))).await.is_err() {
-                warn!("HOST_WORKER: gRPC client for kernel logs disconnected before error could be sent.");
+                warn!("HostWorker: gRPC client for kernel logs disconnected before error could be sent.");
             }
             return;
         }
     };
 
     let mut reader = BufReader::new(file).lines();
-    info!("HOST_WORKER: Streaming logs from {KMSG_PATH}.");
+    info!("HostWorker: Streaming logs from {KMSG_PATH}.");
 
     loop {
         tokio::select! {
             biased;
             _ = grpc_tx.closed() => {
-                info!("HOST_WORKER: gRPC client for kernel logs disconnected. Closing stream.");
+                info!("HostWorker: gRPC client for kernel logs disconnected. Closing stream.");
                 break;
             }
             line_res = reader.next_line() => {
@@ -98,17 +98,17 @@ pub async fn handle_stream_kernel_logs(grpc_tx: mpsc::Sender<Result<KernelLogEnt
                     Ok(Some(line)) => {
                         let entry = KernelLogEntry { message: line };
                         if grpc_tx.send(Ok(entry)).await.is_err() {
-                            info!("HOST_WORKER: gRPC client for kernel logs disconnected. Stopping stream.");
+                            info!("HostWorker: gRPC client for kernel logs disconnected. Stopping stream.");
                             break;
                         }
                     }
                     Ok(None) => {
-                        info!("HOST_WORKER: Reached EOF on {KMSG_PATH}. Stream finished.");
+                        info!("HostWorker: Reached EOF on {KMSG_PATH}. Stream finished.");
                         break;
                     }
                     Err(e) => {
                         let msg = format!("Error reading from {KMSG_PATH}: {e}");
-                        error!("HOST_WORKER: {msg}");
+                        error!("HostWorker: {msg}");
                         let _ = grpc_tx.send(Err(Status::internal(msg))).await;
                         break;
                     }
@@ -119,7 +119,7 @@ pub async fn handle_stream_kernel_logs(grpc_tx: mpsc::Sender<Result<KernelLogEnt
 }
 
 async fn download_file(url: &str, temp_file_writer: &mut std::fs::File) -> Result<(), String> {
-    info!("HOST_WORKER: Starting download from {url}");
+    info!("HostWorker: Starting download from {url}");
 
     let https = HttpsConnectorBuilder::new()
         .with_native_roots()
@@ -135,7 +135,7 @@ async fn download_file(url: &str, temp_file_writer: &mut std::fs::File) -> Resul
         .await
         .map_err(|e| format!("HTTP GET request failed: {e}"))?;
 
-    info!("HOST_WORKER: Download response status: {}", res.status());
+    info!("HostWorker: Download response status: {}", res.status());
     if !res.status().is_success() {
         return Err(format!("Download failed with status: {}", res.status()));
     }
@@ -149,7 +149,7 @@ async fn download_file(url: &str, temp_file_writer: &mut std::fs::File) -> Resul
         }
     }
 
-    info!("HOST_WORKER: Download completed successfully.");
+    info!("HostWorker: Download completed successfully.");
     Ok(())
 }
 
@@ -159,12 +159,12 @@ pub async fn handle_upgrade(
     responder: oneshot::Sender<Result<UpgradeFeosBinaryResponse, Status>>,
 ) {
     info!(
-        "HOST_WORKER: Processing UpgradeFeosBinary request for url {}",
+        "HostWorker: Processing UpgradeFeosBinary request for url {}",
         req.url
     );
 
     if responder.send(Ok(UpgradeFeosBinaryResponse {})).is_err() {
-        warn!("HOST_WORKER: Could not send response for UpgradeFeosBinary. Client may have disconnected.");
+        warn!("HostWorker: Could not send response for UpgradeFeosBinary. Client may have disconnected.");
     }
 
     let temp_file = match tokio::task::block_in_place(|| {
@@ -173,7 +173,7 @@ pub async fn handle_upgrade(
     }) {
         Ok(f) => f,
         Err(e) => {
-            error!("HOST_WORKER: Failed to create temp file: {e}");
+            error!("HostWorker: Failed to create temp file: {e}");
             return;
         }
     };
@@ -181,13 +181,13 @@ pub async fn handle_upgrade(
     let mut temp_file_writer = match temp_file.reopen() {
         Ok(f) => f,
         Err(e) => {
-            error!("HOST_WORKER: Failed to reopen temp file for writing: {e}");
+            error!("HostWorker: Failed to reopen temp file for writing: {e}");
             return;
         }
     };
 
     if let Err(e) = download_file(&req.url, &mut temp_file_writer).await {
-        error!("HOST_WORKER: Failed to download binary: {e}");
+        error!("HostWorker: Failed to download binary: {e}");
         return;
     }
 
@@ -196,19 +196,19 @@ pub async fn handle_upgrade(
     let mut file_to_hash = match File::open(&temp_path).await {
         Ok(f) => f,
         Err(e) => {
-            error!("HOST_WORKER: Failed to reopen temp file for validation: {e}");
+            error!("HostWorker: Failed to reopen temp file for validation: {e}");
             return;
         }
     };
 
     let mut first_bytes = [0u8; 4];
     if file_to_hash.read_exact(&mut first_bytes).await.is_err() {
-        error!("HOST_WORKER: Downloaded file is too small to be a valid binary.");
+        error!("HostWorker: Downloaded file is too small to be a valid binary.");
         return;
     }
 
     if first_bytes != ELF_MAGIC {
-        error!("HOST_WORKER: Downloaded file is not a valid ELF binary.");
+        error!("HostWorker: Downloaded file is not a valid ELF binary.");
         return;
     }
     hasher.update(first_bytes);
@@ -219,7 +219,7 @@ pub async fn handle_upgrade(
             Ok(0) => break,
             Ok(n) => hasher.update(&buf[..n]),
             Err(e) => {
-                error!("HOST_WORKER: Failed to read temp file for hashing: {e}");
+                error!("HostWorker: Failed to read temp file for hashing: {e}");
                 return;
             }
         }
@@ -228,12 +228,12 @@ pub async fn handle_upgrade(
 
     if actual_checksum != req.sha256_sum {
         error!(
-            "HOST_WORKER: Checksum mismatch. Expected: {}, Got: {}",
+            "HostWorker: Checksum mismatch. Expected: {}, Got: {}",
             req.sha256_sum, actual_checksum
         );
         return;
     }
-    info!("HOST_WORKER: Checksum validation successful.");
+    info!("HostWorker: Checksum validation successful.");
 
     let final_path = PathBuf::from(UPGRADE_DIR).join("feos.new");
     if let Err(e) = tokio::task::block_in_place(|| {
@@ -241,16 +241,16 @@ pub async fn handle_upgrade(
         temp_file.persist(&final_path)?;
         std::fs::set_permissions(&final_path, perms)
     }) {
-        error!("HOST_WORKER: Failed to persist and set permissions on new binary: {e}");
+        error!("HostWorker: Failed to persist and set permissions on new binary: {e}");
         return;
     }
 
-    info!("HOST_WORKER: Staged new binary at {:?}", &final_path);
+    info!("HostWorker: Staged new binary at {:?}", &final_path);
 
     if let Err(e) = restart_tx.send(RestartSignal(final_path)).await {
-        error!("HOST_WORKER: CRITICAL - Failed to send restart signal to main process: {e}");
+        error!("HostWorker: CRITICAL - Failed to send restart signal to main process: {e}");
         return;
     }
 
-    info!("HOST_WORKER: Restart signal sent.");
+    info!("HostWorker: Restart signal sent.");
 }

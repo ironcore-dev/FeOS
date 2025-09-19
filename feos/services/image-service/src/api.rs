@@ -32,7 +32,7 @@ impl ImageService for ImageApiHandler {
         &self,
         request: Request<PullImageRequest>,
     ) -> Result<Response<PullImageResponse>, Status> {
-        info!("IMAGE_API_HANDLER: Received PullImage request.");
+        info!("ImageApi: Received PullImage request.");
         let (resp_tx, resp_rx) = oneshot::channel();
         let cmd = Command::PullImage(request.into_inner(), resp_tx);
         self.dispatcher_tx
@@ -53,7 +53,7 @@ impl ImageService for ImageApiHandler {
         &self,
         request: Request<WatchImageStatusRequest>,
     ) -> Result<Response<Self::WatchImageStatusStream>, Status> {
-        info!("IMAGE_API_HANDLER: Received WatchImageStatus stream request.");
+        info!("ImageApi: Received WatchImageStatus stream request.");
         let (stream_tx, stream_rx) = mpsc::channel(16);
         let cmd = Command::WatchImageStatus(request.into_inner(), stream_tx);
         self.dispatcher_tx
@@ -68,7 +68,7 @@ impl ImageService for ImageApiHandler {
         &self,
         request: Request<ListImagesRequest>,
     ) -> Result<Response<ListImagesResponse>, Status> {
-        info!("IMAGE_API_HANDLER: Received ListImages request.");
+        info!("ImageApi: Received ListImages request.");
         let (resp_tx, resp_rx) = oneshot::channel();
         let cmd = Command::ListImages(request.into_inner(), resp_tx);
         self.dispatcher_tx
@@ -89,7 +89,7 @@ impl ImageService for ImageApiHandler {
         &self,
         request: Request<DeleteImageRequest>,
     ) -> Result<Response<DeleteImageResponse>, Status> {
-        info!("IMAGE_API_HANDLER: Received DeleteImage request.");
+        info!("ImageApi: Received DeleteImage request.");
         let (resp_tx, resp_rx) = oneshot::channel();
         let cmd = Command::DeleteImage(request.into_inner(), resp_tx);
         self.dispatcher_tx

@@ -43,7 +43,7 @@ pub async fn run_server(restarted_after_upgrade: bool) -> Result<()> {
             perform_first_boot_initialization().await?;
         }
     } else {
-        info!("MAIN: Skipping one-time initialization on restart after upgrade.");
+        info!("Main: Skipping one-time initialization on restart after upgrade.");
     }
 
     let db_url = setup_database().await?;
@@ -69,8 +69,8 @@ pub async fn run_server(restarted_after_upgrade: bool) -> Result<()> {
         .add_service(image_service)
         .serve_with_incoming(uds_stream);
 
-    info!("MAIN: Public gRPC Server listening on {tcp_addr}");
-    info!("MAIN: Internal ImageService listening on Unix socket {IMAGE_SERVICE_SOCKET}");
+    info!("Main: Public gRPC Server listening on {tcp_addr}");
+    info!("Main: Internal ImageService listening on Unix socket {IMAGE_SERVICE_SOCKET}");
 
     tokio::select! {
         res = tcp_server => {
