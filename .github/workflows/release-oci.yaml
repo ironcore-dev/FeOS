@@ -104,7 +104,7 @@ jobs:
         ROOTFS_IMG="rootfs.img"
         echo "ROOTFS_IMG=$ROOTFS_IMG" >> $GITHUB_ENV
         dd if=/dev/zero of="$ROOTFS_IMG" bs=1M count=128
-        echo -e "label: gpt \nsize=50MiB, type=C12A7328-F81F-11D2-BA4B-00A0C93EC93B, name=\"EFI system partition\"" | sfdisk $ROOTFS_IMG
+        echo -e "label: gpt \nsize=100MiB, type=C12A7328-F81F-11D2-BA4B-00A0C93EC93B, name=\"EFI system partition\"" | sfdisk $ROOTFS_IMG
         LOOP_DEVICE=$(losetup -f)
         sudo losetup "$LOOP_DEVICE" "$ROOTFS_IMG" -P
         sudo mkfs.vfat ${LOOP_DEVICE}p1
