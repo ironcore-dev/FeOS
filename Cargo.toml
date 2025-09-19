@@ -24,18 +24,18 @@ anyhow = "1.0.80"
 nix = { version = "0.29.0", features = ["mount", "user", "reboot", "feature", "net", "aio", "signal", "process", "fs", "hostname"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0.132"
-uuid = { version = "1.7.0", features = ["v4"] }
+uuid = { version = "1.18.1", features = ["v4"] }
 tonic-build = "0.11.0"
-log = "0.4"
+log = "0.4.28"
 env_logger = "0.11"
 openssl = { version = "0.10.72", features = ["vendored"] }
 oci-distribution = "0.11.0"
-tempfile = "3.10.1"
+tempfile = "3.22.0"
 tower = { version = "0.4", features = ["full"] }
 sha2 = "0.10"
 hex = "0.4"
 digest = "0.10"
-clap = { version = "4.5", features = ["derive", "env"] }
+clap = { version = "4.5.47", features = ["derive", "env"] }
 dotenvy = { version = "0.15"}
 libc = "0.2"
 rtnetlink = "0.14.1"
@@ -44,5 +44,5 @@ pnet = "0.35.0"
 dhcproto = "0.12.0"
 socket2 = "0.5.7"
 futures = "0.3.31"
-chrono = "0.4"
+chrono = "0.4.42"
 feos-proto = { path = "feos/proto" }
