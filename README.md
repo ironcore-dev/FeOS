@@ -1,5 +1,9 @@
 # FeOS
 
+[![REUSE status](https://api.reuse.software/badge/github.com/ironcore-dev/dpservice)](https://api.reuse.software/info/github.com/ironcore-dev/FeOS)
+[![GitHub License](https://img.shields.io/static/v1?label=License&message=Apache-2.0&color=blue)](LICENSE)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://makeapullrequest.com)
+
 ## Overview
 FeOS is a revolutionary init system for Linux, designed specifically for hypervisors and servers that run containers. Unlike traditional systems that use sysvinit or systemd, FeOS boots directly from the Linux Kernel. Written in Rust for enhanced security and memory safety, FeOS is an ideal solution for multi-tenant environments, offering robust protection against common vulnerabilities like buffer overflows.
 
