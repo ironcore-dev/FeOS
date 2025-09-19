@@ -6,10 +6,6 @@ use std::io::Write;
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 use tokio::sync::{broadcast, mpsc, oneshot};
 
-// --- Public API ---
-
-/// A single log entry, containing all relevant information.
-/// It must be `Clone` to be sent over a broadcast channel.
 #[derive(Clone, Debug)]
 pub struct LogEntry {
     pub seq: u64,
@@ -32,22 +28,17 @@ impl fmt::Display for LogEntry {
     }
 }
 
-/// A clonable handle that allows creating new log readers.
-/// This is the primary object you'll interact with after initialization.
 #[derive(Clone)]
 pub struct LogHandle {
     history_requester: mpsc::Sender<HistoryRequest>,
     broadcast_sender: broadcast::Sender<LogEntry>,
 }
 
-/// A reader that provides access to the log history and the live stream.
 pub struct LogReader {
     history_snapshot: VecDeque<LogEntry>,
     receiver: broadcast::Receiver<LogEntry>,
 }
 
-/// A builder for creating and initializing the logger.
-/// This is the main entry point for setting up the logging system.
 pub struct Builder {
     filter: LevelFilter,
     max_history: usize,
@@ -59,7 +50,7 @@ pub struct Builder {
 impl Default for Builder {
     fn default() -> Self {
         Self {
-            filter: LevelFilter::Info, // Default log level
+            filter: LevelFilter::Info,
             max_history: 1000,
             broadcast_capacity: 1024,
             mpsc_capacity: 4096,
@@ -89,7 +80,6 @@ impl Builder {
     }
 
     pub fn init(self) -> Result<LogHandle, SetLoggerError> {
-        // FIX: The channel now sends our new, simple `LogMessage` struct.
         let (log_tx, log_rx) = mpsc::channel::<LogMessage>(self.mpsc_capacity);
         let (history_tx, history_rx) = mpsc::channel(32);
         let (broadcast_tx, _) = broadcast::channel(self.broadcast_capacity);
@@ -172,9 +162,7 @@ struct LogMessage {
     message: String,
 }
 
-/// The frontend that implements the `log::Log` trait.
 struct FeosLogger {
-    // FIX: The sender now sends the safe `LogMessage` struct.
     sender: mpsc::Sender<LogMessage>,
     filter: LevelFilter,
 }
@@ -189,8 +177,6 @@ impl Log for FeosLogger {
             return;
         }
 
-        // FIX: Create the safe `LogMessage` here, on the calling thread.
-        // `format!` turns the `Arguments` into a `String`, which is `Send`.
         let msg = LogMessage {
             level: record.level(),
             target: record.target().to_string(),
@@ -205,9 +191,7 @@ impl Log for FeosLogger {
     fn flush(&self) {}
 }
 
-/// The central actor task that owns and manages all logger state.
 struct LoggerActor {
-    // FIX: The receiver now gets the safe `LogMessage` struct.
     log_receiver: mpsc::Receiver<LogMessage>,
     history_requester: mpsc::Receiver<HistoryRequest>,
     broadcast_sender: broadcast::Sender<LogEntry>,
@@ -222,11 +206,9 @@ impl LoggerActor {
     async fn run(mut self) {
         loop {
             tokio::select! {
-                // FIX: Receive the `LogMessage` instead of a `Record`.
                 Some(msg) = self.log_receiver.recv() => {
                     self.seq_counter += 1;
 
-                    // FIX: Construct the final `LogEntry` from the `LogMessage`.
                     let entry = LogEntry {
                         seq: self.seq_counter,
                         timestamp: Utc::now(),
@@ -236,8 +218,6 @@ impl LoggerActor {
                     };
 
                     if self.log_to_stdout {
-                        // We ignore the result of the write operation. In a more
-                        // critical application, you might handle I/O errors here.
                         let _ = self.write_log_entry_to_stdout(&entry);
                     }
 
@@ -260,7 +240,6 @@ impl LoggerActor {
 
     fn write_log_entry_to_stdout(&mut self, entry: &LogEntry) -> std::io::Result<()> {
         let mut level_spec = ColorSpec::new();
-        // Set color and boldness based on log level
         match entry.level {
             Level::Error => level_spec.set_fg(Some(Color::Red)).set_bold(true),
             Level::Warn => level_spec.set_fg(Some(Color::Yellow)).set_bold(true),
@@ -269,18 +248,15 @@ impl LoggerActor {
             Level::Trace => level_spec.set_fg(Some(Color::Magenta)).set_bold(true),
         };
 
-        // Write the timestamp (no color)
         write!(
             &mut self.stdout_writer,
             "[{} ",
             entry.timestamp.format("%Y-%m-%dT%H:%M:%SZ")
         )?;
 
-        // Set the color for the level and write it
         self.stdout_writer.set_color(&level_spec)?;
         write!(&mut self.stdout_writer, "{:<5}", entry.level.to_string())?;
 
-        // Reset color for the rest of the line
         self.stdout_writer.reset()?;
         writeln!(
             &mut self.stdout_writer,

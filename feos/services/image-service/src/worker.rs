@@ -5,9 +5,7 @@ use feos_proto::image_service::{
 };
 use log::{error, info, warn};
 use oci_distribution::{
-    client::{ClientConfig, ClientProtocol},
-    errors::OciDistributionError,
-    secrets, Client, ParseError, Reference,
+    client::ClientConfig, errors::OciDistributionError, secrets, Client, ParseError, Reference,
 };
 use std::collections::HashMap;
 use tokio::sync::{broadcast, mpsc, oneshot};
@@ -218,10 +216,7 @@ async fn download_layer_data(image_ref: &str) -> Result<Vec<u8>, PullError> {
         VMLINUZ_MEDIA_TYPE,
     ];
 
-    let insecure_registries = vec!["ghcr.io:5000".to_string()];
-
     let config = ClientConfig {
-        protocol: ClientProtocol::HttpsExcept(insecure_registries),
         ..Default::default()
     };
 

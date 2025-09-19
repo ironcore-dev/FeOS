@@ -2,9 +2,7 @@ syntax = "proto3";
 
 package feos.image.vmm.api.v1;
 
-// ===================================================================
 // Image Service
-// ===================================================================
 
 // ImageService handles the lifecycle of OCI images used for booting VMs.
 service ImageService {
@@ -24,10 +22,6 @@ service ImageService {
   // Removes a locally cached image.
   rpc DeleteImage(DeleteImageRequest) returns (DeleteImageResponse);
 }
-
-// ===================================================================
-// Image Manager Messages
-// ===================================================================
 
 enum ImageState {
   IMAGE_STATE_UNSPECIFIED = 0;
