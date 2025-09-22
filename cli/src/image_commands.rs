@@ -7,6 +7,7 @@ use feos_proto::image_service::{
     image_service_client::ImageServiceClient, DeleteImageRequest, ImageState, ListImagesRequest,
     PullImageRequest, WatchImageStatusRequest,
 };
+use hyper_util::rt::TokioIo;
 use std::path::PathBuf;
 use tokio::net::UnixStream;
 use tokio_stream::StreamExt;
@@ -55,7 +56,8 @@ pub enum ImageCommand {
 async fn get_image_client(socket: PathBuf) -> Result<ImageServiceClient<Channel>> {
     let channel = Endpoint::try_from("http://[::1]:50051")?
         .connect_with_connector(service_fn(move |_: Uri| {
-            UnixStream::connect(socket.clone())
+            let socket = socket.clone();
+            async move { UnixStream::connect(socket).await.map(TokioIo::new) }
         }))
         .await
         .context("Failed to connect to ImageService via Unix socket")?;

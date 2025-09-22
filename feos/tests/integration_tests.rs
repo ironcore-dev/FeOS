@@ -17,6 +17,7 @@ use feos_proto::{
         VmEvent, VmState, VmStateChangedEvent,
     },
 };
+use hyper_util::rt::TokioIo;
 use image_service::{IMAGE_DIR, IMAGE_SERVICE_SOCKET};
 use log::{error, info, warn};
 use nix::sys::signal::{kill, Signal};
@@ -102,8 +103,8 @@ async fn get_public_clients() -> Result<(VmServiceClient<Channel>, HostServiceCl
 async fn get_image_service_client() -> Result<ImageServiceClient<Channel>> {
     let endpoint = Endpoint::from_static("http://[::1]:50051");
     let channel = endpoint
-        .connect_with_connector(service_fn(|_: Uri| {
-            UnixStream::connect(IMAGE_SERVICE_SOCKET)
+        .connect_with_connector(service_fn(|_: Uri| async {
+            UnixStream::connect(IMAGE_SERVICE_SOCKET).await.map(TokioIo::new)
         }))
         .await?;
     Ok(ImageServiceClient::new(channel))

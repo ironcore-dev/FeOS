@@ -14,6 +14,7 @@ use feos_proto::{
         VmStateChangedEvent,
     },
 };
+use hyper_util::rt::TokioIo;
 use image_service::IMAGE_SERVICE_SOCKET;
 use log::{error, info, warn};
 use nix::unistd::Pid;
@@ -34,7 +35,8 @@ pub(crate) async fn get_image_service_client(
     Endpoint::try_from("http://[::1]:50051")
         .unwrap()
         .connect_with_connector(service_fn(move |_: Uri| {
-            tokio::net::UnixStream::connect(socket_path.clone())
+            let socket_path = socket_path.clone();
+            async move { tokio::net::UnixStream::connect(socket_path).await.map(TokioIo::new) }
         }))
         .await
         .map(ImageServiceClient::new)

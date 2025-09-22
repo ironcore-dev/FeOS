@@ -6,7 +6,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     tonic_build::configure()
         .protoc_arg("--experimental_allow_proto3_optional")
-        .compile(
+        .compile_protos(
             &[
                 format!("{proto_dir}/vm.proto"),
                 format!("{proto_dir}/host.proto"),
