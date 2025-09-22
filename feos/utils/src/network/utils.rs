@@ -4,6 +4,7 @@
 use super::dhcpv6::*;
 use futures::stream::TryStreamExt;
 use log::{error, info, warn};
+use netlink_packet_route::link::{LinkAttribute, LinkFlags, LinkMessage};
 use netlink_packet_route::route::RouteType;
 use rtnetlink::new_connection;
 use std::fs::File;
@@ -162,10 +163,14 @@ pub async fn configure_network_devices() -> Result<Option<(Ipv6Addr, u8)>, Strin
         .map_err(|e| format!("{interface_name} not found: {e}"))?
         .ok_or("Link not found".to_string())?;
 
+    let mut link_msg = LinkMessage::default();
+    link_msg.header.index = link.header.index;
+    link_msg.header.flags = link.header.flags | LinkFlags::Up;
+    link_msg.header.change_mask = LinkFlags::Up;
+
     handle
         .link()
-        .set(link.header.index)
-        .up()
+        .set(link_msg)
         .execute()
         .await
         .map_err(|e| format!("{interface_name} can not be set up: {e}"))?;
@@ -173,13 +178,13 @@ pub async fn configure_network_devices() -> Result<Option<(Ipv6Addr, u8)>, Strin
     info!("{interface_name}:");
     for attr in link.attributes {
         match attr {
-            netlink_packet_route::link::LinkAttribute::Address(mac_bytes) => {
+            LinkAttribute::Address(mac_bytes) => {
                 info!("  mac: {}", format_mac(mac_bytes.clone()));
             }
-            netlink_packet_route::link::LinkAttribute::Carrier(carrier) => {
+            LinkAttribute::Carrier(carrier) => {
                 info!("  carrier: {carrier}");
             }
-            netlink_packet_route::link::LinkAttribute::Mtu(mtu) => {
+            LinkAttribute::Mtu(mtu) => {
                 info!("  mtu: {mtu}");
             }
             _ => (),

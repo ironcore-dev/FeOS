@@ -5,7 +5,7 @@ use dhcproto::v6::*;
 use futures::stream::TryStreamExt;
 use log::{error, info, warn};
 use netlink_packet_route::route::{
-    RouteAddress, RouteAttribute, RouteProtocol, RouteScope, RouteType,
+    RouteAddress, RouteAttribute, RouteMessage, RouteProtocol, RouteScope, RouteType,
 };
 use netlink_packet_route::AddressFamily;
 use nix::net::if_::if_nametoindex;
@@ -498,8 +498,8 @@ pub async fn add_ipv6_route(
         .try_next()
         .await?
         .ok_or(Error::RequestFailed)?;
-    let mut req = handle.route().add();
-    let msg = req.message_mut();
+
+    let mut msg = RouteMessage::default();
     msg.header.address_family = AddressFamily::Inet6;
     msg.header.scope = RouteScope::Universe;
     msg.header.protocol = RouteProtocol::Static;
@@ -515,7 +515,8 @@ pub async fn add_ipv6_route(
     }
     msg.attributes.push(RouteAttribute::Oif(link.header.index));
     msg.attributes.push(RouteAttribute::Priority(metric));
-    req.execute().await
+
+    handle.route().add(msg).execute().await
 }
 
 pub async fn set_ipv6_gateway(
@@ -531,8 +532,8 @@ pub async fn set_ipv6_gateway(
         .try_next()
         .await?
         .ok_or(Error::RequestFailed)?;
-    let mut req = handle.route().add();
-    let msg = req.message_mut();
+
+    let mut msg = RouteMessage::default();
     msg.header.address_family = AddressFamily::Inet6;
     msg.header.scope = RouteScope::Universe;
     msg.header.protocol = RouteProtocol::Static;
@@ -541,5 +542,6 @@ pub async fn set_ipv6_gateway(
     msg.attributes
         .push(RouteAttribute::Gateway(RouteAddress::Inet6(ipv6_gateway)));
     msg.attributes.push(RouteAttribute::Oif(link.header.index));
-    req.execute().await
+
+    handle.route().add(msg).execute().await
 }

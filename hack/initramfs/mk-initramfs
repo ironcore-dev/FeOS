@@ -23,7 +23,6 @@ cat <<EOF >>etc/hosts
 127.0.0.1    localhost
 127.0.1.1    feos
 ::1          localhost feos
-2a10:afc0:e013:fe01:: ghcr.io
 EOF
 
 echo "feos" > etc/hostname
