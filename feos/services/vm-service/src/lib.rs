@@ -47,7 +47,7 @@ pub enum Command {
         oneshot::Sender<Result<DeleteVmResponse, Status>>,
     ),
     StreamVmConsole(
-        Streaming<StreamVmConsoleRequest>,
+        Box<Streaming<StreamVmConsoleRequest>>,
         mpsc::Sender<Result<StreamVmConsoleResponse, Status>>,
     ),
     ListVms(

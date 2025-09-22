@@ -36,7 +36,11 @@ pub(crate) async fn get_image_service_client(
         .unwrap()
         .connect_with_connector(service_fn(move |_: Uri| {
             let socket_path = socket_path.clone();
-            async move { tokio::net::UnixStream::connect(socket_path).await.map(TokioIo::new) }
+            async move {
+                tokio::net::UnixStream::connect(socket_path)
+                    .await
+                    .map(TokioIo::new)
+            }
         }))
         .await
         .map(ImageServiceClient::new)

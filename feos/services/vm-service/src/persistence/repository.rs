@@ -33,7 +33,7 @@ fn string_to_vm_state(s: &str) -> Result<VmState, anyhow::Error> {
         "VM_STATE_STOPPED" => Ok(VmState::Stopped),
         "VM_STATE_CRASHED" => Ok(VmState::Crashed),
         "VM_STATE_UNSPECIFIED" => Ok(VmState::Unspecified),
-        _ => Err(anyhow!("Invalid state string '{}' in database", s)),
+        _ => Err(anyhow!("Invalid state string '{s}' in database")),
     }
 }
 
@@ -61,7 +61,7 @@ impl VmRepository {
 
         if let Some(row) = row_opt {
             let config = VmConfig::decode(&*row.config_blob)
-                .map_err(|e| anyhow!("Failed to decode VmConfig blob: {}", e))?;
+                .map_err(|e| anyhow!("Failed to decode VmConfig blob: {e}"))?;
 
             let state = string_to_vm_state(&row.state)?;
 

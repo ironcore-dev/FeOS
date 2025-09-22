@@ -104,7 +104,9 @@ async fn get_image_service_client() -> Result<ImageServiceClient<Channel>> {
     let endpoint = Endpoint::from_static("http://[::1]:50051");
     let channel = endpoint
         .connect_with_connector(service_fn(|_: Uri| async {
-            UnixStream::connect(IMAGE_SERVICE_SOCKET).await.map(TokioIo::new)
+            UnixStream::connect(IMAGE_SERVICE_SOCKET)
+                .await
+                .map(TokioIo::new)
         }))
         .await?;
     Ok(ImageServiceClient::new(channel))

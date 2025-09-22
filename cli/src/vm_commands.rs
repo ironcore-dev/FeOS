@@ -349,15 +349,12 @@ async fn wait_for_vm_state(
                 }
             }
             Err(status) => {
-                anyhow::bail!("Error in event stream: {}", status);
+                anyhow::bail!("Error in event stream: {status}");
             }
         }
     }
 
-    anyhow::bail!(
-        "Event stream ended before reaching target state: {:?}",
-        target_state
-    )
+    anyhow::bail!("Event stream ended before reaching target state: {target_state:?}")
 }
 
 async fn create_vm(

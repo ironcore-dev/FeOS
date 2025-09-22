@@ -27,13 +27,13 @@ async fn main() -> Result<()> {
         });
 
         if root_fstype == "rootfs" {
-            move_root().map_err(|e| anyhow::anyhow!("[feos] move_root failed: {}", e))?;
+            move_root().map_err(|e| anyhow::anyhow!("[feos] move_root failed: {e}"))?;
 
             let argv: Vec<CString> = env::args()
                 .map(|arg| CString::new(arg).unwrap_or_default())
                 .collect();
-            let _ = execv(&argv[0], &argv)
-                .map_err(|e| anyhow::anyhow!("[feos] execv failed: {}", e))?;
+            let _ =
+                execv(&argv[0], &argv).map_err(|e| anyhow::anyhow!("[feos] execv failed: {e}"))?;
 
             return Err(anyhow::anyhow!("execv failed to replace process"));
         }

@@ -85,7 +85,7 @@ impl VmServiceDispatcher {
                             handle_delete_vm_command(&self.repository, &self.healthcheck_cancel_bus, req, responder, hypervisor, event_bus_tx).await;
                         }
                         Command::StreamVmConsole(input_stream, output_tx) => {
-                            tokio::spawn(worker::handle_stream_vm_console(input_stream, output_tx, hypervisor));
+                            tokio::spawn(worker::handle_stream_vm_console(*input_stream, output_tx, hypervisor));
                         }
                         Command::ListVms(req, responder) => {
                             handle_list_vms_command(&self.repository, req, responder).await;

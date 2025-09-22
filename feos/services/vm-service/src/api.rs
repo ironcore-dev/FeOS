@@ -131,7 +131,7 @@ impl VmService for VmApiHandler {
         info!("VmApi: Received StreamVmConsole stream request.");
         let grpc_input_stream = request.into_inner();
         let (grpc_output_tx, grpc_output_rx) = mpsc::channel(32);
-        let cmd = Command::StreamVmConsole(grpc_input_stream, grpc_output_tx);
+        let cmd = Command::StreamVmConsole(Box::new(grpc_input_stream), grpc_output_tx);
         self.dispatcher_tx
             .send(cmd)
             .await
