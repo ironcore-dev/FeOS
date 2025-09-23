@@ -5,7 +5,7 @@
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://makeapullrequest.com)
 
 ## Overview
-FeOS is a revolutionary init system for Linux, designed specifically for hypervisors and servers that run containers. Unlike traditional systems that use sysvinit or systemd, FeOS boots directly from the Linux Kernel. Written in Rust for enhanced security and memory safety, FeOS is an ideal solution for multi-tenant environments, offering robust protection against common vulnerabilities like buffer overflows.
+FeOS is a revolutionary init system for Linux, designed specifically for hypervisors and servers that run containers. Unlike traditional, general-purpose systems like sysvinit or systemd, FeOS is executed directly by the kernel as a minimal PID 1, focused entirely on serving container and VM workloads. Written in Rust for enhanced security and memory safety, FeOS is an ideal solution for multi-tenant environments, offering robust protection against common vulnerabilities like buffer overflows.
 
 ### Use Cases
 **Multi-Tenant Environments**: Ideal for environments requiring strong isolation between different tenants' workloads.  
@@ -27,5 +27,3 @@ Just download the Unified Kernel Image (UKI) from the [Releases](https://github.
 
 ## Licensing
 FeOS is licensed under the [Apache License v2.0](LICENSE), ensuring open-source availability and collaborative development potential.
-
-Copyright 2023 by Malte Janduda.
