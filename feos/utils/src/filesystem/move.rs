@@ -28,13 +28,8 @@ pub fn get_root_fstype() -> Result<String, Box<dyn std::error::Error>> {
     let proc_dir_raw = fsmount(proc_fs.as_fd(), 0, 0)?;
     let proc_dir = unsafe { OwnedFd::from_raw_fd(proc_dir_raw) };
 
-    let mounts_raw = openat(
-        Some(proc_dir.as_raw_fd()),
-        "mounts",
-        OFlag::O_RDONLY,
-        Mode::empty(),
-    )?;
-    let mounts = unsafe { File::from_raw_fd(mounts_raw) };
+    let mounts_fd = openat(&proc_dir, "mounts", OFlag::O_RDONLY, Mode::empty())?;
+    let mounts = unsafe { File::from_raw_fd(mounts_fd.as_raw_fd()) };
 
     let reader = BufReader::new(mounts);
 
@@ -67,7 +62,7 @@ pub fn move_root() -> Result<(), Box<dyn std::error::Error>> {
     let tmp_dir_raw = fsmount(tmp_fs.as_fd(), 0, 0)?;
     let tmp_dir = unsafe { OwnedFd::from_raw_fd(tmp_dir_raw) };
 
-    fchdir(tmp_dir.as_raw_fd())?;
+    fchdir(&tmp_dir)?;
     move_recursively(Path::new("/"), Path::new("."))?;
 
     mount(
