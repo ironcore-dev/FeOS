@@ -2,9 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::{
+    error::VmServiceError,
     persistence::{repository::VmRepository, VmRecord, VmStatus},
     vmm::Hypervisor,
-    worker, VmEventWrapper, VmServiceError,
+    worker, VmEventWrapper,
 };
 use feos_proto::{
     image_service::{image_service_client::ImageServiceClient, PullImageRequest},

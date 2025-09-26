@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2023 SAP SE or an SAP affiliate company and IronCore contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::persistence::PersistenceError;
+use crate::error::VmServiceError;
 use feos_proto::vm_service::{
     AttachDiskRequest, AttachDiskResponse, CreateVmRequest, CreateVmResponse, DeleteVmRequest,
     DeleteVmResponse, GetVmRequest, ListVmsRequest, ListVmsResponse, PauseVmRequest,
@@ -16,6 +16,7 @@ use tonic::{Status, Streaming};
 pub mod api;
 pub mod dispatcher;
 pub mod dispatcher_handlers;
+pub mod error;
 pub mod persistence;
 pub mod vmm;
 pub mod worker;
@@ -25,44 +26,6 @@ pub const VM_API_SOCKET_DIR: &str = "/tmp/feos/vm_api_sockets";
 pub const VM_CH_BIN: &str = "cloud-hypervisor";
 pub const IMAGE_DIR: &str = "/tmp/feos/images";
 pub const VM_CONSOLE_DIR: &str = "/tmp/feos/consoles";
-
-#[derive(Debug, thiserror::Error)]
-pub enum VmServiceError {
-    #[error("VMM Error: {0}")]
-    Vmm(#[from] crate::vmm::VmmError),
-
-    #[error("Persistence Error: {0}")]
-    Persistence(#[from] PersistenceError),
-
-    #[error("Image Service Error: {0}")]
-    ImageService(String),
-
-    #[error("Invalid argument: {0}")]
-    InvalidArgument(String),
-
-    #[error("VM with ID {0} already exists")]
-    AlreadyExists(String),
-}
-
-impl From<VmServiceError> for Status {
-    fn from(err: VmServiceError) -> Self {
-        log::error!("VmServiceError: {}", err);
-        match err {
-            VmServiceError::Vmm(vmm_err) => vmm_err.into(),
-            VmServiceError::Persistence(PersistenceError::Database(ref e))
-                if matches!(e, sqlx::Error::RowNotFound) =>
-            {
-                Status::not_found("Record not found in database")
-            }
-            VmServiceError::Persistence(_) => Status::internal("A database error occurred"),
-            VmServiceError::ImageService(msg) => {
-                Status::unavailable(format!("Image service unavailable: {}", msg))
-            }
-            VmServiceError::InvalidArgument(msg) => Status::invalid_argument(msg),
-            VmServiceError::AlreadyExists(msg) => Status::already_exists(msg),
-        }
-    }
-}
 
 #[derive(Debug, Clone)]
 pub struct VmEventWrapper {

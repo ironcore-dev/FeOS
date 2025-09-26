@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::{
-    dispatcher_handlers::get_image_service_client, vmm::Hypervisor, VmEventWrapper, VmServiceError,
+    dispatcher_handlers::get_image_service_client, error::VmServiceError, vmm::Hypervisor,
+    VmEventWrapper,
 };
 use feos_proto::{
     image_service::{ImageState as OciImageState, WatchImageStatusRequest},

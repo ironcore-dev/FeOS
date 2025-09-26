@@ -6,9 +6,10 @@ use crate::{
         handle_create_vm_command, handle_delete_vm_command, handle_get_vm_command,
         handle_list_vms_command, handle_stream_vm_events_command, perform_startup_sanity_check,
     },
+    error::VmServiceError,
     persistence::repository::VmRepository,
     vmm::{factory, Hypervisor, VmmType},
-    worker, Command, VmEventWrapper, VmServiceError,
+    worker, Command, VmEventWrapper,
 };
 use feos_proto::vm_service::{VmState, VmStateChangedEvent};
 use log::{debug, error, info};
