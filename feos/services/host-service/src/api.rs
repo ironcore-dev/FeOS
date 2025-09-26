@@ -25,6 +25,30 @@ impl HostApiHandler {
     }
 }
 
+async fn dispatch_and_wait<T, E>(
+    dispatcher: &mpsc::Sender<Command>,
+    command_constructor: impl FnOnce(oneshot::Sender<Result<T, E>>) -> Command,
+) -> Result<Response<T>, Status>
+where
+    E: Into<Status>,
+{
+    let (resp_tx, resp_rx) = oneshot::channel();
+    let cmd = command_constructor(resp_tx);
+
+    dispatcher
+        .send(cmd)
+        .await
+        .map_err(|e| Status::internal(format!("Failed to send command to dispatcher: {e}")))?;
+
+    match resp_rx.await {
+        Ok(Ok(result)) => Ok(Response::new(result)),
+        Ok(Err(e)) => Err(e.into()),
+        Err(_) => Err(Status::internal(
+            "Dispatcher task dropped response channel.",
+        )),
+    }
+}
+
 #[tonic::async_trait]
 impl HostService for HostApiHandler {
     type StreamKernelLogsStream =
@@ -36,20 +60,7 @@ impl HostService for HostApiHandler {
         _request: Request<HostnameRequest>,
     ) -> Result<Response<HostnameResponse>, Status> {
         info!("HostApi: Received Hostname request.");
-        let (resp_tx, resp_rx) = oneshot::channel();
-        let cmd = Command::GetHostname(resp_tx);
-        self.dispatcher_tx
-            .send(cmd)
-            .await
-            .map_err(|e| Status::internal(format!("Failed to send command to dispatcher: {e}")))?;
-
-        match resp_rx.await {
-            Ok(Ok(result)) => Ok(Response::new(result)),
-            Ok(Err(status)) => Err(status),
-            Err(_) => Err(Status::internal(
-                "Dispatcher task dropped response channel.",
-            )),
-        }
+        dispatch_and_wait(&self.dispatcher_tx, Command::GetHostname).await
     }
 
     async fn get_memory(
@@ -57,20 +68,7 @@ impl HostService for HostApiHandler {
         _request: Request<MemoryRequest>,
     ) -> Result<Response<MemoryResponse>, Status> {
         info!("HostApi: Received GetMemory request.");
-        let (resp_tx, resp_rx) = oneshot::channel();
-        let cmd = Command::GetMemory(resp_tx);
-        self.dispatcher_tx
-            .send(cmd)
-            .await
-            .map_err(|e| Status::internal(format!("Failed to send command to dispatcher: {e}")))?;
-
-        match resp_rx.await {
-            Ok(Ok(result)) => Ok(Response::new(result)),
-            Ok(Err(status)) => Err(status),
-            Err(_) => Err(Status::internal(
-                "Dispatcher task dropped response channel.",
-            )),
-        }
+        dispatch_and_wait(&self.dispatcher_tx, Command::GetMemory).await
     }
 
     async fn get_cpu_info(
@@ -78,20 +76,7 @@ impl HostService for HostApiHandler {
         _request: Request<GetCpuInfoRequest>,
     ) -> Result<Response<GetCpuInfoResponse>, Status> {
         info!("HostApi: Received GetCPUInfo request.");
-        let (resp_tx, resp_rx) = oneshot::channel();
-        let cmd = Command::GetCPUInfo(resp_tx);
-        self.dispatcher_tx
-            .send(cmd)
-            .await
-            .map_err(|e| Status::internal(format!("Failed to send command to dispatcher: {e}")))?;
-
-        match resp_rx.await {
-            Ok(Ok(result)) => Ok(Response::new(result)),
-            Ok(Err(status)) => Err(status),
-            Err(_) => Err(Status::internal(
-                "Dispatcher task dropped response channel.",
-            )),
-        }
+        dispatch_and_wait(&self.dispatcher_tx, Command::GetCPUInfo).await
     }
 
     async fn get_network_info(
@@ -99,20 +84,7 @@ impl HostService for HostApiHandler {
         _request: Request<GetNetworkInfoRequest>,
     ) -> Result<Response<GetNetworkInfoResponse>, Status> {
         info!("HostApi: Received GetNetworkInfo request.");
-        let (resp_tx, resp_rx) = oneshot::channel();
-        let cmd = Command::GetNetworkInfo(resp_tx);
-        self.dispatcher_tx
-            .send(cmd)
-            .await
-            .map_err(|e| Status::internal(format!("Failed to send command to dispatcher: {e}")))?;
-
-        match resp_rx.await {
-            Ok(Ok(result)) => Ok(Response::new(result)),
-            Ok(Err(status)) => Err(status),
-            Err(_) => Err(Status::internal(
-                "Dispatcher task dropped response channel.",
-            )),
-        }
+        dispatch_and_wait(&self.dispatcher_tx, Command::GetNetworkInfo).await
     }
 
     async fn shutdown(
@@ -120,20 +92,10 @@ impl HostService for HostApiHandler {
         request: Request<ShutdownRequest>,
     ) -> Result<Response<ShutdownResponse>, Status> {
         info!("HostApi: Received Shutdown request.");
-        let (resp_tx, resp_rx) = oneshot::channel();
-        let cmd = Command::Shutdown(request.into_inner(), resp_tx);
-        self.dispatcher_tx
-            .send(cmd)
-            .await
-            .map_err(|e| Status::internal(format!("Failed to send command to dispatcher: {e}")))?;
-
-        match resp_rx.await {
-            Ok(Ok(result)) => Ok(Response::new(result)),
-            Ok(Err(status)) => Err(status),
-            Err(_) => Err(Status::internal(
-                "Dispatcher task dropped response channel.",
-            )),
-        }
+        dispatch_and_wait(&self.dispatcher_tx, |resp_tx| {
+            Command::Shutdown(request.into_inner(), resp_tx)
+        })
+        .await
     }
 
     async fn reboot(
@@ -141,20 +103,10 @@ impl HostService for HostApiHandler {
         request: Request<RebootRequest>,
     ) -> Result<Response<RebootResponse>, Status> {
         info!("HostApi: Received Reboot request.");
-        let (resp_tx, resp_rx) = oneshot::channel();
-        let cmd = Command::Reboot(request.into_inner(), resp_tx);
-        self.dispatcher_tx
-            .send(cmd)
-            .await
-            .map_err(|e| Status::internal(format!("Failed to send command to dispatcher: {e}")))?;
-
-        match resp_rx.await {
-            Ok(Ok(result)) => Ok(Response::new(result)),
-            Ok(Err(status)) => Err(status),
-            Err(_) => Err(Status::internal(
-                "Dispatcher task dropped response channel.",
-            )),
-        }
+        dispatch_and_wait(&self.dispatcher_tx, |resp_tx| {
+            Command::Reboot(request.into_inner(), resp_tx)
+        })
+        .await
     }
 
     async fn upgrade_feos_binary(
@@ -162,20 +114,10 @@ impl HostService for HostApiHandler {
         request: Request<UpgradeFeosBinaryRequest>,
     ) -> Result<Response<UpgradeFeosBinaryResponse>, Status> {
         info!("HostApi: Received UpgradeFeosBinary request.");
-        let (resp_tx, resp_rx) = oneshot::channel();
-        let cmd = Command::UpgradeFeosBinary(request.into_inner(), resp_tx);
-        self.dispatcher_tx
-            .send(cmd)
-            .await
-            .map_err(|e| Status::internal(format!("Failed to send command to dispatcher: {e}")))?;
-
-        match resp_rx.await {
-            Ok(Ok(result)) => Ok(Response::new(result)),
-            Ok(Err(status)) => Err(status),
-            Err(_) => Err(Status::internal(
-                "Dispatcher task dropped response channel.",
-            )),
-        }
+        dispatch_and_wait(&self.dispatcher_tx, |resp_tx| {
+            Command::UpgradeFeosBinary(request.into_inner(), resp_tx)
+        })
+        .await
     }
 
     async fn stream_kernel_logs(
@@ -213,19 +155,6 @@ impl HostService for HostApiHandler {
         _request: Request<GetVersionInfoRequest>,
     ) -> Result<Response<GetVersionInfoResponse>, Status> {
         info!("HostApi: Received GetVersionInfo request.");
-        let (resp_tx, resp_rx) = oneshot::channel();
-        let cmd = Command::GetVersionInfo(resp_tx);
-        self.dispatcher_tx
-            .send(cmd)
-            .await
-            .map_err(|e| Status::internal(format!("Failed to send command to dispatcher: {e}")))?;
-
-        match resp_rx.await {
-            Ok(Ok(result)) => Ok(Response::new(result)),
-            Ok(Err(status)) => Err(status),
-            Err(_) => Err(Status::internal(
-                "Dispatcher task dropped response channel.",
-            )),
-        }
+        dispatch_and_wait(&self.dispatcher_tx, Command::GetVersionInfo).await
     }
 }

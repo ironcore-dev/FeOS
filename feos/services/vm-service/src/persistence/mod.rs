@@ -6,6 +6,24 @@ use uuid::Uuid;
 
 pub mod repository;
 
+#[derive(Debug, thiserror::Error)]
+pub enum PersistenceError {
+    #[error("A database error occurred")]
+    Database(#[from] sqlx::Error),
+
+    #[error("Database migration failed")]
+    Migration(#[from] sqlx::migrate::MigrateError),
+
+    #[error("Failed to decode VmConfig blob")]
+    Decode(#[from] prost::DecodeError),
+
+    #[error("Failed to encode VmConfig blob")]
+    Encode(#[from] prost::EncodeError),
+
+    #[error("Invalid state string '{0}' in database")]
+    InvalidStateString(String),
+}
+
 #[derive(Debug, Clone)]
 pub struct VmStatus {
     pub state: VmState,

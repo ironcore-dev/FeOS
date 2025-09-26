@@ -4,7 +4,7 @@
 use crate::{
     persistence::{repository::VmRepository, VmRecord, VmStatus},
     vmm::Hypervisor,
-    worker, VmEventWrapper,
+    worker, VmEventWrapper, VmServiceError,
 };
 use feos_proto::{
     image_service::{image_service_client::ImageServiceClient, PullImageRequest},
@@ -46,12 +46,12 @@ pub(crate) async fn get_image_service_client(
         .map(ImageServiceClient::new)
 }
 
-async fn initiate_image_pull_for_vm(req: &CreateVmRequest) -> Result<String, Status> {
+async fn initiate_image_pull_for_vm(req: &CreateVmRequest) -> Result<String, VmServiceError> {
     let image_ref = match req.config.as_ref() {
         Some(config) if !config.image_ref.is_empty() => config.image_ref.clone(),
         _ => {
-            return Err(Status::invalid_argument(
-                "VmConfig with a non-empty image_ref is required",
+            return Err(VmServiceError::InvalidArgument(
+                "VmConfig with a non-empty image_ref is required".to_string(),
             ));
         }
     };
@@ -59,7 +59,7 @@ async fn initiate_image_pull_for_vm(req: &CreateVmRequest) -> Result<String, Sta
     info!("VmDispatcher: Requesting image pull for {image_ref}");
     let mut client = get_image_service_client()
         .await
-        .map_err(|e| Status::unavailable(format!("Could not connect to ImageService: {e}")))?;
+        .map_err(|e| VmServiceError::ImageService(format!("Could not connect: {e}")))?;
 
     let response = client
         .pull_image(PullImageRequest {
@@ -67,9 +67,7 @@ async fn initiate_image_pull_for_vm(req: &CreateVmRequest) -> Result<String, Sta
         })
         .await
         .map_err(|status| {
-            let msg = format!("PullImage RPC failed for {image_ref}: {status}");
-            error!("VmDispatcher: {msg}");
-            Status::unavailable(msg)
+            VmServiceError::ImageService(format!("PullImage RPC failed for {image_ref}: {status}"))
         })?;
 
     let image_uuid = response.into_inner().image_uuid;
@@ -77,94 +75,83 @@ async fn initiate_image_pull_for_vm(req: &CreateVmRequest) -> Result<String, Sta
     Ok(image_uuid)
 }
 
-pub(crate) async fn handle_create_vm_command(
+async fn prepare_vm_creation(
     repository: &VmRepository,
-    req: CreateVmRequest,
-    responder: oneshot::Sender<Result<CreateVmResponse, Status>>,
-    hypervisor: Arc<dyn Hypervisor>,
-    event_bus_tx: mpsc::Sender<VmEventWrapper>,
-) {
-    let vm_id_res: Result<(Uuid, bool), Status> =
+    req: &CreateVmRequest,
+) -> Result<(Uuid, String), VmServiceError> {
+    let vm_id_res: Result<(Uuid, bool), VmServiceError> =
         if let Some(id_str) = req.vm_id.as_deref().filter(|s| !s.is_empty()) {
             match Uuid::parse_str(id_str) {
                 Ok(id) if !id.is_nil() => Ok((id, true)),
-                Ok(_) => Err(Status::invalid_argument(
-                    "Provided vm_id cannot be the nil UUID.",
+                Ok(_) => Err(VmServiceError::InvalidArgument(
+                    "Provided vm_id cannot be the nil UUID.".to_string(),
                 )),
-                Err(_) => Err(Status::invalid_argument(
-                    "Provided vm_id is not a valid UUID format.",
+                Err(_) => Err(VmServiceError::InvalidArgument(
+                    "Provided vm_id is not a valid UUID format.".to_string(),
                 )),
             }
         } else {
             Ok((Uuid::new_v4(), false))
         };
 
-    let (vm_id, is_user_provided) = match vm_id_res {
-        Ok(val) => val,
-        Err(status) => {
-            if responder.send(Err(status)).is_err() {
-                error!(
-                    "VmDispatcher: Failed to send error response for CreateVm. Responder closed."
-                );
-            }
-            return;
-        }
-    };
+    let (vm_id, is_user_provided) = vm_id_res?;
 
-    if is_user_provided {
-        match repository.get_vm(vm_id).await {
-            Ok(Some(_)) => {
-                let status = Status::already_exists(format!("VM with ID {vm_id} already exists."));
-                if responder.send(Err(status)).is_err() {
-                    error!("VmDispatcher: Failed to send error response for CreateVm. Responder closed.");
-                }
-                return;
-            }
-            Ok(None) => {}
-            Err(e) => {
-                let status = Status::internal(format!("Failed to check DB for existing VM: {e}"));
-                if responder.send(Err(status)).is_err() {
-                    error!("VmDispatcher: Failed to send error response for CreateVm. Responder closed.");
-                }
-                return;
-            }
-        }
+    if is_user_provided && repository.get_vm(vm_id).await?.is_some() {
+        return Err(VmServiceError::AlreadyExists(format!(
+            "VM with ID {vm_id} already exists."
+        )));
     }
 
-    match initiate_image_pull_for_vm(&req).await {
-        Ok(image_uuid_str) => {
-            let image_uuid = match Uuid::parse_str(&image_uuid_str) {
-                Ok(uuid) => uuid,
-                Err(e) => {
-                    let status = Status::internal(format!("Failed to parse image UUID: {e}"));
-                    if responder.send(Err(status)).is_err() {
-                        error!("VmDispatcher: Failed to send error response for CreateVm. Responder closed.");
-                    }
-                    return;
-                }
-            };
+    let image_uuid_str = initiate_image_pull_for_vm(req).await?;
+    let image_uuid = Uuid::parse_str(&image_uuid_str)
+        .map_err(|e| VmServiceError::ImageService(format!("Failed to parse image UUID: {e}")))?;
 
-            let record = VmRecord {
-                vm_id,
-                image_uuid,
-                status: VmStatus {
-                    state: VmState::Creating,
-                    last_msg: "VM creation initiated".to_string(),
-                    process_id: None,
-                },
-                config: req.config.clone().unwrap(),
-            };
+    let record = VmRecord {
+        vm_id,
+        image_uuid,
+        status: VmStatus {
+            state: VmState::Creating,
+            last_msg: "VM creation initiated".to_string(),
+            process_id: None,
+        },
+        config: req.config.clone().unwrap(),
+    };
 
-            if let Err(e) = repository.save_vm(&record).await {
-                let status = Status::internal(format!("Failed to save VM to database: {e}"));
-                error!("VmDispatcher: {message}", message = status.message());
-                if responder.send(Err(status)).is_err() {
-                    error!("VmDispatcher: Failed to send error response for CreateVm. Responder closed.");
-                }
-                return;
-            }
-            info!("VmDispatcher: Saved initial record for VM {vm_id}");
+    repository.save_vm(&record).await?;
+    info!("VmDispatcher: Saved initial record for VM {vm_id}");
+    Ok((vm_id, image_uuid_str))
+}
 
+async fn get_vm_info(
+    repository: &VmRepository,
+    req: &GetVmRequest,
+) -> Result<VmInfo, VmServiceError> {
+    let vm_id = Uuid::parse_str(&req.vm_id)
+        .map_err(|_| VmServiceError::InvalidArgument("Invalid VM ID format.".to_string()))?;
+
+    match repository.get_vm(vm_id).await? {
+        Some(record) => Ok(VmInfo {
+            vm_id: record.vm_id.to_string(),
+            state: record.status.state as i32,
+            config: Some(record.config),
+        }),
+        None => Err(VmServiceError::Vmm(crate::vmm::VmmError::VmNotFound(
+            vm_id.to_string(),
+        ))),
+    }
+}
+
+pub(crate) async fn handle_create_vm_command(
+    repository: &VmRepository,
+    req: CreateVmRequest,
+    responder: oneshot::Sender<Result<CreateVmResponse, VmServiceError>>,
+    hypervisor: Arc<dyn Hypervisor>,
+    event_bus_tx: mpsc::Sender<VmEventWrapper>,
+) {
+    let result = prepare_vm_creation(repository, &req).await;
+
+    match result {
+        Ok((vm_id, image_uuid_str)) => {
             tokio::spawn(worker::handle_create_vm(
                 vm_id.to_string(),
                 req,
@@ -174,8 +161,9 @@ pub(crate) async fn handle_create_vm_command(
                 event_bus_tx,
             ));
         }
-        Err(status) => {
-            if responder.send(Err(status)).is_err() {
+        Err(e) => {
+            error!("VmDispatcher: Failed to handle CreateVm command: {}", e);
+            if responder.send(Err(e)).is_err() {
                 error!(
                     "VmDispatcher: Failed to send error response for CreateVm. Responder closed."
                 );
@@ -187,34 +175,12 @@ pub(crate) async fn handle_create_vm_command(
 pub(crate) async fn handle_get_vm_command(
     repository: &VmRepository,
     req: GetVmRequest,
-    responder: oneshot::Sender<Result<VmInfo, Status>>,
+    responder: oneshot::Sender<Result<VmInfo, VmServiceError>>,
 ) {
-    let vm_id = match Uuid::parse_str(&req.vm_id) {
-        Ok(id) => id,
-        Err(_) => {
-            let _ = responder.send(Err(Status::invalid_argument("Invalid VM ID format.")));
-            return;
-        }
-    };
+    let result = get_vm_info(repository, &req).await;
 
-    match repository.get_vm(vm_id).await {
-        Ok(Some(record)) => {
-            let vm_info = VmInfo {
-                vm_id: record.vm_id.to_string(),
-                state: record.status.state as i32,
-                config: Some(record.config),
-            };
-            let _ = responder.send(Ok(vm_info));
-        }
-        Ok(None) => {
-            let _ = responder.send(Err(Status::not_found(format!(
-                "VM with ID {vm_id} not found"
-            ))));
-        }
-        Err(e) => {
-            error!("Failed to get VM from database: {e}");
-            let _ = responder.send(Err(Status::internal("Failed to retrieve VM information.")));
-        }
+    if responder.send(result).is_err() {
+        error!("VmDispatcher: Failed to send response for GetVm.");
     }
 }
 
@@ -228,14 +194,9 @@ pub(crate) async fn handle_stream_vm_events_command(
         let vm_id = match Uuid::parse_str(&vm_id_str) {
             Ok(id) => id,
             Err(_) => {
-                if stream_tx
-                    .send(Err(Status::invalid_argument("Invalid VM ID format.")))
-                    .await
-                    .is_err()
-                {
-                    warn!(
-                        "StreamEvents: Client for {vm_id_str} disconnected before error could be sent."
-                    );
+                let status = Status::invalid_argument("Invalid VM ID format.");
+                if stream_tx.send(Err(status)).await.is_err() {
+                    warn!("StreamEvents: Client for {vm_id_str} disconnected before error could be sent.");
                 }
                 return;
             }
@@ -290,9 +251,7 @@ pub(crate) async fn handle_stream_vm_events_command(
                 }
             }
             Err(e) => {
-                error!(
-                    "StreamEvents: Failed to get VM {vm_id_str} from database for event stream: {e}"
-                );
+                error!("StreamEvents: Failed to get VM {vm_id_str} from database for event stream: {e}");
                 if stream_tx
                     .send(Err(Status::internal(
                         "Failed to retrieve VM information for event stream.",
@@ -300,9 +259,7 @@ pub(crate) async fn handle_stream_vm_events_command(
                     .await
                     .is_err()
                 {
-                    warn!(
-                        "StreamEvents: Client for {vm_id_str} disconnected before internal-error could be sent."
-                    );
+                    warn!("StreamEvents: Client for {vm_id_str} disconnected before internal-error could be sent.");
                 }
             }
         }
@@ -364,14 +321,16 @@ pub(crate) async fn handle_delete_vm_command(
     repository: &VmRepository,
     healthcheck_cancel_bus: &broadcast::Sender<Uuid>,
     req: DeleteVmRequest,
-    responder: oneshot::Sender<Result<DeleteVmResponse, Status>>,
+    responder: oneshot::Sender<Result<DeleteVmResponse, VmServiceError>>,
     hypervisor: Arc<dyn Hypervisor>,
     event_bus_tx: mpsc::Sender<VmEventWrapper>,
 ) {
     let vm_id = match Uuid::parse_str(&req.vm_id) {
         Ok(id) => id,
         Err(_) => {
-            let _ = responder.send(Err(Status::invalid_argument("Invalid VM ID format.")));
+            let _ = responder.send(Err(VmServiceError::InvalidArgument(
+                "Invalid VM ID format.".to_string(),
+            )));
             return;
         }
     };
@@ -383,7 +342,7 @@ pub(crate) async fn handle_delete_vm_command(
 
             if let Err(e) = repository.delete_vm(vm_id).await {
                 error!("Failed to delete VM {vm_id} from database: {e}");
-                let _ = responder.send(Err(Status::internal("Failed to delete VM from database.")));
+                let _ = responder.send(Err(e.into()));
                 return;
             }
             info!("VmDispatcher: Deleted record for VM {vm_id} from database.");
@@ -420,7 +379,7 @@ pub(crate) async fn handle_delete_vm_command(
         }
         Err(e) => {
             error!("Failed to get VM {vm_id} from database: {e}");
-            let _ = responder.send(Err(Status::internal("Failed to retrieve VM for deletion.")));
+            let _ = responder.send(Err(e.into()));
         }
     }
 }
@@ -428,31 +387,22 @@ pub(crate) async fn handle_delete_vm_command(
 pub(crate) async fn handle_list_vms_command(
     repository: &VmRepository,
     _req: ListVmsRequest,
-    responder: oneshot::Sender<Result<ListVmsResponse, Status>>,
+    responder: oneshot::Sender<Result<ListVmsResponse, VmServiceError>>,
 ) {
-    match repository.list_all_vms().await {
-        Ok(records) => {
-            let vms = records
-                .into_iter()
-                .map(|record| VmInfo {
-                    vm_id: record.vm_id.to_string(),
-                    state: record.status.state as i32,
-                    config: Some(record.config),
-                })
-                .collect();
+    let result = repository.list_all_vms().await.map(|records| {
+        let vms = records
+            .into_iter()
+            .map(|record| VmInfo {
+                vm_id: record.vm_id.to_string(),
+                state: record.status.state as i32,
+                config: Some(record.config),
+            })
+            .collect();
+        ListVmsResponse { vms }
+    });
 
-            let response = ListVmsResponse { vms };
-            if responder.send(Ok(response)).is_err() {
-                error!("VmDispatcher: Failed to send response for ListVms.");
-            }
-        }
-        Err(e) => {
-            error!("VmDispatcher: Failed to list VMs from database: {e}");
-            let status = Status::internal("Failed to retrieve VM list.");
-            if responder.send(Err(status)).is_err() {
-                error!("VmDispatcher: Failed to send error response for ListVms.");
-            }
-        }
+    if responder.send(result.map_err(Into::into)).is_err() {
+        error!("VmDispatcher: Failed to send response for ListVms.");
     }
 }
 

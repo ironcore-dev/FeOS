@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::{
-    dispatcher_handlers::get_image_service_client, vmm::Hypervisor, vmm::VmmError, VmEventWrapper,
+    dispatcher_handlers::get_image_service_client, vmm::Hypervisor, VmEventWrapper, VmServiceError,
 };
 use feos_proto::{
     image_service::{ImageState as OciImageState, WatchImageStatusRequest},
@@ -27,10 +27,10 @@ use tokio_stream::StreamExt;
 use tonic::{Status, Streaming};
 use uuid::Uuid;
 
-async fn wait_for_image_ready(image_uuid: &str, image_ref: &str) -> Result<(), VmmError> {
-    let mut client = get_image_service_client().await.map_err(|e| {
-        VmmError::ImageServiceFailed(format!("Failed to connect to ImageService: {e}"))
-    })?;
+async fn wait_for_image_ready(image_uuid: &str, image_ref: &str) -> Result<(), VmServiceError> {
+    let mut client = get_image_service_client()
+        .await
+        .map_err(|e| VmServiceError::ImageService(format!("Failed to connect: {e}")))?;
 
     let mut stream = client
         .watch_image_status(WatchImageStatusRequest {
@@ -38,7 +38,7 @@ async fn wait_for_image_ready(image_uuid: &str, image_ref: &str) -> Result<(), V
         })
         .await
         .map_err(|e| {
-            VmmError::ImageServiceFailed(format!(
+            VmServiceError::ImageService(format!(
                 "WatchImageStatus RPC failed for {image_uuid}: {e}"
             ))
         })?
@@ -46,13 +46,13 @@ async fn wait_for_image_ready(image_uuid: &str, image_ref: &str) -> Result<(), V
 
     while let Some(status_res) = stream.next().await {
         let status = status_res.map_err(|e| {
-            VmmError::ImageServiceFailed(format!("Image stream error for {image_uuid}: {e}"))
+            VmServiceError::ImageService(format!("Image stream error for {image_uuid}: {e}"))
         })?;
         let state = OciImageState::try_from(status.state).unwrap_or(OciImageState::Unspecified);
         match state {
             OciImageState::Ready => return Ok(()),
             OciImageState::PullFailed => {
-                return Err(VmmError::ImageServiceFailed(format!(
+                return Err(VmServiceError::ImageService(format!(
                     "Image pull failed for {image_ref} (uuid: {image_uuid}): {}",
                     status.message
                 )))
@@ -60,7 +60,7 @@ async fn wait_for_image_ready(image_uuid: &str, image_ref: &str) -> Result<(), V
             _ => continue,
         }
     }
-    Err(VmmError::ImageServiceFailed(format!(
+    Err(VmServiceError::ImageService(format!(
         "Image watch stream for {image_uuid} ended before reaching a terminal state."
     )))
 }
@@ -69,7 +69,7 @@ pub async fn handle_create_vm(
     vm_id: String,
     req: CreateVmRequest,
     image_uuid: String,
-    responder: oneshot::Sender<Result<CreateVmResponse, Status>>,
+    responder: oneshot::Sender<Result<CreateVmResponse, VmServiceError>>,
     hypervisor: Arc<dyn Hypervisor>,
     broadcast_tx: mpsc::Sender<VmEventWrapper>,
 ) {
@@ -175,7 +175,7 @@ pub fn start_healthcheck_monitor(
 
 pub async fn handle_start_vm(
     req: StartVmRequest,
-    responder: oneshot::Sender<Result<StartVmResponse, Status>>,
+    responder: oneshot::Sender<Result<StartVmResponse, VmServiceError>>,
     hypervisor: Arc<dyn Hypervisor>,
     broadcast_tx: mpsc::Sender<VmEventWrapper>,
     cancel_bus: broadcast::Receiver<Uuid>,
@@ -206,7 +206,7 @@ pub async fn handle_start_vm(
 
 pub async fn handle_get_vm(
     req: GetVmRequest,
-    responder: oneshot::Sender<Result<VmInfo, Status>>,
+    responder: oneshot::Sender<Result<VmInfo, VmServiceError>>,
     hypervisor: Arc<dyn Hypervisor>,
 ) {
     let result = hypervisor.get_vm(req).await;
@@ -256,7 +256,7 @@ pub async fn handle_delete_vm(
     req: DeleteVmRequest,
     image_uuid: String,
     process_id: Option<i64>,
-    responder: oneshot::Sender<Result<DeleteVmResponse, Status>>,
+    responder: oneshot::Sender<Result<DeleteVmResponse, VmServiceError>>,
     hypervisor: Arc<dyn Hypervisor>,
     _broadcast_tx: mpsc::Sender<VmEventWrapper>,
 ) {
@@ -320,7 +320,7 @@ pub async fn handle_stream_vm_console(
 
 pub async fn handle_ping_vm(
     req: PingVmRequest,
-    responder: oneshot::Sender<Result<PingVmResponse, Status>>,
+    responder: oneshot::Sender<Result<PingVmResponse, VmServiceError>>,
     hypervisor: Arc<dyn Hypervisor>,
 ) {
     let result = hypervisor.ping_vm(req).await;
@@ -331,7 +331,7 @@ pub async fn handle_ping_vm(
 
 pub async fn handle_shutdown_vm(
     req: ShutdownVmRequest,
-    responder: oneshot::Sender<Result<ShutdownVmResponse, Status>>,
+    responder: oneshot::Sender<Result<ShutdownVmResponse, VmServiceError>>,
     hypervisor: Arc<dyn Hypervisor>,
     broadcast_tx: mpsc::Sender<VmEventWrapper>,
 ) {
@@ -359,7 +359,7 @@ pub async fn handle_shutdown_vm(
 
 pub async fn handle_pause_vm(
     req: PauseVmRequest,
-    responder: oneshot::Sender<Result<PauseVmResponse, Status>>,
+    responder: oneshot::Sender<Result<PauseVmResponse, VmServiceError>>,
     hypervisor: Arc<dyn Hypervisor>,
     broadcast_tx: mpsc::Sender<VmEventWrapper>,
 ) {
@@ -387,7 +387,7 @@ pub async fn handle_pause_vm(
 
 pub async fn handle_resume_vm(
     req: ResumeVmRequest,
-    responder: oneshot::Sender<Result<ResumeVmResponse, Status>>,
+    responder: oneshot::Sender<Result<ResumeVmResponse, VmServiceError>>,
     hypervisor: Arc<dyn Hypervisor>,
     broadcast_tx: mpsc::Sender<VmEventWrapper>,
 ) {
@@ -415,7 +415,7 @@ pub async fn handle_resume_vm(
 
 pub async fn handle_attach_disk(
     req: AttachDiskRequest,
-    responder: oneshot::Sender<Result<AttachDiskResponse, Status>>,
+    responder: oneshot::Sender<Result<AttachDiskResponse, VmServiceError>>,
     hypervisor: Arc<dyn Hypervisor>,
 ) {
     let result = hypervisor.attach_disk(req).await;
@@ -426,7 +426,7 @@ pub async fn handle_attach_disk(
 
 pub async fn handle_remove_disk(
     req: RemoveDiskRequest,
-    responder: oneshot::Sender<Result<RemoveDiskResponse, Status>>,
+    responder: oneshot::Sender<Result<RemoveDiskResponse, VmServiceError>>,
     hypervisor: Arc<dyn Hypervisor>,
 ) {
     let result = hypervisor.remove_disk(req).await;

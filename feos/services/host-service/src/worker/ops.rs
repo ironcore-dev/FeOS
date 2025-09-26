@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2023 SAP SE or an SAP affiliate company and IronCore contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::RestartSignal;
+use crate::{error::HostError, RestartSignal};
 use digest::Digest;
 use feos_proto::host_service::{
     FeosLogEntry, KernelLogEntry, UpgradeFeosBinaryRequest, UpgradeFeosBinaryResponse,
@@ -36,12 +36,9 @@ pub async fn handle_stream_feos_logs(
     let mut reader = match log_handle.new_reader().await {
         Ok(r) => r,
         Err(e) => {
-            error!("HostWorker: Failed to create log reader: {e}");
-            if grpc_tx
-                .send(Err(Status::internal("Failed to create log reader")))
-                .await
-                .is_err()
-            {
+            let err = HostError::LogReader(e.to_string());
+            error!("HostWorker: {err}");
+            if grpc_tx.send(Err(err.into())).await.is_err() {
                 warn!("HostWorker: gRPC client for FeOS logs disconnected before error could be sent.");
             }
             return;
@@ -74,9 +71,12 @@ pub async fn handle_stream_kernel_logs(grpc_tx: mpsc::Sender<Result<KernelLogEnt
     let file = match File::open(KMSG_PATH).await {
         Ok(f) => f,
         Err(e) => {
-            let msg = format!("Failed to open {KMSG_PATH}: {e}");
-            error!("HostWorker: {msg}");
-            if grpc_tx.send(Err(Status::internal(msg))).await.is_err() {
+            let err = HostError::SystemInfoRead {
+                source: e,
+                path: KMSG_PATH.to_string(),
+            };
+            error!("HostWorker: {err}");
+            if grpc_tx.send(Err(err.into())).await.is_err() {
                 warn!("HostWorker: gRPC client for kernel logs disconnected before error could be sent.");
             }
             return;
@@ -107,9 +107,9 @@ pub async fn handle_stream_kernel_logs(grpc_tx: mpsc::Sender<Result<KernelLogEnt
                         break;
                     }
                     Err(e) => {
-                        let msg = format!("Error reading from {KMSG_PATH}: {e}");
-                        error!("HostWorker: {msg}");
-                        let _ = grpc_tx.send(Err(Status::internal(msg))).await;
+                        let err = HostError::SystemInfoRead { source: e, path: KMSG_PATH.to_string() };
+                        error!("HostWorker: {err}");
+                        let _ = grpc_tx.send(Err(err.into())).await;
                         break;
                     }
                 }

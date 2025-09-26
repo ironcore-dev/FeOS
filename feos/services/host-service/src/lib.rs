@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2023 SAP SE or an SAP affiliate company and IronCore contributors
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::error::HostError;
 use feos_proto::host_service::{
     FeosLogEntry, GetCpuInfoResponse, GetNetworkInfoResponse, GetVersionInfoResponse,
     HostnameResponse, KernelLogEntry, MemoryResponse, RebootRequest, RebootResponse,
@@ -12,15 +13,16 @@ use tonic::Status;
 
 pub mod api;
 pub mod dispatcher;
+pub mod error;
 pub mod worker;
 
 #[derive(Debug)]
 pub enum Command {
-    GetHostname(oneshot::Sender<Result<HostnameResponse, Status>>),
-    GetMemory(oneshot::Sender<Result<MemoryResponse, Status>>),
-    GetCPUInfo(oneshot::Sender<Result<GetCpuInfoResponse, Status>>),
-    GetNetworkInfo(oneshot::Sender<Result<GetNetworkInfoResponse, Status>>),
-    GetVersionInfo(oneshot::Sender<Result<GetVersionInfoResponse, Status>>),
+    GetHostname(oneshot::Sender<Result<HostnameResponse, HostError>>),
+    GetMemory(oneshot::Sender<Result<MemoryResponse, HostError>>),
+    GetCPUInfo(oneshot::Sender<Result<GetCpuInfoResponse, HostError>>),
+    GetNetworkInfo(oneshot::Sender<Result<GetNetworkInfoResponse, HostError>>),
+    GetVersionInfo(oneshot::Sender<Result<GetVersionInfoResponse, HostError>>),
     UpgradeFeosBinary(
         UpgradeFeosBinaryRequest,
         oneshot::Sender<Result<UpgradeFeosBinaryResponse, Status>>,
@@ -29,11 +31,11 @@ pub enum Command {
     StreamFeOSLogs(mpsc::Sender<Result<FeosLogEntry, Status>>),
     Shutdown(
         ShutdownRequest,
-        oneshot::Sender<Result<ShutdownResponse, Status>>,
+        oneshot::Sender<Result<ShutdownResponse, HostError>>,
     ),
     Reboot(
         RebootRequest,
-        oneshot::Sender<Result<RebootResponse, Status>>,
+        oneshot::Sender<Result<RebootResponse, HostError>>,
     ),
 }
 

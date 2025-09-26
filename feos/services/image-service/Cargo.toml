@@ -7,6 +7,7 @@ edition.workspace = true
 feos-proto = { workspace = true }
 oci-distribution = { workspace = true }
 tempfile = { workspace = true }
+thiserror = "2.0.16"
 
 # Workspace dependencies
 tokio = { workspace = true }

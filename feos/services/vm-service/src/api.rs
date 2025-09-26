@@ -26,6 +26,30 @@ impl VmApiHandler {
     }
 }
 
+async fn dispatch_and_wait<T, E>(
+    dispatcher: &mpsc::Sender<Command>,
+    command_constructor: impl FnOnce(oneshot::Sender<Result<T, E>>) -> Command,
+) -> Result<Response<T>, Status>
+where
+    E: Into<Status>,
+{
+    let (resp_tx, resp_rx) = oneshot::channel();
+    let cmd = command_constructor(resp_tx);
+
+    dispatcher
+        .send(cmd)
+        .await
+        .map_err(|e| Status::internal(format!("Failed to send command to dispatcher: {e}")))?;
+
+    match resp_rx.await {
+        Ok(Ok(result)) => Ok(Response::new(result)),
+        Ok(Err(e)) => Err(e.into()),
+        Err(_) => Err(Status::internal(
+            "Dispatcher task dropped response channel.",
+        )),
+    }
+}
+
 #[tonic::async_trait]
 impl VmService for VmApiHandler {
     type StreamVmEventsStream = Pin<Box<dyn Stream<Item = Result<VmEvent, Status>> + Send>>;
@@ -37,19 +61,10 @@ impl VmService for VmApiHandler {
         request: Request<CreateVmRequest>,
     ) -> Result<Response<CreateVmResponse>, Status> {
         info!("VmApi: Received CreateVm request.");
-        let (resp_tx, resp_rx) = oneshot::channel();
-        let cmd = Command::CreateVm(request.into_inner(), resp_tx);
-        self.dispatcher_tx
-            .send(cmd)
-            .await
-            .map_err(|e| Status::internal(format!("Failed to send command to dispatcher: {e}")))?;
-        match resp_rx.await {
-            Ok(Ok(result)) => Ok(Response::new(result)),
-            Ok(Err(status)) => Err(status),
-            Err(_) => Err(Status::internal(
-                "Dispatcher task dropped response channel.",
-            )),
-        }
+        dispatch_and_wait(&self.dispatcher_tx, |resp_tx| {
+            Command::CreateVm(request.into_inner(), resp_tx)
+        })
+        .await
     }
 
     async fn start_vm(
@@ -57,36 +72,18 @@ impl VmService for VmApiHandler {
         request: Request<StartVmRequest>,
     ) -> Result<Response<StartVmResponse>, Status> {
         info!("VmApi: Received StartVm request.");
-        let (resp_tx, resp_rx) = oneshot::channel();
-        let cmd = Command::StartVm(request.into_inner(), resp_tx);
-        self.dispatcher_tx
-            .send(cmd)
-            .await
-            .map_err(|e| Status::internal(format!("Failed to send command to dispatcher: {e}")))?;
-        match resp_rx.await {
-            Ok(Ok(result)) => Ok(Response::new(result)),
-            Ok(Err(status)) => Err(status),
-            Err(_) => Err(Status::internal(
-                "Dispatcher task dropped response channel.",
-            )),
-        }
+        dispatch_and_wait(&self.dispatcher_tx, |resp_tx| {
+            Command::StartVm(request.into_inner(), resp_tx)
+        })
+        .await
     }
 
     async fn get_vm(&self, request: Request<GetVmRequest>) -> Result<Response<VmInfo>, Status> {
         info!("VmApi: Received GetVm request.");
-        let (resp_tx, resp_rx) = oneshot::channel();
-        let cmd = Command::GetVm(request.into_inner(), resp_tx);
-        self.dispatcher_tx
-            .send(cmd)
-            .await
-            .map_err(|e| Status::internal(format!("Failed to send command to dispatcher: {e}")))?;
-        match resp_rx.await {
-            Ok(Ok(result)) => Ok(Response::new(result)),
-            Ok(Err(status)) => Err(status),
-            Err(_) => Err(Status::internal(
-                "Dispatcher task dropped response channel.",
-            )),
-        }
+        dispatch_and_wait(&self.dispatcher_tx, |resp_tx| {
+            Command::GetVm(request.into_inner(), resp_tx)
+        })
+        .await
     }
 
     async fn stream_vm_events(
@@ -109,19 +106,10 @@ impl VmService for VmApiHandler {
         request: Request<DeleteVmRequest>,
     ) -> Result<Response<DeleteVmResponse>, Status> {
         info!("VmApi: Received DeleteVm request.");
-        let (resp_tx, resp_rx) = oneshot::channel();
-        let cmd = Command::DeleteVm(request.into_inner(), resp_tx);
-        self.dispatcher_tx
-            .send(cmd)
-            .await
-            .map_err(|e| Status::internal(format!("Failed to send command to dispatcher: {e}")))?;
-        match resp_rx.await {
-            Ok(Ok(result)) => Ok(Response::new(result)),
-            Ok(Err(status)) => Err(status),
-            Err(_) => Err(Status::internal(
-                "Dispatcher task dropped response channel.",
-            )),
-        }
+        dispatch_and_wait(&self.dispatcher_tx, |resp_tx| {
+            Command::DeleteVm(request.into_inner(), resp_tx)
+        })
+        .await
     }
 
     async fn stream_vm_console(
@@ -145,19 +133,10 @@ impl VmService for VmApiHandler {
         request: Request<ListVmsRequest>,
     ) -> Result<Response<ListVmsResponse>, Status> {
         info!("VmApi: Received ListVms request.");
-        let (resp_tx, resp_rx) = oneshot::channel();
-        let cmd = Command::ListVms(request.into_inner(), resp_tx);
-        self.dispatcher_tx
-            .send(cmd)
-            .await
-            .map_err(|e| Status::internal(format!("Failed to send command to dispatcher: {e}")))?;
-        match resp_rx.await {
-            Ok(Ok(result)) => Ok(Response::new(result)),
-            Ok(Err(status)) => Err(status),
-            Err(_) => Err(Status::internal(
-                "Dispatcher task dropped response channel.",
-            )),
-        }
+        dispatch_and_wait(&self.dispatcher_tx, |resp_tx| {
+            Command::ListVms(request.into_inner(), resp_tx)
+        })
+        .await
     }
 
     async fn ping_vm(
@@ -165,19 +144,10 @@ impl VmService for VmApiHandler {
         request: Request<PingVmRequest>,
     ) -> Result<Response<PingVmResponse>, Status> {
         info!("VmApi: Received PingVm request.");
-        let (resp_tx, resp_rx) = oneshot::channel();
-        let cmd = Command::PingVm(request.into_inner(), resp_tx);
-        self.dispatcher_tx
-            .send(cmd)
-            .await
-            .map_err(|e| Status::internal(format!("Failed to send command to dispatcher: {e}")))?;
-        match resp_rx.await {
-            Ok(Ok(result)) => Ok(Response::new(result)),
-            Ok(Err(status)) => Err(status),
-            Err(_) => Err(Status::internal(
-                "Dispatcher task dropped response channel.",
-            )),
-        }
+        dispatch_and_wait(&self.dispatcher_tx, |resp_tx| {
+            Command::PingVm(request.into_inner(), resp_tx)
+        })
+        .await
     }
 
     async fn shutdown_vm(
@@ -185,19 +155,10 @@ impl VmService for VmApiHandler {
         request: Request<ShutdownVmRequest>,
     ) -> Result<Response<ShutdownVmResponse>, Status> {
         info!("VmApi: Received ShutdownVm request.");
-        let (resp_tx, resp_rx) = oneshot::channel();
-        let cmd = Command::ShutdownVm(request.into_inner(), resp_tx);
-        self.dispatcher_tx
-            .send(cmd)
-            .await
-            .map_err(|e| Status::internal(format!("Failed to send command to dispatcher: {e}")))?;
-        match resp_rx.await {
-            Ok(Ok(result)) => Ok(Response::new(result)),
-            Ok(Err(status)) => Err(status),
-            Err(_) => Err(Status::internal(
-                "Dispatcher task dropped response channel.",
-            )),
-        }
+        dispatch_and_wait(&self.dispatcher_tx, |resp_tx| {
+            Command::ShutdownVm(request.into_inner(), resp_tx)
+        })
+        .await
     }
 
     async fn pause_vm(
@@ -205,19 +166,10 @@ impl VmService for VmApiHandler {
         request: Request<PauseVmRequest>,
     ) -> Result<Response<PauseVmResponse>, Status> {
         info!("VmApi: Received PauseVm request.");
-        let (resp_tx, resp_rx) = oneshot::channel();
-        let cmd = Command::PauseVm(request.into_inner(), resp_tx);
-        self.dispatcher_tx
-            .send(cmd)
-            .await
-            .map_err(|e| Status::internal(format!("Failed to send command to dispatcher: {e}")))?;
-        match resp_rx.await {
-            Ok(Ok(result)) => Ok(Response::new(result)),
-            Ok(Err(status)) => Err(status),
-            Err(_) => Err(Status::internal(
-                "Dispatcher task dropped response channel.",
-            )),
-        }
+        dispatch_and_wait(&self.dispatcher_tx, |resp_tx| {
+            Command::PauseVm(request.into_inner(), resp_tx)
+        })
+        .await
     }
 
     async fn resume_vm(
@@ -225,19 +177,10 @@ impl VmService for VmApiHandler {
         request: Request<ResumeVmRequest>,
     ) -> Result<Response<ResumeVmResponse>, Status> {
         info!("VmApi: Received ResumeVm request.");
-        let (resp_tx, resp_rx) = oneshot::channel();
-        let cmd = Command::ResumeVm(request.into_inner(), resp_tx);
-        self.dispatcher_tx
-            .send(cmd)
-            .await
-            .map_err(|e| Status::internal(format!("Failed to send command to dispatcher: {e}")))?;
-        match resp_rx.await {
-            Ok(Ok(result)) => Ok(Response::new(result)),
-            Ok(Err(status)) => Err(status),
-            Err(_) => Err(Status::internal(
-                "Dispatcher task dropped response channel.",
-            )),
-        }
+        dispatch_and_wait(&self.dispatcher_tx, |resp_tx| {
+            Command::ResumeVm(request.into_inner(), resp_tx)
+        })
+        .await
     }
 
     async fn attach_disk(
@@ -245,19 +188,10 @@ impl VmService for VmApiHandler {
         request: Request<AttachDiskRequest>,
     ) -> Result<Response<AttachDiskResponse>, Status> {
         info!("VmApi: Received AttachDisk request.");
-        let (resp_tx, resp_rx) = oneshot::channel();
-        let cmd = Command::AttachDisk(request.into_inner(), resp_tx);
-        self.dispatcher_tx
-            .send(cmd)
-            .await
-            .map_err(|e| Status::internal(format!("Failed to send command to dispatcher: {e}")))?;
-        match resp_rx.await {
-            Ok(Ok(result)) => Ok(Response::new(result)),
-            Ok(Err(status)) => Err(status),
-            Err(_) => Err(Status::internal(
-                "Dispatcher task dropped response channel.",
-            )),
-        }
+        dispatch_and_wait(&self.dispatcher_tx, |resp_tx| {
+            Command::AttachDisk(request.into_inner(), resp_tx)
+        })
+        .await
     }
 
     async fn remove_disk(
@@ -265,18 +199,9 @@ impl VmService for VmApiHandler {
         request: Request<RemoveDiskRequest>,
     ) -> Result<Response<RemoveDiskResponse>, Status> {
         info!("VmApi: Received RemoveDisk request.");
-        let (resp_tx, resp_rx) = oneshot::channel();
-        let cmd = Command::RemoveDisk(request.into_inner(), resp_tx);
-        self.dispatcher_tx
-            .send(cmd)
-            .await
-            .map_err(|e| Status::internal(format!("Failed to send command to dispatcher: {e}")))?;
-        match resp_rx.await {
-            Ok(Ok(result)) => Ok(Response::new(result)),
-            Ok(Err(status)) => Err(status),
-            Err(_) => Err(Status::internal(
-                "Dispatcher task dropped response channel.",
-            )),
-        }
+        dispatch_and_wait(&self.dispatcher_tx, |resp_tx| {
+            Command::RemoveDisk(request.into_inner(), resp_tx)
+        })
+        .await
     }
 }

@@ -1,15 +1,13 @@
 // SPDX-FileCopyrightText: 2023 SAP SE or an SAP affiliate company and IronCore contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::{FileCommand, ImageStateEvent, OrchestratorCommand};
+use crate::{error::ImageServiceError, FileCommand, ImageStateEvent, OrchestratorCommand};
 use feos_proto::image_service::{
     DeleteImageResponse, ImageInfo, ImageState, ImageStatusResponse, ListImagesResponse,
     PullImageResponse,
 };
 use log::{error, info, warn};
-use oci_distribution::{
-    client::ClientConfig, errors::OciDistributionError, secrets, Client, ParseError, Reference,
-};
+use oci_distribution::{client::ClientConfig, secrets, Client, Reference};
 use std::collections::HashMap;
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tonic::Status;
@@ -82,7 +80,11 @@ impl Orchestrator {
                         state: ImageState::Downloading as i32,
                     },
                 );
-                self.broadcast_state_change(image_uuid.clone(), ImageState::Downloading);
+                self.broadcast_state_change(
+                    image_uuid.clone(),
+                    ImageState::Downloading,
+                    "Pull initiated".to_string(),
+                );
 
                 let _ = responder.send(Ok(PullImageResponse {
                     image_uuid: image_uuid.clone(),
@@ -109,29 +111,49 @@ impl Orchestrator {
                 };
 
                 if self.filestore_tx.send(file_cmd).await.is_err() {
-                    error!("Orchestrator: Failed to send StoreImage command to FileStore.");
-                    self.update_and_broadcast_state(image_uuid, ImageState::PullFailed);
+                    let err_msg = "Failed to send StoreImage command to FileStore.";
+                    error!("Orchestrator: {err_msg}");
+                    self.update_and_broadcast_state(
+                        image_uuid,
+                        ImageState::PullFailed,
+                        err_msg.to_string(),
+                    );
                     return;
                 }
 
                 match resp_rx.await {
                     Ok(Ok(())) => {
                         info!("Orchestrator: FileStore successfully stored image {image_uuid}");
-                        self.update_and_broadcast_state(image_uuid, ImageState::Ready);
+                        self.update_and_broadcast_state(
+                            image_uuid,
+                            ImageState::Ready,
+                            "Image is ready".to_string(),
+                        );
                     }
                     Ok(Err(e)) => {
-                        error!("Orchestrator: FileStore failed to store image {image_uuid}: {e}");
-                        self.update_and_broadcast_state(image_uuid, ImageState::PullFailed);
+                        let err_msg = format!("FileStore failed to store image: {e}");
+                        error!("Orchestrator: {err_msg} ({image_uuid})");
+                        self.update_and_broadcast_state(
+                            image_uuid,
+                            ImageState::PullFailed,
+                            err_msg,
+                        );
                     }
                     Err(_) => {
-                        error!("Orchestrator: FileStore actor dropped response channel for {image_uuid}");
-                        self.update_and_broadcast_state(image_uuid, ImageState::PullFailed);
+                        let err_msg = "FileStore actor dropped response channel.";
+                        error!("Orchestrator: {err_msg} ({image_uuid})");
+                        self.update_and_broadcast_state(
+                            image_uuid,
+                            ImageState::PullFailed,
+                            err_msg.to_string(),
+                        );
                     }
                 }
             }
             OrchestratorCommand::FailPull { image_uuid, error } => {
-                error!("Orchestrator: Pull failed for {image_uuid}: {error}");
-                self.update_and_broadcast_state(image_uuid, ImageState::PullFailed);
+                let err_msg = format!("Pull failed: {error}");
+                error!("Orchestrator: {err_msg} ({image_uuid})");
+                self.update_and_broadcast_state(image_uuid, ImageState::PullFailed, err_msg);
             }
             OrchestratorCommand::ListImages { responder } => {
                 let images = self.store.values().cloned().collect();
@@ -158,7 +180,11 @@ impl Orchestrator {
                     }
                 }
 
-                self.broadcast_state_change(image_uuid, ImageState::NotFound);
+                self.broadcast_state_change(
+                    image_uuid,
+                    ImageState::NotFound,
+                    "Image deleted".to_string(),
+                );
                 let _ = responder.send(Ok(DeleteImageResponse {}));
             }
             OrchestratorCommand::WatchImageStatus {
@@ -181,37 +207,33 @@ impl Orchestrator {
         }
     }
 
-    fn update_and_broadcast_state(&mut self, image_uuid: String, new_state: ImageState) {
+    fn update_and_broadcast_state(
+        &mut self,
+        image_uuid: String,
+        new_state: ImageState,
+        message: String,
+    ) {
         if let Some(info) = self.store.get_mut(&image_uuid) {
             info.state = new_state as i32;
         }
-        self.broadcast_state_change(image_uuid, new_state);
+        self.broadcast_state_change(image_uuid, new_state, message);
     }
 
-    fn broadcast_state_change(&self, image_uuid: String, state: ImageState) {
-        let event = ImageStateEvent { image_uuid, state };
+    fn broadcast_state_change(&self, image_uuid: String, state: ImageState, message: String) {
+        let event = ImageStateEvent {
+            image_uuid,
+            state,
+            message,
+        };
         if self.broadcast_tx.send(event).is_err() {
             info!("Orchestrator: Broadcast failed, no active listeners.");
         }
     }
 }
 
-#[derive(Debug)]
-pub enum PullError {
-    Oci(OciDistributionError),
-    Parse(ParseError),
-    MissingLayer(String),
-}
-
-impl From<PullError> for String {
-    fn from(err: PullError) -> Self {
-        format!("{err:?}")
-    }
-}
-
-async fn download_layer_data(image_ref: &str) -> Result<Vec<u8>, PullError> {
+async fn download_layer_data(image_ref: &str) -> Result<Vec<u8>, ImageServiceError> {
     info!("ImagePuller: fetching image: {image_ref}");
-    let reference = Reference::try_from(image_ref.to_string()).map_err(PullError::Parse)?;
+    let reference = Reference::try_from(image_ref.to_string())?;
     let accepted_media_types = vec![
         ROOTFS_MEDIA_TYPE,
         SQUASHFS_MEDIA_TYPE,
@@ -231,15 +253,14 @@ async fn download_layer_data(image_ref: &str) -> Result<Vec<u8>, PullError> {
             &secrets::RegistryAuth::Anonymous,
             accepted_media_types,
         )
-        .await
-        .map_err(PullError::Oci)?;
+        .await?;
     info!("ImagePuller: image data pulled for {image_ref}");
 
     let rootfs_layer = image_data
         .layers
         .into_iter()
         .find(|l| l.media_type == ROOTFS_MEDIA_TYPE)
-        .ok_or_else(|| PullError::MissingLayer(ROOTFS_MEDIA_TYPE.to_string()))?;
+        .ok_or_else(|| ImageServiceError::MissingLayer(ROOTFS_MEDIA_TYPE.to_string()))?;
 
     Ok(rootfs_layer.data)
 }
@@ -263,7 +284,7 @@ pub async fn pull_oci_image(
         Err(e) => {
             let cmd = OrchestratorCommand::FailPull {
                 image_uuid,
-                error: e.into(),
+                error: e,
             };
             if command_tx.send(cmd).await.is_err() {
                 error!("ImagePuller: Failed to send FailPull command. Actor may be down.");
@@ -321,7 +342,7 @@ pub async fn watch_image_status_stream(
                         } else {
                             0
                         },
-                        message: format!("New state: {:?}", event.state),
+                        message: event.message,
                     };
 
                     if stream_sender.send(Ok(response)).await.is_err() {

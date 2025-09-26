@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2023 SAP SE or an SAP affiliate company and IronCore contributors
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::error::ImageServiceError;
 use feos_proto::image_service::{
     DeleteImageRequest, DeleteImageResponse, ImageInfo, ImageState, ImageStatusResponse,
     ListImagesRequest, ListImagesResponse, PullImageRequest, PullImageResponse,
@@ -11,6 +12,7 @@ use tokio::sync::{mpsc, oneshot};
 use tonic::Status;
 pub mod api;
 pub mod dispatcher;
+pub mod error;
 pub mod filestore;
 pub mod worker;
 
@@ -21,13 +23,14 @@ pub const IMAGE_SERVICE_SOCKET: &str = "/tmp/feos/image_service.sock";
 pub struct ImageStateEvent {
     pub image_uuid: String,
     pub state: ImageState,
+    pub message: String,
 }
 
 #[derive(Debug)]
 pub enum Command {
     PullImage(
         PullImageRequest,
-        oneshot::Sender<Result<PullImageResponse, Status>>,
+        oneshot::Sender<Result<PullImageResponse, ImageServiceError>>,
     ),
     WatchImageStatus(
         WatchImageStatusRequest,
@@ -35,11 +38,11 @@ pub enum Command {
     ),
     ListImages(
         ListImagesRequest,
-        oneshot::Sender<Result<ListImagesResponse, Status>>,
+        oneshot::Sender<Result<ListImagesResponse, ImageServiceError>>,
     ),
     DeleteImage(
         DeleteImageRequest,
-        oneshot::Sender<Result<DeleteImageResponse, Status>>,
+        oneshot::Sender<Result<DeleteImageResponse, ImageServiceError>>,
     ),
 }
 
@@ -47,7 +50,7 @@ pub enum Command {
 pub enum OrchestratorCommand {
     PullImage {
         image_ref: String,
-        responder: oneshot::Sender<Result<PullImageResponse, Status>>,
+        responder: oneshot::Sender<Result<PullImageResponse, ImageServiceError>>,
     },
     FinalizePull {
         image_uuid: String,
@@ -56,18 +59,18 @@ pub enum OrchestratorCommand {
     },
     FailPull {
         image_uuid: String,
-        error: String,
+        error: ImageServiceError,
     },
     WatchImageStatus {
         image_uuid: String,
         stream_sender: mpsc::Sender<Result<ImageStatusResponse, Status>>,
     },
     ListImages {
-        responder: oneshot::Sender<Result<ListImagesResponse, Status>>,
+        responder: oneshot::Sender<Result<ListImagesResponse, ImageServiceError>>,
     },
     DeleteImage {
         image_uuid: String,
-        responder: oneshot::Sender<Result<DeleteImageResponse, Status>>,
+        responder: oneshot::Sender<Result<DeleteImageResponse, ImageServiceError>>,
     },
 }
 

@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2023 SAP SE or an SAP affiliate company and IronCore contributors
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::error::HostError;
 use feos_proto::host_service::{
     CpuInfo, GetCpuInfoResponse, GetNetworkInfoResponse, GetVersionInfoResponse, HostnameResponse,
     MemInfo, MemoryResponse, NetDev,
@@ -12,37 +13,43 @@ use std::path::Path;
 use tokio::fs::{self, File};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::sync::oneshot;
-use tonic::Status;
 
-pub async fn handle_hostname(responder: oneshot::Sender<Result<HostnameResponse, Status>>) {
+pub async fn handle_hostname(responder: oneshot::Sender<Result<HostnameResponse, HostError>>) {
     info!("HostWorker: Processing Hostname request.");
-    let result = match unistd::gethostname() {
-        Ok(host) => {
-            let hostname = host
-                .into_string()
-                .unwrap_or_else(|_| "Invalid UTF-8".into());
-            Ok(HostnameResponse { hostname })
-        }
-        Err(e) => {
-            let msg = format!("Failed to get system hostname: {e}");
-            error!("HostWorker: {msg}");
-            Err(Status::internal(msg))
-        }
-    };
+    let result = (|| {
+        let host = unistd::gethostname()?;
+        let hostname = host
+            .into_string()
+            .unwrap_or_else(|_| "Invalid UTF-8".into());
+        Ok(HostnameResponse { hostname })
+    })();
 
     if responder.send(result).is_err() {
         error!("HostWorker: Failed to send response for Hostname. API handler may have timed out.");
     }
 }
 
-async fn read_and_parse_meminfo() -> Result<MemInfo, std::io::Error> {
-    let file = File::open("/proc/meminfo").await?;
+async fn read_and_parse_meminfo() -> Result<MemInfo, HostError> {
+    let path = "/proc/meminfo";
+    let file = File::open(path)
+        .await
+        .map_err(|e| HostError::SystemInfoRead {
+            source: e,
+            path: path.to_string(),
+        })?;
     let reader = BufReader::new(file);
     let mut lines = reader.lines();
 
     let mut values = HashMap::new();
 
-    while let Some(line) = lines.next_line().await? {
+    while let Some(line) = lines
+        .next_line()
+        .await
+        .map_err(|e| HostError::SystemInfoRead {
+            source: e,
+            path: path.to_string(),
+        })?
+    {
         let parts: Vec<&str> = line.split_whitespace().collect();
         if parts.len() >= 2 {
             let key = parts[0].trim_end_matches(':');
@@ -111,17 +118,13 @@ async fn read_and_parse_meminfo() -> Result<MemInfo, std::io::Error> {
     })
 }
 
-pub async fn handle_get_memory(responder: oneshot::Sender<Result<MemoryResponse, Status>>) {
+pub async fn handle_get_memory(responder: oneshot::Sender<Result<MemoryResponse, HostError>>) {
     info!("HostWorker: Processing GetMemory request.");
-    let result = match read_and_parse_meminfo().await {
-        Ok(mem_info) => Ok(MemoryResponse {
+    let result = read_and_parse_meminfo()
+        .await
+        .map(|mem_info| MemoryResponse {
             mem_info: Some(mem_info),
-        }),
-        Err(e) => {
-            error!("HostWorker: Failed to get memory info: {e}");
-            Err(Status::internal(format!("Failed to get memory info: {e}")))
-        }
-    };
+        });
 
     if responder.send(result).is_err() {
         error!(
@@ -170,15 +173,28 @@ fn parse_map_to_cpu_info(map: &HashMap<String, String>) -> CpuInfo {
     }
 }
 
-async fn read_and_parse_cpuinfo() -> Result<Vec<CpuInfo>, std::io::Error> {
-    let file = File::open("/proc/cpuinfo").await?;
+async fn read_and_parse_cpuinfo() -> Result<Vec<CpuInfo>, HostError> {
+    let path = "/proc/cpuinfo";
+    let file = File::open(path)
+        .await
+        .map_err(|e| HostError::SystemInfoRead {
+            source: e,
+            path: path.to_string(),
+        })?;
     let reader = BufReader::new(file);
     let mut lines = reader.lines();
 
     let mut cpus = Vec::new();
     let mut current_cpu_map = HashMap::new();
 
-    while let Some(line) = lines.next_line().await? {
+    while let Some(line) = lines
+        .next_line()
+        .await
+        .map_err(|e| HostError::SystemInfoRead {
+            source: e,
+            path: path.to_string(),
+        })?
+    {
         if line.trim().is_empty() {
             if !current_cpu_map.is_empty() {
                 let cpu_info = parse_map_to_cpu_info(&current_cpu_map);
@@ -204,15 +220,13 @@ async fn read_and_parse_cpuinfo() -> Result<Vec<CpuInfo>, std::io::Error> {
     Ok(cpus)
 }
 
-pub async fn handle_get_cpu_info(responder: oneshot::Sender<Result<GetCpuInfoResponse, Status>>) {
+pub async fn handle_get_cpu_info(
+    responder: oneshot::Sender<Result<GetCpuInfoResponse, HostError>>,
+) {
     info!("HostWorker: Processing GetCPUInfo request.");
-    let result = match read_and_parse_cpuinfo().await {
-        Ok(cpu_info) => Ok(GetCpuInfoResponse { cpu_info }),
-        Err(e) => {
-            error!("HostWorker: Failed to get CPU info: {e}");
-            Err(Status::internal(format!("Failed to get CPU info: {e}")))
-        }
-    };
+    let result = read_and_parse_cpuinfo()
+        .await
+        .map(|cpu_info| GetCpuInfoResponse { cpu_info });
 
     if responder.send(result).is_err() {
         error!(
@@ -230,11 +244,24 @@ async fn read_net_stat(base_path: &Path, stat_name: &str) -> u64 {
         .unwrap_or(0)
 }
 
-async fn read_all_net_stats() -> Result<Vec<NetDev>, std::io::Error> {
+async fn read_all_net_stats() -> Result<Vec<NetDev>, HostError> {
+    let path = "/sys/class/net";
     let mut devices = Vec::new();
-    let mut entries = fs::read_dir("/sys/class/net").await?;
+    let mut entries = fs::read_dir(path)
+        .await
+        .map_err(|e| HostError::SystemInfoRead {
+            source: e,
+            path: path.to_string(),
+        })?;
 
-    while let Some(entry) = entries.next_entry().await? {
+    while let Some(entry) = entries
+        .next_entry()
+        .await
+        .map_err(|e| HostError::SystemInfoRead {
+            source: e,
+            path: path.to_string(),
+        })?
+    {
         let path = entry.path();
         if !path.is_dir() {
             continue;
@@ -276,18 +303,12 @@ async fn read_all_net_stats() -> Result<Vec<NetDev>, std::io::Error> {
 }
 
 pub async fn handle_get_network_info(
-    responder: oneshot::Sender<Result<GetNetworkInfoResponse, Status>>,
+    responder: oneshot::Sender<Result<GetNetworkInfoResponse, HostError>>,
 ) {
     info!("HostWorker: Processing GetNetworkInfo request.");
-    let result = match read_all_net_stats().await {
-        Ok(devices) => Ok(GetNetworkInfoResponse { devices }),
-        Err(e) => {
-            error!("HostWorker: Failed to get network info: {e}");
-            Err(Status::internal(format!(
-                "Failed to get network info from sysfs: {e}"
-            )))
-        }
-    };
+    let result = read_all_net_stats()
+        .await
+        .map(|devices| GetNetworkInfoResponse { devices });
 
     if responder.send(result).is_err() {
         error!(
@@ -297,26 +318,23 @@ pub async fn handle_get_network_info(
 }
 
 pub async fn handle_get_version_info(
-    responder: oneshot::Sender<Result<GetVersionInfoResponse, Status>>,
+    responder: oneshot::Sender<Result<GetVersionInfoResponse, HostError>>,
 ) {
     info!("HostWorker: Processing GetVersionInfo request.");
-
-    let kernel_version_res = fs::read_to_string("/proc/version").await;
-
-    let result = match kernel_version_res {
-        Ok(kernel_version) => {
+    let path = "/proc/version";
+    let result = fs::read_to_string(path)
+        .await
+        .map(|kernel_version| {
             let feos_version = env!("CARGO_PKG_VERSION").to_string();
-            Ok(GetVersionInfoResponse {
+            GetVersionInfoResponse {
                 kernel_version: kernel_version.trim().to_string(),
                 feos_version,
-            })
-        }
-        Err(e) => {
-            let msg = format!("Failed to read kernel version from /proc/version: {e}");
-            error!("HostWorker: {msg}");
-            Err(Status::internal(msg))
-        }
-    };
+            }
+        })
+        .map_err(|e| HostError::SystemInfoRead {
+            source: e,
+            path: path.to_string(),
+        });
 
     if responder.send(result).is_err() {
         error!(

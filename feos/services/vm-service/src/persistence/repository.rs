@@ -1,8 +1,7 @@
 // SPDX-FileCopyrightText: 2023 SAP SE or an SAP affiliate company and IronCore contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::persistence::{VmRecord, VmStatus};
-use anyhow::{anyhow, Result};
+use crate::persistence::{PersistenceError, VmRecord, VmStatus};
 use feos_proto::vm_service::{VmConfig, VmState};
 use log::info;
 use prost::Message;
@@ -24,7 +23,7 @@ struct DbVmRow {
     config_blob: Vec<u8>,
 }
 
-fn string_to_vm_state(s: &str) -> Result<VmState, anyhow::Error> {
+fn string_to_vm_state(s: &str) -> Result<VmState, PersistenceError> {
     match s {
         "VM_STATE_CREATING" => Ok(VmState::Creating),
         "VM_STATE_CREATED" => Ok(VmState::Created),
@@ -33,12 +32,12 @@ fn string_to_vm_state(s: &str) -> Result<VmState, anyhow::Error> {
         "VM_STATE_STOPPED" => Ok(VmState::Stopped),
         "VM_STATE_CRASHED" => Ok(VmState::Crashed),
         "VM_STATE_UNSPECIFIED" => Ok(VmState::Unspecified),
-        _ => Err(anyhow!("Invalid state string '{s}' in database")),
+        _ => Err(PersistenceError::InvalidStateString(s.to_string())),
     }
 }
 
 impl VmRepository {
-    pub async fn connect(db_url: &str) -> Result<Self> {
+    pub async fn connect(db_url: &str) -> Result<Self, PersistenceError> {
         let pool = SqlitePoolOptions::new()
             .max_connections(1)
             .connect(db_url)
@@ -51,7 +50,7 @@ impl VmRepository {
         Ok(Self { pool })
     }
 
-    pub async fn get_vm(&self, vm_id: Uuid) -> Result<Option<VmRecord>> {
+    pub async fn get_vm(&self, vm_id: Uuid) -> Result<Option<VmRecord>, PersistenceError> {
         let row_opt = sqlx::query_as::<_, DbVmRow>(
             "SELECT vm_id, image_uuid, state, last_msg, pid, config_blob FROM vms WHERE vm_id = ?1",
         )
@@ -60,9 +59,7 @@ impl VmRepository {
         .await?;
 
         if let Some(row) = row_opt {
-            let config = VmConfig::decode(&*row.config_blob)
-                .map_err(|e| anyhow!("Failed to decode VmConfig blob: {e}"))?;
-
+            let config = VmConfig::decode(&*row.config_blob)?;
             let state = string_to_vm_state(&row.state)?;
 
             let record = VmRecord {
@@ -81,7 +78,7 @@ impl VmRepository {
         }
     }
 
-    pub async fn list_all_vms(&self) -> Result<Vec<VmRecord>> {
+    pub async fn list_all_vms(&self) -> Result<Vec<VmRecord>, PersistenceError> {
         let rows = sqlx::query_as::<_, DbVmRow>(
             "SELECT vm_id, image_uuid, state, last_msg, pid, config_blob FROM vms",
         )
@@ -90,14 +87,7 @@ impl VmRepository {
 
         let mut records = Vec::with_capacity(rows.len());
         for row in rows {
-            let config = VmConfig::decode(&*row.config_blob).map_err(|e| {
-                anyhow!(
-                    "Failed to decode VmConfig blob for vm_id {}: {}",
-                    row.vm_id,
-                    e
-                )
-            })?;
-
+            let config = VmConfig::decode(&*row.config_blob)?;
             let state = string_to_vm_state(&row.state)?;
 
             let record = VmRecord {
@@ -116,7 +106,7 @@ impl VmRepository {
         Ok(records)
     }
 
-    pub async fn save_vm(&self, vm: &VmRecord) -> Result<()> {
+    pub async fn save_vm(&self, vm: &VmRecord) -> Result<(), PersistenceError> {
         let mut config_blob = Vec::new();
         vm.config.encode(&mut config_blob)?;
 
@@ -145,7 +135,7 @@ impl VmRepository {
         vm_id: Uuid,
         new_state: VmState,
         message: &str,
-    ) -> Result<bool> {
+    ) -> Result<bool, PersistenceError> {
         let state_str = format!("VM_STATE_{new_state:?}").to_uppercase();
 
         let result = sqlx::query!(
@@ -164,14 +154,14 @@ impl VmRepository {
         Ok(result.rows_affected() > 0)
     }
 
-    pub async fn update_vm_pid(&self, vm_id: Uuid, pid: i64) -> Result<()> {
+    pub async fn update_vm_pid(&self, vm_id: Uuid, pid: i64) -> Result<(), PersistenceError> {
         sqlx::query!("UPDATE vms SET pid = ?1 WHERE vm_id = ?2", pid, vm_id)
             .execute(&self.pool)
             .await?;
         Ok(())
     }
 
-    pub async fn delete_vm(&self, vm_id: Uuid) -> Result<()> {
+    pub async fn delete_vm(&self, vm_id: Uuid) -> Result<(), PersistenceError> {
         let result = sqlx::query!("DELETE FROM vms WHERE vm_id = ?1", vm_id)
             .execute(&self.pool)
             .await?;

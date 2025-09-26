@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2023 SAP SE or an SAP affiliate company and IronCore contributors
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::persistence::PersistenceError;
 use feos_proto::vm_service::{
     AttachDiskRequest, AttachDiskResponse, CreateVmRequest, CreateVmResponse, DeleteVmRequest,
     DeleteVmResponse, GetVmRequest, ListVmsRequest, ListVmsResponse, PauseVmRequest,
@@ -25,6 +26,44 @@ pub const VM_CH_BIN: &str = "cloud-hypervisor";
 pub const IMAGE_DIR: &str = "/tmp/feos/images";
 pub const VM_CONSOLE_DIR: &str = "/tmp/feos/consoles";
 
+#[derive(Debug, thiserror::Error)]
+pub enum VmServiceError {
+    #[error("VMM Error: {0}")]
+    Vmm(#[from] crate::vmm::VmmError),
+
+    #[error("Persistence Error: {0}")]
+    Persistence(#[from] PersistenceError),
+
+    #[error("Image Service Error: {0}")]
+    ImageService(String),
+
+    #[error("Invalid argument: {0}")]
+    InvalidArgument(String),
+
+    #[error("VM with ID {0} already exists")]
+    AlreadyExists(String),
+}
+
+impl From<VmServiceError> for Status {
+    fn from(err: VmServiceError) -> Self {
+        log::error!("VmServiceError: {}", err);
+        match err {
+            VmServiceError::Vmm(vmm_err) => vmm_err.into(),
+            VmServiceError::Persistence(PersistenceError::Database(ref e))
+                if matches!(e, sqlx::Error::RowNotFound) =>
+            {
+                Status::not_found("Record not found in database")
+            }
+            VmServiceError::Persistence(_) => Status::internal("A database error occurred"),
+            VmServiceError::ImageService(msg) => {
+                Status::unavailable(format!("Image service unavailable: {}", msg))
+            }
+            VmServiceError::InvalidArgument(msg) => Status::invalid_argument(msg),
+            VmServiceError::AlreadyExists(msg) => Status::already_exists(msg),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct VmEventWrapper {
     pub event: VmEvent,
@@ -34,17 +73,20 @@ pub struct VmEventWrapper {
 pub enum Command {
     CreateVm(
         CreateVmRequest,
-        oneshot::Sender<Result<CreateVmResponse, Status>>,
+        oneshot::Sender<Result<CreateVmResponse, VmServiceError>>,
     ),
     StartVm(
         StartVmRequest,
-        oneshot::Sender<Result<StartVmResponse, Status>>,
+        oneshot::Sender<Result<StartVmResponse, VmServiceError>>,
     ),
-    GetVm(GetVmRequest, oneshot::Sender<Result<VmInfo, Status>>),
+    GetVm(
+        GetVmRequest,
+        oneshot::Sender<Result<VmInfo, VmServiceError>>,
+    ),
     StreamVmEvents(StreamVmEventsRequest, mpsc::Sender<Result<VmEvent, Status>>),
     DeleteVm(
         DeleteVmRequest,
-        oneshot::Sender<Result<DeleteVmResponse, Status>>,
+        oneshot::Sender<Result<DeleteVmResponse, VmServiceError>>,
     ),
     StreamVmConsole(
         Box<Streaming<StreamVmConsoleRequest>>,
@@ -52,31 +94,31 @@ pub enum Command {
     ),
     ListVms(
         ListVmsRequest,
-        oneshot::Sender<Result<ListVmsResponse, Status>>,
+        oneshot::Sender<Result<ListVmsResponse, VmServiceError>>,
     ),
     PingVm(
         PingVmRequest,
-        oneshot::Sender<Result<PingVmResponse, Status>>,
+        oneshot::Sender<Result<PingVmResponse, VmServiceError>>,
     ),
     ShutdownVm(
         ShutdownVmRequest,
-        oneshot::Sender<Result<ShutdownVmResponse, Status>>,
+        oneshot::Sender<Result<ShutdownVmResponse, VmServiceError>>,
     ),
     PauseVm(
         PauseVmRequest,
-        oneshot::Sender<Result<PauseVmResponse, Status>>,
+        oneshot::Sender<Result<PauseVmResponse, VmServiceError>>,
     ),
     ResumeVm(
         ResumeVmRequest,
-        oneshot::Sender<Result<ResumeVmResponse, Status>>,
+        oneshot::Sender<Result<ResumeVmResponse, VmServiceError>>,
     ),
     AttachDisk(
         AttachDiskRequest,
-        oneshot::Sender<Result<AttachDiskResponse, Status>>,
+        oneshot::Sender<Result<AttachDiskResponse, VmServiceError>>,
     ),
     RemoveDisk(
         RemoveDiskRequest,
-        oneshot::Sender<Result<RemoveDiskResponse, Status>>,
+        oneshot::Sender<Result<RemoveDiskResponse, VmServiceError>>,
     ),
 }
 
