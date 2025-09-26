@@ -8,7 +8,7 @@ log = { workspace = true }
 nix = { workspace = true }
 chrono = { workspace = true }
 tokio = { workspace = true }
-termcolor = "1.1"
+termcolor = { workspace = true }
 dhcproto = { workspace = true }
 futures = { workspace = true }
 netlink-packet-route = { workspace = true }
