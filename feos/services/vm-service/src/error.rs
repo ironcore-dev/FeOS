@@ -20,6 +20,9 @@ pub enum VmServiceError {
 
     #[error("VM with ID {0} already exists")]
     AlreadyExists(String),
+
+    #[error("Invalid VM state for operation: {0}")]
+    InvalidState(String),
 }
 
 impl From<VmServiceError> for Status {
@@ -38,6 +41,7 @@ impl From<VmServiceError> for Status {
             }
             VmServiceError::InvalidArgument(msg) => Status::invalid_argument(msg),
             VmServiceError::AlreadyExists(msg) => Status::already_exists(msg),
+            VmServiceError::InvalidState(msg) => Status::failed_precondition(msg),
         }
     }
 }

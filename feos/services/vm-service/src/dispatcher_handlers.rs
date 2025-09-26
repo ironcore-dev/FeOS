@@ -10,9 +10,11 @@ use crate::{
 use feos_proto::{
     image_service::{image_service_client::ImageServiceClient, PullImageRequest},
     vm_service::{
-        CreateVmRequest, CreateVmResponse, DeleteVmRequest, DeleteVmResponse, GetVmRequest,
-        ListVmsRequest, ListVmsResponse, StreamVmEventsRequest, VmEvent, VmInfo, VmState,
-        VmStateChangedEvent,
+        AttachDiskRequest, AttachDiskResponse, CreateVmRequest, CreateVmResponse, DeleteVmRequest,
+        DeleteVmResponse, GetVmRequest, ListVmsRequest, ListVmsResponse, PauseVmRequest,
+        PauseVmResponse, RemoveDiskRequest, RemoveDiskResponse, ResumeVmRequest, ResumeVmResponse,
+        ShutdownVmRequest, ShutdownVmResponse, StartVmRequest, StartVmResponse,
+        StreamVmEventsRequest, VmEvent, VmInfo, VmState, VmStateChangedEvent,
     },
 };
 use hyper_util::rt::TokioIo;
@@ -136,6 +138,21 @@ async fn get_vm_info(
             state: record.status.state as i32,
             config: Some(record.config),
         }),
+        None => Err(VmServiceError::Vmm(crate::vmm::VmmError::VmNotFound(
+            vm_id.to_string(),
+        ))),
+    }
+}
+
+async fn parse_vm_id_and_get_record(
+    vm_id_str: &str,
+    repository: &VmRepository,
+) -> Result<(Uuid, VmRecord), VmServiceError> {
+    let vm_id = Uuid::parse_str(vm_id_str)
+        .map_err(|_| VmServiceError::InvalidArgument("Invalid VM ID format.".to_string()))?;
+
+    match repository.get_vm(vm_id).await? {
+        Some(record) => Ok((vm_id, record)),
         None => Err(VmServiceError::Vmm(crate::vmm::VmmError::VmNotFound(
             vm_id.to_string(),
         ))),
@@ -405,6 +422,189 @@ pub(crate) async fn handle_list_vms_command(
     if responder.send(result.map_err(Into::into)).is_err() {
         error!("VmDispatcher: Failed to send response for ListVms.");
     }
+}
+
+pub(crate) async fn handle_start_vm_command(
+    repository: &VmRepository,
+    req: StartVmRequest,
+    responder: oneshot::Sender<Result<StartVmResponse, VmServiceError>>,
+    hypervisor: Arc<dyn Hypervisor>,
+    event_bus_tx: mpsc::Sender<VmEventWrapper>,
+    healthcheck_cancel_bus_tx: &broadcast::Sender<Uuid>,
+) {
+    let (_vm_id, record) = match parse_vm_id_and_get_record(&req.vm_id, repository).await {
+        Ok(result) => result,
+        Err(e) => {
+            let _ = responder.send(Err(e));
+            return;
+        }
+    };
+
+    let current_state = record.status.state;
+    if !matches!(current_state, VmState::Created | VmState::Stopped) {
+        let _ = responder.send(Err(VmServiceError::InvalidState(format!(
+            "Cannot start VM in {current_state:?} state. Must be in Created or Stopped."
+        ))));
+        return;
+    }
+
+    let cancel_bus = healthcheck_cancel_bus_tx.subscribe();
+    tokio::spawn(worker::handle_start_vm(
+        req,
+        responder,
+        hypervisor,
+        event_bus_tx,
+        cancel_bus,
+    ));
+}
+
+pub(crate) async fn handle_shutdown_vm_command(
+    repository: &VmRepository,
+    req: ShutdownVmRequest,
+    responder: oneshot::Sender<Result<ShutdownVmResponse, VmServiceError>>,
+    hypervisor: Arc<dyn Hypervisor>,
+    event_bus_tx: mpsc::Sender<VmEventWrapper>,
+) {
+    let (_vm_id, record) = match parse_vm_id_and_get_record(&req.vm_id, repository).await {
+        Ok(result) => result,
+        Err(e) => {
+            let _ = responder.send(Err(e));
+            return;
+        }
+    };
+
+    let current_state = record.status.state;
+    if current_state != VmState::Running {
+        let _ = responder.send(Err(VmServiceError::InvalidState(format!(
+            "Cannot shutdown VM in {current_state:?} state. Must be in Running."
+        ))));
+        return;
+    }
+
+    tokio::spawn(worker::handle_shutdown_vm(
+        req,
+        responder,
+        hypervisor,
+        event_bus_tx,
+    ));
+}
+
+pub(crate) async fn handle_pause_vm_command(
+    repository: &VmRepository,
+    req: PauseVmRequest,
+    responder: oneshot::Sender<Result<PauseVmResponse, VmServiceError>>,
+    hypervisor: Arc<dyn Hypervisor>,
+    event_bus_tx: mpsc::Sender<VmEventWrapper>,
+) {
+    let (_vm_id, record) = match parse_vm_id_and_get_record(&req.vm_id, repository).await {
+        Ok(result) => result,
+        Err(e) => {
+            let _ = responder.send(Err(e));
+            return;
+        }
+    };
+
+    let current_state = record.status.state;
+    if current_state != VmState::Running {
+        let _ = responder.send(Err(VmServiceError::InvalidState(format!(
+            "Cannot pause VM in {current_state:?} state. Must be in Running."
+        ))));
+        return;
+    }
+
+    tokio::spawn(worker::handle_pause_vm(
+        req,
+        responder,
+        hypervisor,
+        event_bus_tx,
+    ));
+}
+
+pub(crate) async fn handle_resume_vm_command(
+    repository: &VmRepository,
+    req: ResumeVmRequest,
+    responder: oneshot::Sender<Result<ResumeVmResponse, VmServiceError>>,
+    hypervisor: Arc<dyn Hypervisor>,
+    event_bus_tx: mpsc::Sender<VmEventWrapper>,
+) {
+    let (_vm_id, record) = match parse_vm_id_and_get_record(&req.vm_id, repository).await {
+        Ok(result) => result,
+        Err(e) => {
+            let _ = responder.send(Err(e));
+            return;
+        }
+    };
+
+    let current_state = record.status.state;
+    if current_state != VmState::Paused {
+        let _ = responder.send(Err(VmServiceError::InvalidState(format!(
+            "Cannot resume VM in {current_state:?} state. Must be in Paused."
+        ))));
+        return;
+    }
+
+    tokio::spawn(worker::handle_resume_vm(
+        req,
+        responder,
+        hypervisor,
+        event_bus_tx,
+    ));
+}
+
+pub(crate) async fn handle_attach_disk_command(
+    repository: &VmRepository,
+    req: AttachDiskRequest,
+    responder: oneshot::Sender<Result<AttachDiskResponse, VmServiceError>>,
+    hypervisor: Arc<dyn Hypervisor>,
+) {
+    let (_vm_id, record) = match parse_vm_id_and_get_record(&req.vm_id, repository).await {
+        Ok(result) => result,
+        Err(e) => {
+            let _ = responder.send(Err(e));
+            return;
+        }
+    };
+
+    let current_state = record.status.state;
+    if !matches!(
+        current_state,
+        VmState::Created | VmState::Running | VmState::Paused | VmState::Stopped
+    ) {
+        let _ = responder.send(Err(VmServiceError::InvalidState(format!(
+            "Cannot attach disk to VM in {current_state:?} state."
+        ))));
+        return;
+    }
+
+    tokio::spawn(worker::handle_attach_disk(req, responder, hypervisor));
+}
+
+pub(crate) async fn handle_remove_disk_command(
+    repository: &VmRepository,
+    req: RemoveDiskRequest,
+    responder: oneshot::Sender<Result<RemoveDiskResponse, VmServiceError>>,
+    hypervisor: Arc<dyn Hypervisor>,
+) {
+    let (_vm_id, record) = match parse_vm_id_and_get_record(&req.vm_id, repository).await {
+        Ok(result) => result,
+        Err(e) => {
+            let _ = responder.send(Err(e));
+            return;
+        }
+    };
+
+    let current_state = record.status.state;
+    if !matches!(
+        current_state,
+        VmState::Created | VmState::Running | VmState::Paused | VmState::Stopped
+    ) {
+        let _ = responder.send(Err(VmServiceError::InvalidState(format!(
+            "Cannot remove disk from VM in {current_state:?} state."
+        ))));
+        return;
+    }
+
+    tokio::spawn(worker::handle_remove_disk(req, responder, hypervisor));
 }
 
 pub(crate) async fn check_and_cleanup_vms(
