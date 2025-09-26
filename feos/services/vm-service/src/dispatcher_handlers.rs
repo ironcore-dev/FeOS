@@ -163,7 +163,7 @@ pub(crate) async fn handle_create_vm_command(
             ));
         }
         Err(e) => {
-            error!("VmDispatcher: Failed to handle CreateVm command: {}", e);
+            error!("VmDispatcher: Failed to handle CreateVm command: {e}");
             if responder.send(Err(e)).is_err() {
                 error!(
                     "VmDispatcher: Failed to send error response for CreateVm. Responder closed."

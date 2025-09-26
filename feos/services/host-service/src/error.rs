@@ -24,10 +24,10 @@ pub enum HostError {
 
 impl From<HostError> for Status {
     fn from(err: HostError) -> Self {
-        log::error!("HostServiceError: {}", err);
+        log::error!("HostServiceError: {err}");
         match err {
             HostError::SystemInfoRead { path, .. } => {
-                Status::internal(format!("Failed to read system info from {}", path))
+                Status::internal(format!("Failed to read system info from {path}"))
             }
             HostError::Hostname(_) | HostError::PowerOperation(_) => {
                 Status::internal("An internal host error occurred")

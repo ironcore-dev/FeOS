@@ -24,7 +24,7 @@ pub enum VmServiceError {
 
 impl From<VmServiceError> for Status {
     fn from(err: VmServiceError) -> Self {
-        log::error!("VmServiceError: {}", err);
+        log::error!("VmServiceError: {err}");
         match err {
             VmServiceError::Vmm(vmm_err) => vmm_err.into(),
             VmServiceError::Persistence(PersistenceError::Database(ref e))
@@ -34,7 +34,7 @@ impl From<VmServiceError> for Status {
             }
             VmServiceError::Persistence(_) => Status::internal("A database error occurred"),
             VmServiceError::ImageService(msg) => {
-                Status::unavailable(format!("Image service unavailable: {}", msg))
+                Status::unavailable(format!("Image service unavailable: {msg}"))
             }
             VmServiceError::InvalidArgument(msg) => Status::invalid_argument(msg),
             VmServiceError::AlreadyExists(msg) => Status::already_exists(msg),

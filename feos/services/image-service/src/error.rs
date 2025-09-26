@@ -27,10 +27,10 @@ pub enum ImageServiceError {
 
 impl From<ImageServiceError> for Status {
     fn from(err: ImageServiceError) -> Self {
-        log::error!("ImageServiceError: {}", err);
+        log::error!("ImageServiceError: {err}");
         match err {
             ImageServiceError::NotFound(id) => {
-                Status::not_found(format!("Image with ID '{}' not found", id))
+                Status::not_found(format!("Image with ID '{id}' not found"))
             }
             ImageServiceError::OciParse(_) => Status::invalid_argument(err.to_string()),
             ImageServiceError::OciPull(_) | ImageServiceError::MissingLayer(_) => {
