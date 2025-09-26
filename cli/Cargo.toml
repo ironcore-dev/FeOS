@@ -5,12 +5,8 @@ edition.workspace = true
 description = "A gRPC CLI for the FeOS control plane"
 
 [dependencies]
-feos-proto = { workspace = true }
-sha2 = { workspace = true }
-hex = { workspace = true }
-digest = { workspace = true }
-
 # Workspace dependencies
+feos-proto = { workspace = true }
 tokio = { workspace = true }
 tonic = { workspace = true }
 anyhow = { workspace = true }
@@ -20,8 +16,8 @@ hyper-util = { workspace = true }
 prost = { workspace = true }
 tower = { workspace = true }
 clap = { workspace = true, features = ["derive", "env"] }
+env_logger = { workspace = true }
+chrono = { workspace = true }
 
 # CLI specific dependencies
-env_logger = { workspace = true }
 crossterm = "0.29"
-chrono = { workspace = true }
