@@ -8,7 +8,7 @@ use crate::{
 use feos_proto::{
     image_service::{ImageState as OciImageState, WatchImageStatusRequest},
     vm_service::{
-        stream_vm_console_request as console_input, AttachConsoleMessage, AttachDiskRequest,
+        stream_vm_console_request as console_input, AttachDiskRequest,
         AttachDiskResponse, ConsoleData, CreateVmRequest, CreateVmResponse, DeleteVmRequest,
         DeleteVmResponse, GetVmRequest, PauseVmRequest, PauseVmResponse, PingVmRequest,
         PingVmResponse, RemoveDiskRequest, RemoveDiskResponse, ResumeVmRequest, ResumeVmResponse,
@@ -295,19 +295,12 @@ pub async fn handle_delete_vm(
     }
 }
 
-pub async fn handle_stream_vm_console(
-    mut input_stream: Streaming<StreamVmConsoleRequest>,
+pub async fn spawn_console_bridge(
+    vm_id: String,
+    input_stream: Streaming<StreamVmConsoleRequest>,
     output_tx: mpsc::Sender<Result<StreamVmConsoleResponse, Status>>,
     hypervisor: Arc<dyn Hypervisor>,
 ) {
-    let vm_id = match get_attach_message(&mut input_stream).await {
-        Ok(id) => id,
-        Err(status) => {
-            let _ = output_tx.send(Err(status)).await;
-            return;
-        }
-    };
-
     let socket_path = match hypervisor.get_console_socket_path(&vm_id).await {
         Ok(path) => path,
         Err(e) => {
@@ -433,23 +426,6 @@ pub async fn handle_remove_disk(
     let result = hypervisor.remove_disk(req).await;
     if responder.send(result.map_err(Into::into)).is_err() {
         error!("VmWorker: Failed to send response for RemoveDisk.");
-    }
-}
-
-async fn get_attach_message(
-    stream: &mut Streaming<StreamVmConsoleRequest>,
-) -> Result<String, Status> {
-    match stream.next().await {
-        Some(Ok(msg)) => match msg.payload {
-            Some(console_input::Payload::Attach(AttachConsoleMessage { vm_id })) => Ok(vm_id),
-            _ => Err(Status::invalid_argument(
-                "First message must be an Attach message.",
-            )),
-        },
-        Some(Err(e)) => Err(e),
-        None => Err(Status::invalid_argument(
-            "Client disconnected before sending Attach message.",
-        )),
     }
 }
 

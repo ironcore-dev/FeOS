@@ -6,7 +6,8 @@ use crate::{
         handle_attach_disk_command, handle_create_vm_command, handle_delete_vm_command,
         handle_get_vm_command, handle_list_vms_command, handle_pause_vm_command,
         handle_remove_disk_command, handle_resume_vm_command, handle_shutdown_vm_command,
-        handle_start_vm_command, handle_stream_vm_events_command, perform_startup_sanity_check,
+        handle_start_vm_command, handle_stream_vm_console_command, handle_stream_vm_events_command,
+        perform_startup_sanity_check,
     },
     error::VmServiceError,
     persistence::repository::VmRepository,
@@ -85,7 +86,7 @@ impl VmServiceDispatcher {
                             handle_delete_vm_command(&self.repository, &self.healthcheck_cancel_bus, req, responder, hypervisor, event_bus_tx).await;
                         }
                         Command::StreamVmConsole(input_stream, output_tx) => {
-                            tokio::spawn(worker::handle_stream_vm_console(*input_stream, output_tx, hypervisor));
+                            handle_stream_vm_console_command(&self.repository, *input_stream, output_tx, hypervisor).await;
                         }
                         Command::ListVms(req, responder) => {
                             handle_list_vms_command(&self.repository, req, responder).await;

@@ -10,11 +10,13 @@ use crate::{
 use feos_proto::{
     image_service::{image_service_client::ImageServiceClient, PullImageRequest},
     vm_service::{
-        AttachDiskRequest, AttachDiskResponse, CreateVmRequest, CreateVmResponse, DeleteVmRequest,
-        DeleteVmResponse, GetVmRequest, ListVmsRequest, ListVmsResponse, PauseVmRequest,
-        PauseVmResponse, RemoveDiskRequest, RemoveDiskResponse, ResumeVmRequest, ResumeVmResponse,
+        stream_vm_console_request as console_input, AttachConsoleMessage, AttachDiskRequest,
+        AttachDiskResponse, CreateVmRequest, CreateVmResponse, DeleteVmRequest, DeleteVmResponse,
+        GetVmRequest, ListVmsRequest, ListVmsResponse, PauseVmRequest, PauseVmResponse,
+        RemoveDiskRequest, RemoveDiskResponse, ResumeVmRequest, ResumeVmResponse,
         ShutdownVmRequest, ShutdownVmResponse, StartVmRequest, StartVmResponse,
-        StreamVmEventsRequest, VmEvent, VmInfo, VmState, VmStateChangedEvent,
+        StreamVmConsoleRequest, StreamVmConsoleResponse, StreamVmEventsRequest, VmEvent, VmInfo,
+        VmState, VmStateChangedEvent,
     },
 };
 use hyper_util::rt::TokioIo;
@@ -25,9 +27,10 @@ use prost::Message;
 use prost_types::Any;
 use std::{path::PathBuf, sync::Arc};
 use tokio::sync::{broadcast, mpsc, oneshot};
+use tokio_stream::StreamExt;
 use tonic::{
     transport::{Channel, Endpoint, Error as TonicTransportError, Uri},
-    Status,
+    Status, Streaming,
 };
 use tower::service_fn;
 use uuid::Uuid;
@@ -400,6 +403,73 @@ pub(crate) async fn handle_delete_vm_command(
             let _ = responder.send(Err(e.into()));
         }
     }
+}
+
+async fn get_attach_message(
+    stream: &mut Streaming<StreamVmConsoleRequest>,
+) -> Result<String, Status> {
+    match stream.next().await {
+        Some(Ok(msg)) => match msg.payload {
+            Some(console_input::Payload::Attach(AttachConsoleMessage { vm_id })) => Ok(vm_id),
+            _ => Err(Status::invalid_argument(
+                "First message must be an Attach message.",
+            )),
+        },
+        Some(Err(e)) => Err(e),
+        None => Err(Status::invalid_argument(
+            "Client disconnected before sending Attach message.",
+        )),
+    }
+}
+
+pub(crate) async fn handle_stream_vm_console_command(
+    repository: &VmRepository,
+    mut input_stream: Streaming<StreamVmConsoleRequest>,
+    output_tx: mpsc::Sender<Result<StreamVmConsoleResponse, Status>>,
+    hypervisor: Arc<dyn Hypervisor>,
+) {
+    let vm_id_str = match get_attach_message(&mut input_stream).await {
+        Ok(id) => id,
+        Err(status) => {
+            let _ = output_tx.send(Err(status)).await;
+            return;
+        }
+    };
+
+    let (_vm_id, record) = match parse_vm_id_and_get_record(&vm_id_str, repository).await {
+        Ok(result) => result,
+        Err(e) => {
+            if output_tx.send(Err(e.into())).await.is_err() {
+                warn!(
+                    "StreamConsole: Client for {} disconnected before error could be sent.",
+                    vm_id_str
+                );
+            }
+            return;
+        }
+    };
+
+    if record.status.state != VmState::Running {
+        let status = VmServiceError::InvalidState(format!(
+            "Cannot open console for VM in {:?} state. Must be in Running.",
+            record.status.state
+        ))
+        .into();
+        if output_tx.send(Err(status)).await.is_err() {
+            warn!(
+                "StreamConsole: Client for {} disconnected before precondition error could be sent.",
+                vm_id_str
+            );
+        }
+        return;
+    }
+
+    tokio::spawn(worker::spawn_console_bridge(
+        vm_id_str,
+        input_stream,
+        output_tx,
+        hypervisor,
+    ));
 }
 
 pub(crate) async fn handle_list_vms_command(
