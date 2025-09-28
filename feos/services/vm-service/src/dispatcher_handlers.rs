@@ -441,8 +441,7 @@ pub(crate) async fn handle_stream_vm_console_command(
         Err(e) => {
             if output_tx.send(Err(e.into())).await.is_err() {
                 warn!(
-                    "StreamConsole: Client for {} disconnected before error could be sent.",
-                    vm_id_str
+                    "StreamConsole: Client for {vm_id_str} disconnected before error could be sent."
                 );
             }
             return;
@@ -457,8 +456,7 @@ pub(crate) async fn handle_stream_vm_console_command(
         .into();
         if output_tx.send(Err(status)).await.is_err() {
             warn!(
-                "StreamConsole: Client for {} disconnected before precondition error could be sent.",
-                vm_id_str
+                "StreamConsole: Client for {vm_id_str} disconnected before precondition error could be sent."
             );
         }
         return;

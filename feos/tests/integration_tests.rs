@@ -12,9 +12,10 @@ use feos_proto::{
         ListImagesRequest, PullImageRequest, WatchImageStatusRequest,
     },
     vm_service::{
-        vm_service_client::VmServiceClient, CpuConfig, CreateVmRequest, DeleteVmRequest,
-        GetVmRequest, MemoryConfig, PauseVmRequest, PingVmRequest, ResumeVmRequest,
-        ShutdownVmRequest, StartVmRequest, StreamVmEventsRequest, VmConfig, VmEvent, VmState,
+        stream_vm_console_request as console_input, vm_service_client::VmServiceClient,
+        AttachConsoleMessage, CpuConfig, CreateVmRequest, DeleteVmRequest, GetVmRequest,
+        MemoryConfig, PauseVmRequest, PingVmRequest, ResumeVmRequest, ShutdownVmRequest,
+        StartVmRequest, StreamVmConsoleRequest, StreamVmEventsRequest, VmConfig, VmEvent, VmState,
         VmStateChangedEvent,
     },
 };
@@ -292,6 +293,53 @@ async fn test_create_and_start_vm() -> Result<()> {
     };
     let result = vm_client.resume_vm(resume_req.clone()).await;
     assert!(result.is_err(), "ResumeVm should fail when VM is Stopped");
+
+    info!(
+        "Calling StreamVmConsole in Stopped state for vm_id: {}, expecting error",
+        &vm_id
+    );
+    let (console_tx, console_rx) = tokio::sync::mpsc::channel(1);
+    let console_stream = tokio_stream::wrappers::ReceiverStream::new(console_rx);
+
+    let attach_payload = console_input::Payload::Attach(AttachConsoleMessage {
+        vm_id: vm_id.clone(),
+    });
+    let attach_input = StreamVmConsoleRequest {
+        payload: Some(attach_payload),
+    };
+
+    console_tx
+        .send(attach_input)
+        .await
+        .expect("Failed to send attach message");
+
+    let response = vm_client.stream_vm_console(console_stream).await;
+    assert!(
+        response.is_ok(),
+        "StreamVmConsole should establish stream successfully"
+    );
+
+    let mut output_stream = response.unwrap().into_inner();
+
+    let stream_result = output_stream.next().await;
+    match stream_result {
+        Some(Err(status)) => {
+            info!(
+                "Received expected error from console stream: {}",
+                status.message()
+            );
+            assert!(
+                status.message().contains("Invalid VM state")
+                    || status.message().contains("Stopped"),
+                "Error should be about invalid VM state, got: {}",
+                status.message()
+            );
+        }
+        Some(Ok(_)) => {
+            panic!("StreamVmConsole should fail when VM is Stopped, but got success response")
+        }
+        None => panic!("StreamVmConsole stream ended unexpectedly without error"),
+    }
 
     info!("Sending StartVm request again for vm_id: {}", &vm_id);
     vm_client.start_vm(start_req).await?;
