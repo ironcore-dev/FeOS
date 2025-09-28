@@ -518,7 +518,12 @@ pub(crate) async fn handle_start_vm_command(
         return;
     }
 
-    let cancel_bus = healthcheck_cancel_bus_tx.subscribe();
+    let cancel_bus = if current_state == VmState::Stopped {
+        None
+    } else {
+        Some(healthcheck_cancel_bus_tx.subscribe())
+    };
+
     tokio::spawn(worker::handle_start_vm(
         req,
         responder,

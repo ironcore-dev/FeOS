@@ -8,10 +8,10 @@ use crate::{
 use feos_proto::{
     image_service::{ImageState as OciImageState, WatchImageStatusRequest},
     vm_service::{
-        stream_vm_console_request as console_input, AttachDiskRequest,
-        AttachDiskResponse, ConsoleData, CreateVmRequest, CreateVmResponse, DeleteVmRequest,
-        DeleteVmResponse, GetVmRequest, PauseVmRequest, PauseVmResponse, PingVmRequest,
-        PingVmResponse, RemoveDiskRequest, RemoveDiskResponse, ResumeVmRequest, ResumeVmResponse,
+        stream_vm_console_request as console_input, AttachDiskRequest, AttachDiskResponse,
+        ConsoleData, CreateVmRequest, CreateVmResponse, DeleteVmRequest, DeleteVmResponse,
+        GetVmRequest, PauseVmRequest, PauseVmResponse, PingVmRequest, PingVmResponse,
+        RemoveDiskRequest, RemoveDiskResponse, ResumeVmRequest, ResumeVmResponse,
         ShutdownVmRequest, ShutdownVmResponse, StartVmRequest, StartVmResponse,
         StreamVmConsoleRequest, StreamVmConsoleResponse, StreamVmEventsRequest, VmEvent, VmInfo,
         VmState, VmStateChangedEvent,
@@ -179,7 +179,7 @@ pub async fn handle_start_vm(
     responder: oneshot::Sender<Result<StartVmResponse, VmServiceError>>,
     hypervisor: Arc<dyn Hypervisor>,
     broadcast_tx: mpsc::Sender<VmEventWrapper>,
-    cancel_bus: broadcast::Receiver<Uuid>,
+    cancel_bus: Option<broadcast::Receiver<Uuid>>,
 ) {
     let vm_id = req.vm_id.clone();
     let result = hypervisor.start_vm(req).await;
@@ -197,7 +197,9 @@ pub async fn handle_start_vm(
         )
         .await;
 
-        start_healthcheck_monitor(vm_id, hypervisor, broadcast_tx, cancel_bus);
+        if let Some(cancel_bus) = cancel_bus {
+            start_healthcheck_monitor(vm_id, hypervisor, broadcast_tx, cancel_bus);
+        }
     }
 
     if responder.send(result.map_err(Into::into)).is_err() {
