@@ -11,10 +11,10 @@ use feos_proto::{
     image_service::{image_service_client::ImageServiceClient, PullImageRequest},
     vm_service::{
         stream_vm_console_request as console_input, AttachConsoleMessage, AttachDiskRequest,
-        AttachDiskResponse, CreateVmRequest, CreateVmResponse, DeleteVmRequest, DeleteVmResponse,
-        GetVmRequest, ListVmsRequest, ListVmsResponse, PauseVmRequest, PauseVmResponse,
-        RemoveDiskRequest, RemoveDiskResponse, ResumeVmRequest, ResumeVmResponse,
-        ShutdownVmRequest, ShutdownVmResponse, StartVmRequest, StartVmResponse,
+        AttachDiskResponse, AttachNicRequest, AttachNicResponse, CreateVmRequest, CreateVmResponse,
+        DeleteVmRequest, DeleteVmResponse, GetVmRequest, ListVmsRequest, ListVmsResponse,
+        PauseVmRequest, PauseVmResponse, RemoveDiskRequest, RemoveDiskResponse, ResumeVmRequest,
+        ResumeVmResponse, ShutdownVmRequest, ShutdownVmResponse, StartVmRequest, StartVmResponse,
         StreamVmConsoleRequest, StreamVmConsoleResponse, StreamVmEventsRequest, VmEvent, VmInfo,
         VmState, VmStateChangedEvent,
     },
@@ -678,6 +678,48 @@ pub(crate) async fn handle_remove_disk_command(
     }
 
     tokio::spawn(worker::handle_remove_disk(req, responder, hypervisor));
+}
+
+pub(crate) async fn handle_attach_nic_command(
+    repository: &VmRepository,
+    req: AttachNicRequest,
+    responder: oneshot::Sender<Result<AttachNicResponse, VmServiceError>>,
+    hypervisor: Arc<dyn Hypervisor>,
+) {
+    let (_vm_id, mut record) = match parse_vm_id_and_get_record(&req.vm_id, repository).await {
+        Ok(result) => result,
+        Err(e) => {
+            let _ = responder.send(Err(e));
+            return;
+        }
+    };
+
+    let current_state = record.status.state;
+    if matches!(current_state, VmState::Creating | VmState::Crashed) {
+        let _ = responder.send(Err(VmServiceError::InvalidState(format!(
+            "Cannot attach NIC to VM in {current_state:?} state."
+        ))));
+        return;
+    }
+
+    let new_nic_config = match req.nic.clone() {
+        Some(nic) => nic,
+        None => {
+            let _ = responder.send(Err(VmServiceError::InvalidArgument(
+                "NetConfig is required in AttachNicRequest".to_string(),
+            )));
+            return;
+        }
+    };
+
+    record.config.net.push(new_nic_config);
+
+    if let Err(e) = repository.save_vm(&record).await {
+        let _ = responder.send(Err(e.into()));
+        return;
+    }
+
+    tokio::spawn(worker::handle_attach_nic(req, responder, hypervisor));
 }
 
 pub(crate) async fn check_and_cleanup_vms(

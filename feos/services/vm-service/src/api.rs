@@ -3,11 +3,11 @@
 
 use crate::Command;
 use feos_proto::vm_service::{
-    vm_service_server::VmService, AttachDiskRequest, AttachDiskResponse, CreateVmRequest,
-    CreateVmResponse, DeleteVmRequest, DeleteVmResponse, GetVmRequest, ListVmsRequest,
-    ListVmsResponse, PauseVmRequest, PauseVmResponse, PingVmRequest, PingVmResponse,
-    RemoveDiskRequest, RemoveDiskResponse, ResumeVmRequest, ResumeVmResponse, ShutdownVmRequest,
-    ShutdownVmResponse, StartVmRequest, StartVmResponse, StreamVmConsoleRequest,
+    vm_service_server::VmService, AttachDiskRequest, AttachDiskResponse, AttachNicRequest,
+    AttachNicResponse, CreateVmRequest, CreateVmResponse, DeleteVmRequest, DeleteVmResponse,
+    GetVmRequest, ListVmsRequest, ListVmsResponse, PauseVmRequest, PauseVmResponse, PingVmRequest,
+    PingVmResponse, RemoveDiskRequest, RemoveDiskResponse, ResumeVmRequest, ResumeVmResponse,
+    ShutdownVmRequest, ShutdownVmResponse, StartVmRequest, StartVmResponse, StreamVmConsoleRequest,
     StreamVmConsoleResponse, StreamVmEventsRequest, VmEvent, VmInfo,
 };
 use log::info;
@@ -201,6 +201,17 @@ impl VmService for VmApiHandler {
         info!("VmApi: Received RemoveDisk request.");
         dispatch_and_wait(&self.dispatcher_tx, |resp_tx| {
             Command::RemoveDisk(request.into_inner(), resp_tx)
+        })
+        .await
+    }
+
+    async fn attach_nic(
+        &self,
+        request: Request<AttachNicRequest>,
+    ) -> Result<Response<AttachNicResponse>, Status> {
+        info!("VmApi: Received AttachNic request.");
+        dispatch_and_wait(&self.dispatcher_tx, |resp_tx| {
+            Command::AttachNic(request.into_inner(), resp_tx)
         })
         .await
     }

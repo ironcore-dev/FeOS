@@ -7,11 +7,11 @@ use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use crossterm::tty::IsTty;
 use feos_proto::vm_service::{
     net_config, stream_vm_console_request as console_input, vm_service_client::VmServiceClient,
-    AttachConsoleMessage, AttachDiskRequest, ConsoleData, CpuConfig, CreateVmRequest,
-    DeleteVmRequest, DiskConfig, GetVmRequest, ListVmsRequest, MemoryConfig, NetConfig,
-    PauseVmRequest, PingVmRequest, RemoveDiskRequest, ResumeVmRequest, ShutdownVmRequest,
-    StartVmRequest, StreamVmConsoleRequest, StreamVmEventsRequest, VfioPciConfig, VmConfig,
-    VmState, VmStateChangedEvent,
+    AttachConsoleMessage, AttachDiskRequest, AttachNicRequest, ConsoleData, CpuConfig,
+    CreateVmRequest, DeleteVmRequest, DiskConfig, GetVmRequest, ListVmsRequest, MemoryConfig,
+    NetConfig, PauseVmRequest, PingVmRequest, RemoveDiskRequest, ResumeVmRequest,
+    ShutdownVmRequest, StartVmRequest, StreamVmConsoleRequest, TapConfig, VfioPciConfig, VmConfig,
+    VmState, VmStateChangedEvent, StreamVmEventsRequest
 };
 use prost::Message;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -158,6 +158,27 @@ pub enum VmCommand {
         )]
         device_id: String,
     },
+    /// Attach a network interface to a VM
+    AttachNic {
+        #[arg(long, required = true, help = "VM identifier")]
+        vm_id: String,
+        #[arg(
+            long,
+            help = "Name of the TAP device to attach",
+            conflicts_with = "pci_device"
+        )]
+        tap_name: Option<String>,
+        #[arg(
+            long,
+            help = "PCI device BDF to passthrough for networking (e.g., 0000:03:00.0)",
+            conflicts_with = "tap_name"
+        )]
+        pci_device: Option<String>,
+        #[arg(long, help = "MAC address for the new interface")]
+        mac_address: Option<String>,
+        #[arg(long, help = "Custom device identifier for the new interface")]
+        device_id: Option<String>,
+    },
 }
 
 pub async fn handle_vm_command(args: VmArgs) -> Result<()> {
@@ -218,6 +239,23 @@ pub async fn handle_vm_command(args: VmArgs) -> Result<()> {
         VmCommand::RemoveDisk { vm_id, device_id } => {
             remove_disk(&mut client, vm_id, device_id).await?
         }
+        VmCommand::AttachNic {
+            vm_id,
+            tap_name,
+            pci_device,
+            mac_address,
+            device_id,
+        } => {
+            attach_nic(
+                &mut client,
+                vm_id,
+                tap_name,
+                pci_device,
+                mac_address,
+                device_id,
+            )
+            .await?
+        }
     }
 
     Ok(())
@@ -232,10 +270,10 @@ async fn create_and_start_vm(
     pci_devices: Vec<String>,
     hugepages: bool,
 ) -> Result<()> {
-    println!("🚀 Starting create and start operation for VM with image: {image_ref}");
+    println!("� Starting create and start operation for VM with image: {image_ref}");
 
     // Step 1: Create the VM
-    println!("📋 Step 1: Creating VM...");
+    println!("� Step 1: Creating VM...");
 
     let net_configs = pci_devices
         .iter()
@@ -698,5 +736,41 @@ async fn remove_disk(
     };
     client.remove_disk(request).await?;
     println!("Disk remove request sent for device {device_id} on VM {vm_id}");
+    Ok(())
+}
+
+async fn attach_nic(
+    client: &mut VmServiceClient<Channel>,
+    vm_id: String,
+    tap_name: Option<String>,
+    pci_device: Option<String>,
+    mac_address: Option<String>,
+    device_id: Option<String>,
+) -> Result<()> {
+    let backend = if let Some(tap) = tap_name {
+        Some(net_config::Backend::Tap(TapConfig { tap_name: tap }))
+    } else if let Some(bdf) = pci_device {
+        Some(net_config::Backend::VfioPci(VfioPciConfig { bdf }))
+    } else {
+        anyhow::bail!("Either --tap-name or --pci-device must be specified.");
+    };
+
+    let nic = NetConfig {
+        device_id: device_id.unwrap_or_default(),
+        mac_address: mac_address.unwrap_or_default(),
+        backend,
+    };
+
+    let request = AttachNicRequest {
+        vm_id: vm_id.clone(),
+        nic: Some(nic),
+    };
+
+    let response = client.attach_nic(request).await?.into_inner();
+    println!(
+        "NIC attach request sent for VM: {}. Assigned device_id: {}",
+        vm_id, response.device_id
+    );
+
     Ok(())
 }

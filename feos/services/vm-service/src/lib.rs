@@ -3,12 +3,12 @@
 
 use crate::error::VmServiceError;
 use feos_proto::vm_service::{
-    AttachDiskRequest, AttachDiskResponse, CreateVmRequest, CreateVmResponse, DeleteVmRequest,
-    DeleteVmResponse, GetVmRequest, ListVmsRequest, ListVmsResponse, PauseVmRequest,
-    PauseVmResponse, PingVmRequest, PingVmResponse, RemoveDiskRequest, RemoveDiskResponse,
-    ResumeVmRequest, ResumeVmResponse, ShutdownVmRequest, ShutdownVmResponse, StartVmRequest,
-    StartVmResponse, StreamVmConsoleRequest, StreamVmConsoleResponse, StreamVmEventsRequest,
-    VmEvent, VmInfo,
+    AttachDiskRequest, AttachDiskResponse, AttachNicRequest, AttachNicResponse, CreateVmRequest,
+    CreateVmResponse, DeleteVmRequest, DeleteVmResponse, GetVmRequest, ListVmsRequest,
+    ListVmsResponse, PauseVmRequest, PauseVmResponse, PingVmRequest, PingVmResponse,
+    RemoveDiskRequest, RemoveDiskResponse, ResumeVmRequest, ResumeVmResponse, ShutdownVmRequest,
+    ShutdownVmResponse, StartVmRequest, StartVmResponse, StreamVmConsoleRequest,
+    StreamVmConsoleResponse, StreamVmEventsRequest, VmEvent, VmInfo,
 };
 use tokio::sync::{mpsc, oneshot};
 use tonic::{Status, Streaming};
@@ -83,6 +83,10 @@ pub enum Command {
         RemoveDiskRequest,
         oneshot::Sender<Result<RemoveDiskResponse, VmServiceError>>,
     ),
+    AttachNic(
+        AttachNicRequest,
+        oneshot::Sender<Result<AttachNicResponse, VmServiceError>>,
+    ),
 }
 
 impl std::fmt::Debug for Command {
@@ -103,6 +107,7 @@ impl std::fmt::Debug for Command {
             Command::ResumeVm(req, _) => f.debug_tuple("ResumeVm").field(req).finish(),
             Command::AttachDisk(req, _) => f.debug_tuple("AttachDisk").field(req).finish(),
             Command::RemoveDisk(req, _) => f.debug_tuple("RemoveDisk").field(req).finish(),
+            Command::AttachNic(req, _) => f.debug_tuple("AttachNic").field(req).finish(),
         }
     }
 }

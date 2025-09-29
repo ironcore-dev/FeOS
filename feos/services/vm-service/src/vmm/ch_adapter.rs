@@ -11,10 +11,11 @@ use cloud_hypervisor_client::{
     },
 };
 use feos_proto::vm_service::{
-    net_config, AttachDiskRequest, AttachDiskResponse, CreateVmRequest, DeleteVmRequest,
-    DeleteVmResponse, GetVmRequest, PauseVmRequest, PauseVmResponse, PingVmRequest, PingVmResponse,
-    RemoveDiskRequest, RemoveDiskResponse, ResumeVmRequest, ResumeVmResponse, ShutdownVmRequest,
-    ShutdownVmResponse, StartVmRequest, StartVmResponse, VmConfig, VmInfo, VmState,
+    net_config, AttachDiskRequest, AttachDiskResponse, AttachNicRequest, AttachNicResponse,
+    CreateVmRequest, DeleteVmRequest, DeleteVmResponse, GetVmRequest, PauseVmRequest,
+    PauseVmResponse, PingVmRequest, PingVmResponse, RemoveDiskRequest, RemoveDiskResponse,
+    ResumeVmRequest, ResumeVmResponse, ShutdownVmRequest, ShutdownVmResponse, StartVmRequest,
+    StartVmResponse, VmConfig, VmInfo, VmState,
 };
 use hyper_util::client::legacy::Client;
 use hyperlocal::{UnixClientExt, UnixConnector, Uri as HyperlocalUri};
@@ -457,5 +458,68 @@ impl Hypervisor for CloudHypervisorAdapter {
         Err(VmmError::Internal(
             "RemoveDisk not implemented for CloudHypervisorAdapter".to_string(),
         ))
+    }
+
+    async fn attach_nic(&self, req: AttachNicRequest) -> Result<AttachNicResponse, VmmError> {
+        let api_client = self.get_ch_api_client(&req.vm_id)?;
+        let nic = req
+            .nic
+            .ok_or_else(|| VmmError::InvalidConfig("NetConfig is required".to_string()))?;
+
+        let pci_info = match nic.backend {
+            Some(net_config::Backend::Tap(tap)) => {
+                let id = if !nic.device_id.is_empty() {
+                    Some(nic.device_id)
+                } else {
+                    Some(tap.tap_name.clone())
+                };
+
+                let mac = if nic.mac_address.is_empty() {
+                    None
+                } else {
+                    Some(nic.mac_address)
+                };
+
+                let ch_net_config = models::NetConfig {
+                    tap: Some(tap.tap_name),
+                    mac,
+                    id,
+                    ..Default::default()
+                };
+                api_client
+                    .vm_add_net_put(ch_net_config)
+                    .await
+                    .map_err(|e| VmmError::ApiOperationFailed(format!("vm.add-net failed: {e}")))?
+            }
+            Some(net_config::Backend::VfioPci(vfio_pci)) => {
+                let device_path = format!("/sys/bus/pci/devices/{}", vfio_pci.bdf);
+                let id = if !nic.device_id.is_empty() {
+                    Some(nic.device_id)
+                } else {
+                    Some(device_path.clone())
+                };
+
+                let ch_device_config = models::DeviceConfig {
+                    path: device_path,
+                    id,
+                    ..Default::default()
+                };
+                api_client
+                    .vm_add_device_put(ch_device_config)
+                    .await
+                    .map_err(|e| {
+                        VmmError::ApiOperationFailed(format!("vm.add-device failed: {e}"))
+                    })?
+            }
+            None => {
+                return Err(VmmError::InvalidConfig(
+                    "NetConfig backend (tap or vfio_pci) is required".to_string(),
+                ));
+            }
+        };
+
+        Ok(AttachNicResponse {
+            device_id: pci_info.id,
+        })
     }
 }
