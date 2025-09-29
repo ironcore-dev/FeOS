@@ -6,9 +6,10 @@ use feos_proto::vm_service::{
     vm_service_server::VmService, AttachDiskRequest, AttachDiskResponse, AttachNicRequest,
     AttachNicResponse, CreateVmRequest, CreateVmResponse, DeleteVmRequest, DeleteVmResponse,
     GetVmRequest, ListVmsRequest, ListVmsResponse, PauseVmRequest, PauseVmResponse, PingVmRequest,
-    PingVmResponse, RemoveDiskRequest, RemoveDiskResponse, ResumeVmRequest, ResumeVmResponse,
-    ShutdownVmRequest, ShutdownVmResponse, StartVmRequest, StartVmResponse, StreamVmConsoleRequest,
-    StreamVmConsoleResponse, StreamVmEventsRequest, VmEvent, VmInfo,
+    PingVmResponse, RemoveDiskRequest, RemoveDiskResponse, RemoveNicRequest, RemoveNicResponse,
+    ResumeVmRequest, ResumeVmResponse, ShutdownVmRequest, ShutdownVmResponse, StartVmRequest,
+    StartVmResponse, StreamVmConsoleRequest, StreamVmConsoleResponse, StreamVmEventsRequest,
+    VmEvent, VmInfo,
 };
 use log::info;
 use std::pin::Pin;
@@ -212,6 +213,17 @@ impl VmService for VmApiHandler {
         info!("VmApi: Received AttachNic request.");
         dispatch_and_wait(&self.dispatcher_tx, |resp_tx| {
             Command::AttachNic(request.into_inner(), resp_tx)
+        })
+        .await
+    }
+
+    async fn remove_nic(
+        &self,
+        request: Request<RemoveNicRequest>,
+    ) -> Result<Response<RemoveNicResponse>, Status> {
+        info!("VmApi: Received RemoveNic request.");
+        dispatch_and_wait(&self.dispatcher_tx, |resp_tx| {
+            Command::RemoveNic(request.into_inner(), resp_tx)
         })
         .await
     }

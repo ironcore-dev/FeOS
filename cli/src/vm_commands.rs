@@ -9,9 +9,9 @@ use feos_proto::vm_service::{
     net_config, stream_vm_console_request as console_input, vm_service_client::VmServiceClient,
     AttachConsoleMessage, AttachDiskRequest, AttachNicRequest, ConsoleData, CpuConfig,
     CreateVmRequest, DeleteVmRequest, DiskConfig, GetVmRequest, ListVmsRequest, MemoryConfig,
-    NetConfig, PauseVmRequest, PingVmRequest, RemoveDiskRequest, ResumeVmRequest,
-    ShutdownVmRequest, StartVmRequest, StreamVmConsoleRequest, TapConfig, VfioPciConfig, VmConfig,
-    VmState, VmStateChangedEvent, StreamVmEventsRequest
+    NetConfig, PauseVmRequest, PingVmRequest, RemoveDiskRequest, RemoveNicRequest, ResumeVmRequest,
+    ShutdownVmRequest, StartVmRequest, StreamVmConsoleRequest, StreamVmEventsRequest, TapConfig,
+    VfioPciConfig, VmConfig, VmState, VmStateChangedEvent,
 };
 use prost::Message;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -179,6 +179,13 @@ pub enum VmCommand {
         #[arg(long, help = "Custom device identifier for the new interface")]
         device_id: Option<String>,
     },
+    /// Remove a network interface from a VM
+    RemoveNic {
+        #[arg(long, required = true, help = "VM identifier")]
+        vm_id: String,
+        #[arg(long, required = true, help = "Device identifier of the NIC to remove")]
+        device_id: String,
+    },
 }
 
 pub async fn handle_vm_command(args: VmArgs) -> Result<()> {
@@ -255,6 +262,9 @@ pub async fn handle_vm_command(args: VmArgs) -> Result<()> {
                 device_id,
             )
             .await?
+        }
+        VmCommand::RemoveNic { vm_id, device_id } => {
+            remove_nic(&mut client, vm_id, device_id).await?
         }
     }
 
@@ -772,5 +782,19 @@ async fn attach_nic(
         vm_id, response.device_id
     );
 
+    Ok(())
+}
+
+async fn remove_nic(
+    client: &mut VmServiceClient<Channel>,
+    vm_id: String,
+    device_id: String,
+) -> Result<()> {
+    let request = RemoveNicRequest {
+        vm_id: vm_id.clone(),
+        device_id: device_id.clone(),
+    };
+    client.remove_nic(request).await?;
+    println!("NIC remove request sent for device {device_id} on VM {vm_id}");
     Ok(())
 }

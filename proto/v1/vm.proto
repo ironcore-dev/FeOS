@@ -43,6 +43,8 @@ service VMService {
   rpc RemoveDisk(RemoveDiskRequest) returns (RemoveDiskResponse);
   // Hot-plugs a new network interface to a running VM.
   rpc AttachNic(AttachNicRequest) returns (AttachNicResponse);
+  // Hot-unplugs a network interface from a running VM.
+  rpc RemoveNic(RemoveNicRequest) returns (RemoveNicResponse);
 }
 
 // Request stream from client to server for StreamVmConsole
@@ -241,6 +243,13 @@ message AttachNicRequest {
 message AttachNicResponse {
   string device_id = 1;
 }
+
+message RemoveNicRequest {
+  string vm_id = 1;
+  string device_id = 2;
+}
+
+message RemoveNicResponse {}
 
 message StartVmResponse {}
 

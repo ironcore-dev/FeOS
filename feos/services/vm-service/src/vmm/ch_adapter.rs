@@ -14,8 +14,8 @@ use feos_proto::vm_service::{
     net_config, AttachDiskRequest, AttachDiskResponse, AttachNicRequest, AttachNicResponse,
     CreateVmRequest, DeleteVmRequest, DeleteVmResponse, GetVmRequest, PauseVmRequest,
     PauseVmResponse, PingVmRequest, PingVmResponse, RemoveDiskRequest, RemoveDiskResponse,
-    ResumeVmRequest, ResumeVmResponse, ShutdownVmRequest, ShutdownVmResponse, StartVmRequest,
-    StartVmResponse, VmConfig, VmInfo, VmState,
+    RemoveNicRequest, RemoveNicResponse, ResumeVmRequest, ResumeVmResponse, ShutdownVmRequest,
+    ShutdownVmResponse, StartVmRequest, StartVmResponse, VmConfig, VmInfo, VmState,
 };
 use hyper_util::client::legacy::Client;
 use hyperlocal::{UnixClientExt, UnixConnector, Uri as HyperlocalUri};
@@ -59,7 +59,6 @@ impl CloudHypervisorAdapter {
 
         Ok(DefaultApiClient::new(Arc::new(configuration)))
     }
-
     async fn perform_vm_creation(
         &self,
         vm_id: &str,
@@ -521,5 +520,17 @@ impl Hypervisor for CloudHypervisorAdapter {
         Ok(AttachNicResponse {
             device_id: pci_info.id,
         })
+    }
+
+    async fn remove_nic(&self, req: RemoveNicRequest) -> Result<RemoveNicResponse, VmmError> {
+        let api_client = self.get_ch_api_client(&req.vm_id)?;
+        let device_to_remove = models::VmRemoveDevice {
+            id: Some(req.device_id),
+        };
+        api_client
+            .vm_remove_device_put(device_to_remove)
+            .await
+            .map_err(|e| VmmError::ApiOperationFailed(format!("vm.remove-device failed: {e}")))?;
+        Ok(RemoveNicResponse {})
     }
 }

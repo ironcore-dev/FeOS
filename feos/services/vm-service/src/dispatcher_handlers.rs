@@ -13,10 +13,11 @@ use feos_proto::{
         stream_vm_console_request as console_input, AttachConsoleMessage, AttachDiskRequest,
         AttachDiskResponse, AttachNicRequest, AttachNicResponse, CreateVmRequest, CreateVmResponse,
         DeleteVmRequest, DeleteVmResponse, GetVmRequest, ListVmsRequest, ListVmsResponse,
-        PauseVmRequest, PauseVmResponse, RemoveDiskRequest, RemoveDiskResponse, ResumeVmRequest,
-        ResumeVmResponse, ShutdownVmRequest, ShutdownVmResponse, StartVmRequest, StartVmResponse,
-        StreamVmConsoleRequest, StreamVmConsoleResponse, StreamVmEventsRequest, VmEvent, VmInfo,
-        VmState, VmStateChangedEvent,
+        PauseVmRequest, PauseVmResponse, RemoveDiskRequest, RemoveDiskResponse, RemoveNicRequest,
+        RemoveNicResponse, ResumeVmRequest, ResumeVmResponse, ShutdownVmRequest,
+        ShutdownVmResponse, StartVmRequest, StartVmResponse, StreamVmConsoleRequest,
+        StreamVmConsoleResponse, StreamVmEventsRequest, VmEvent, VmInfo, VmState,
+        VmStateChangedEvent,
     },
 };
 use hyper_util::rt::TokioIo;
@@ -720,6 +721,50 @@ pub(crate) async fn handle_attach_nic_command(
     }
 
     tokio::spawn(worker::handle_attach_nic(req, responder, hypervisor));
+}
+
+pub(crate) async fn handle_remove_nic_command(
+    repository: &VmRepository,
+    req: RemoveNicRequest,
+    responder: oneshot::Sender<Result<RemoveNicResponse, VmServiceError>>,
+    hypervisor: Arc<dyn Hypervisor>,
+) {
+    let (_vm_id, mut record) = match parse_vm_id_and_get_record(&req.vm_id, repository).await {
+        Ok(result) => result,
+        Err(e) => {
+            let _ = responder.send(Err(e));
+            return;
+        }
+    };
+
+    let current_state = record.status.state;
+    if matches!(current_state, VmState::Creating | VmState::Crashed) {
+        let _ = responder.send(Err(VmServiceError::InvalidState(format!(
+            "Cannot remove NIC from VM in {current_state:?} state."
+        ))));
+        return;
+    }
+
+    let initial_len = record.config.net.len();
+    record
+        .config
+        .net
+        .retain(|nic| nic.device_id != req.device_id);
+
+    if record.config.net.len() == initial_len {
+        let _ = responder.send(Err(VmServiceError::InvalidArgument(format!(
+            "NIC with device_id '{}' not found in VM configuration.",
+            req.device_id
+        ))));
+        return;
+    }
+
+    if let Err(e) = repository.save_vm(&record).await {
+        let _ = responder.send(Err(e.into()));
+        return;
+    }
+
+    tokio::spawn(worker::handle_remove_nic(req, responder, hypervisor));
 }
 
 pub(crate) async fn check_and_cleanup_vms(

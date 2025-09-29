@@ -11,10 +11,11 @@ use feos_proto::{
         stream_vm_console_request as console_input, AttachDiskRequest, AttachDiskResponse,
         AttachNicRequest, AttachNicResponse, ConsoleData, CreateVmRequest, CreateVmResponse,
         DeleteVmRequest, DeleteVmResponse, GetVmRequest, PauseVmRequest, PauseVmResponse,
-        PingVmRequest, PingVmResponse, RemoveDiskRequest, RemoveDiskResponse, ResumeVmRequest,
-        ResumeVmResponse, ShutdownVmRequest, ShutdownVmResponse, StartVmRequest, StartVmResponse,
-        StreamVmConsoleRequest, StreamVmConsoleResponse, StreamVmEventsRequest, VmEvent, VmInfo,
-        VmState, VmStateChangedEvent,
+        PingVmRequest, PingVmResponse, RemoveDiskRequest, RemoveDiskResponse, RemoveNicRequest,
+        RemoveNicResponse, ResumeVmRequest, ResumeVmResponse, ShutdownVmRequest,
+        ShutdownVmResponse, StartVmRequest, StartVmResponse, StreamVmConsoleRequest,
+        StreamVmConsoleResponse, StreamVmEventsRequest, VmEvent, VmInfo, VmState,
+        VmStateChangedEvent,
     },
 };
 use log::{error, info, warn};
@@ -439,6 +440,17 @@ pub async fn handle_attach_nic(
     let result = hypervisor.attach_nic(req).await;
     if responder.send(result.map_err(Into::into)).is_err() {
         error!("VmWorker: Failed to send response for AttachNic.");
+    }
+}
+
+pub async fn handle_remove_nic(
+    req: RemoveNicRequest,
+    responder: oneshot::Sender<Result<RemoveNicResponse, VmServiceError>>,
+    hypervisor: Arc<dyn Hypervisor>,
+) {
+    let result = hypervisor.remove_nic(req).await;
+    if responder.send(result.map_err(Into::into)).is_err() {
+        error!("VmWorker: Failed to send response for RemoveNic.");
     }
 }
 
