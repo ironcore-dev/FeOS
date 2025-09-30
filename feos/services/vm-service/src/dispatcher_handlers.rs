@@ -10,14 +10,14 @@ use crate::{
 use feos_proto::{
     image_service::{image_service_client::ImageServiceClient, PullImageRequest},
     vm_service::{
-        stream_vm_console_request as console_input, AttachConsoleMessage, AttachDiskRequest,
-        AttachDiskResponse, AttachNicRequest, AttachNicResponse, CreateVmRequest, CreateVmResponse,
-        DeleteVmRequest, DeleteVmResponse, GetVmRequest, ListVmsRequest, ListVmsResponse,
-        PauseVmRequest, PauseVmResponse, RemoveDiskRequest, RemoveDiskResponse, RemoveNicRequest,
-        RemoveNicResponse, ResumeVmRequest, ResumeVmResponse, ShutdownVmRequest,
-        ShutdownVmResponse, StartVmRequest, StartVmResponse, StreamVmConsoleRequest,
-        StreamVmConsoleResponse, StreamVmEventsRequest, VmEvent, VmInfo, VmState,
-        VmStateChangedEvent,
+        net_config, stream_vm_console_request as console_input, AttachConsoleMessage,
+        AttachDiskRequest, AttachDiskResponse, AttachNicRequest, AttachNicResponse,
+        CreateVmRequest, CreateVmResponse, DeleteVmRequest, DeleteVmResponse, GetVmRequest,
+        ListVmsRequest, ListVmsResponse, PauseVmRequest, PauseVmResponse, RemoveDiskRequest,
+        RemoveDiskResponse, RemoveNicRequest, RemoveNicResponse, ResumeVmRequest, ResumeVmResponse,
+        ShutdownVmRequest, ShutdownVmResponse, StartVmRequest, StartVmResponse,
+        StreamVmConsoleRequest, StreamVmConsoleResponse, StreamVmEventsRequest, VmEvent, VmInfo,
+        VmState, VmStateChangedEvent,
     },
 };
 use hyper_util::rt::TokioIo;
@@ -35,6 +35,21 @@ use tonic::{
 };
 use tower::service_fn;
 use uuid::Uuid;
+
+fn ensure_net_config_device_id(net_config: &mut feos_proto::vm_service::NetConfig) {
+    if net_config.device_id.is_empty() {
+        if let Some(backend) = &net_config.backend {
+            match backend {
+                net_config::Backend::Tap(tap) => {
+                    net_config.device_id = tap.tap_name.clone();
+                }
+                net_config::Backend::VfioPci(pci) => {
+                    net_config.device_id = format!("/sys/bus/pci/devices/{}", pci.bdf);
+                }
+            }
+        }
+    }
+}
 
 pub(crate) async fn get_image_service_client(
 ) -> Result<ImageServiceClient<Channel>, TonicTransportError> {
@@ -113,6 +128,15 @@ async fn prepare_vm_creation(
     let image_uuid = Uuid::parse_str(&image_uuid_str)
         .map_err(|e| VmServiceError::ImageService(format!("Failed to parse image UUID: {e}")))?;
 
+    let mut vm_config = req.config.clone().ok_or(VmServiceError::InvalidArgument(
+        "VmConfig is required in CreateVmRequest".to_string(),
+    ))?;
+
+    vm_config
+        .net
+        .iter_mut()
+        .for_each(ensure_net_config_device_id);
+
     let record = VmRecord {
         vm_id,
         image_uuid,
@@ -121,7 +145,7 @@ async fn prepare_vm_creation(
             last_msg: "VM creation initiated".to_string(),
             process_id: None,
         },
-        config: req.config.clone().unwrap(),
+        config: vm_config,
     };
 
     repository.save_vm(&record).await?;
@@ -703,7 +727,7 @@ pub(crate) async fn handle_attach_nic_command(
         return;
     }
 
-    let new_nic_config = match req.nic.clone() {
+    let mut new_nic_config = match req.nic.clone() {
         Some(nic) => nic,
         None => {
             let _ = responder.send(Err(VmServiceError::InvalidArgument(
@@ -712,6 +736,8 @@ pub(crate) async fn handle_attach_nic_command(
             return;
         }
     };
+
+    ensure_net_config_device_id(&mut new_nic_config);
 
     record.config.net.push(new_nic_config);
 
