@@ -12,11 +12,11 @@ use feos_proto::{
         ListImagesRequest, PullImageRequest, WatchImageStatusRequest,
     },
     vm_service::{
-        stream_vm_console_request as console_input, vm_service_client::VmServiceClient,
-        AttachConsoleMessage, CpuConfig, CreateVmRequest, DeleteVmRequest, GetVmRequest,
-        MemoryConfig, PauseVmRequest, PingVmRequest, ResumeVmRequest, ShutdownVmRequest,
-        StartVmRequest, StreamVmConsoleRequest, StreamVmEventsRequest, VmConfig, VmEvent, VmState,
-        VmStateChangedEvent,
+        net_config, stream_vm_console_request as console_input, vm_service_client::VmServiceClient,
+        AttachConsoleMessage, AttachNicRequest, CpuConfig, CreateVmRequest, DeleteVmRequest,
+        GetVmRequest, MemoryConfig, NetConfig, PauseVmRequest, PingVmRequest, RemoveNicRequest,
+        ResumeVmRequest, ShutdownVmRequest, StartVmRequest, StreamVmConsoleRequest,
+        StreamVmEventsRequest, TapConfig, VmConfig, VmEvent, VmState, VmStateChangedEvent,
     },
 };
 use hyper_util::rt::TokioIo;
@@ -404,6 +404,67 @@ async fn test_create_and_start_vm() -> Result<()> {
     let ping_res = vm_client.ping_vm(ping_req).await?.into_inner();
     info!("VMM Ping successful, PID: {}", ping_res.pid);
     guard.pid = Some(Pid::from_raw(ping_res.pid as i32));
+
+    info!("Attaching NIC 'test-nic' to vm_id: {}", &vm_id);
+    let attach_nic_req = AttachNicRequest {
+        vm_id: vm_id.clone(),
+        nic: Some(NetConfig {
+            device_id: "test".to_string(),
+            backend: Some(net_config::Backend::Tap(TapConfig {
+                tap_name: "test".to_string(),
+            })),
+            ..Default::default()
+        }),
+    };
+    let attach_res = vm_client.attach_nic(attach_nic_req).await?.into_inner();
+    assert_eq!(attach_res.device_id, "test");
+    info!(
+        "AttachNic call successful, device_id: {}",
+        attach_res.device_id
+    );
+
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    info!("Verifying NIC was attached with GetVm");
+    let get_req_after_attach = GetVmRequest {
+        vm_id: vm_id.clone(),
+    };
+    let info_res_after_attach = vm_client.get_vm(get_req_after_attach).await?.into_inner();
+    let nic_found = info_res_after_attach
+        .config
+        .expect("VM should have a config")
+        .net
+        .iter()
+        .any(|nic| nic.device_id == "test");
+    assert!(nic_found, "Attached NIC 'test' was not found in VM config");
+    info!("Successfully verified NIC attachment.");
+
+    info!("Removing NIC 'test' from vm_id: {}", &vm_id);
+    let remove_nic_req = RemoveNicRequest {
+        vm_id: vm_id.clone(),
+        device_id: "test".to_string(),
+    };
+    vm_client.remove_nic(remove_nic_req).await?;
+    info!("RemoveNic call successful");
+
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    info!("Verifying NIC was removed with GetVm");
+    let get_req_after_remove = GetVmRequest {
+        vm_id: vm_id.clone(),
+    };
+    let info_res_after_remove = vm_client.get_vm(get_req_after_remove).await?.into_inner();
+    let nic_still_present = info_res_after_remove
+        .config
+        .expect("VM should have a config")
+        .net
+        .iter()
+        .any(|nic| nic.device_id == "test");
+    assert!(
+        !nic_still_present,
+        "Removed NIC 'test' was still found in VM config"
+    );
+    info!("Successfully verified NIC removal.");
 
     info!("Deleting VM: {}", &vm_id);
     let delete_req = DeleteVmRequest {
