@@ -9,7 +9,7 @@ all: clippy
 	cargo build --target=x86_64-unknown-linux-musl --all
 
 release: clippy
-	cargo build --release --target=x86_64-unknown-linux-musl --all
+	cargo build --release --features git-version --target=x86_64-unknown-linux-musl --all
 
 run: all
 	sudo ./target/debug/feos --ipam $(IPAM)

@@ -825,6 +825,7 @@ dependencies = [
 name = "feos-utils"
 version = "0.5.0"
 dependencies = [
+ "cc",
  "chrono",
  "dhcproto",
  "futures",

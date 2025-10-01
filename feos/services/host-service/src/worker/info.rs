@@ -325,7 +325,7 @@ pub async fn handle_get_version_info(
     let result = fs::read_to_string(path)
         .await
         .map(|kernel_version| {
-            let feos_version = env!("CARGO_PKG_VERSION").to_string();
+            let feos_version = feos_utils::version::full_version_string();
             GetVersionInfoResponse {
                 kernel_version: kernel_version.trim().to_string(),
                 feos_version,

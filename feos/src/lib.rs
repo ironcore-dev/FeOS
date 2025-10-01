@@ -9,7 +9,6 @@ use image_service::IMAGE_SERVICE_SOCKET;
 use log::{error, info, warn};
 use nix::unistd::Uid;
 use setup::*;
-use std::env;
 use tokio::{fs, net::UnixListener, sync::mpsc};
 use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::Server;
@@ -25,7 +24,7 @@ pub async fn run_server(restarted_after_upgrade: bool) -> Result<()> {
     ╚═╝     ╚══════╝ ╚═════╝ ╚══════╝
                  v{}
     ",
-        env!("CARGO_PKG_VERSION")
+        feos_utils::version::full_version_string()
     );
 
     let log_handle = feos_utils::feos_logger::Builder::new()
