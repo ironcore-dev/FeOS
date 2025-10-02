@@ -26,4 +26,6 @@ For detailed information on contributing to FeOS, including development guidelin
 Just download the Unified Kernel Image (UKI) from the [Releases](https://github.com/maltej/feos/releases) page and boot it with UEFI. You can do that in a VM by providing the UKI as a Kernel, via PXE boot or [boot from USB stick](docs/boot-image/uki.md#boot-from-usb-stick).
 
 ## Licensing
-FeOS is licensed under the [Apache License v2.0](LICENSE), ensuring open-source availability and collaborative development potential.
+Copyright 2025 SAP SE or an SAP affiliate company and IronCore contributors. Please see our [LICENSE](LICENSE) for
+copyright and license information. Detailed information including third-party components and their licensing/copyright
+information is available [via the REUSE tool](https://api.reuse.software/info/github.com/ironcore-dev/FeOS).
