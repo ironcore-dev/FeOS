@@ -214,6 +214,7 @@ impl CloudHypervisorAdapter {
         if let Some(ignition_data) = config.ignition {
             if !ignition_data.is_empty() {
                 ch_vm_config.platform = Some(models::PlatformConfig {
+                    num_pci_segments: Some(1),
                     oem_strings: Some(vec![ignition_data]),
                     ..Default::default()
                 });

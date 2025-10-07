@@ -62,6 +62,9 @@ pub enum VmCommand {
 
         #[arg(long, help = "Enable hugepages for memory allocation")]
         hugepages: bool,
+
+        #[arg(long, help = "Path to ignition file or the content itself")]
+        ignition: Option<String>,
     },
     /// Start an existing virtual machine
     Start {
@@ -126,6 +129,9 @@ pub enum VmCommand {
 
         #[arg(long, help = "Enable hugepages for memory allocation")]
         hugepages: bool,
+
+        #[arg(long, help = "Path to ignition file or the content itself")]
+        ignition: Option<String>,
     },
     /// Watch virtual machine state change events
     Events {
@@ -188,6 +194,17 @@ pub enum VmCommand {
     },
 }
 
+#[derive(Debug, Clone)]
+struct CreateVmOptions {
+    image_ref: String,
+    vcpus: u32,
+    memory: u64,
+    vm_id: Option<String>,
+    pci_devices: Vec<String>,
+    hugepages: bool,
+    ignition: Option<String>,
+}
+
 pub async fn handle_vm_command(args: VmArgs) -> Result<()> {
     let mut client = VmServiceClient::connect(args.address)
         .await
@@ -201,17 +218,18 @@ pub async fn handle_vm_command(args: VmArgs) -> Result<()> {
             vm_id,
             pci_device,
             hugepages,
+            ignition,
         } => {
-            create_vm(
-                &mut client,
+            let opts = CreateVmOptions {
                 image_ref,
                 vcpus,
                 memory,
                 vm_id,
-                pci_device,
+                pci_devices: pci_device,
                 hugepages,
-            )
-            .await?
+                ignition,
+            };
+            create_vm(&mut client, opts).await?
         }
         VmCommand::Start { vm_id } => start_vm(&mut client, vm_id).await?,
         VmCommand::Info { vm_id } => get_vm_info(&mut client, vm_id).await?,
@@ -228,17 +246,18 @@ pub async fn handle_vm_command(args: VmArgs) -> Result<()> {
             vm_id,
             pci_device,
             hugepages,
+            ignition,
         } => {
-            create_and_start_vm(
-                &mut client,
+            let opts = CreateVmOptions {
                 image_ref,
                 vcpus,
                 memory,
                 vm_id,
-                pci_device,
+                pci_devices: pci_device,
                 hugepages,
-            )
-            .await?
+                ignition,
+            };
+            create_and_start_vm(&mut client, opts).await?
         }
         VmCommand::Events { vm_id } => watch_events(&mut client, vm_id).await?,
         VmCommand::Console { vm_id } => console_vm(&mut client, vm_id).await?,
@@ -273,17 +292,32 @@ pub async fn handle_vm_command(args: VmArgs) -> Result<()> {
 
 async fn create_and_start_vm(
     client: &mut VmServiceClient<Channel>,
-    image_ref: String,
-    vcpus: u32,
-    memory: u64,
-    vm_id: Option<String>,
-    pci_devices: Vec<String>,
-    hugepages: bool,
+    opts: CreateVmOptions,
 ) -> Result<()> {
+    let CreateVmOptions {
+        image_ref,
+        vcpus,
+        memory,
+        vm_id,
+        pci_devices,
+        hugepages,
+        ignition,
+    } = opts;
+
     println!("� Starting create and start operation for VM with image: {image_ref}");
 
     // Step 1: Create the VM
     println!("� Step 1: Creating VM...");
+
+    let ignition_data = if let Some(ignition_str) = ignition {
+        if tokio::fs::metadata(&ignition_str).await.is_ok() {
+            Some(tokio::fs::read_to_string(ignition_str).await?)
+        } else {
+            Some(ignition_str)
+        }
+    } else {
+        None
+    };
 
     let net_configs = pci_devices
         .iter()
@@ -310,6 +344,7 @@ async fn create_and_start_vm(
             }),
             image_ref: image_ref.clone(),
             net: net_configs,
+            ignition: ignition_data,
             ..Default::default()
         }),
         vm_id: vm_id.clone(),
@@ -405,16 +440,28 @@ async fn wait_for_vm_state(
     anyhow::bail!("Event stream ended before reaching target state: {target_state:?}")
 }
 
-async fn create_vm(
-    client: &mut VmServiceClient<Channel>,
-    image_ref: String,
-    vcpus: u32,
-    memory: u64,
-    vm_id: Option<String>,
-    pci_devices: Vec<String>,
-    hugepages: bool,
-) -> Result<()> {
+async fn create_vm(client: &mut VmServiceClient<Channel>, opts: CreateVmOptions) -> Result<()> {
+    let CreateVmOptions {
+        image_ref,
+        vcpus,
+        memory,
+        vm_id,
+        pci_devices,
+        hugepages,
+        ignition,
+    } = opts;
+
     println!("Requesting VM creation with image: {image_ref}...");
+
+    let ignition_data = if let Some(ignition_str) = ignition {
+        if tokio::fs::metadata(&ignition_str).await.is_ok() {
+            Some(tokio::fs::read_to_string(ignition_str).await?)
+        } else {
+            Some(ignition_str)
+        }
+    } else {
+        None
+    };
 
     let net_configs = pci_devices
         .into_iter()
@@ -439,6 +486,7 @@ async fn create_vm(
             }),
             image_ref,
             net: net_configs,
+            ignition: ignition_data,
             ..Default::default()
         }),
         vm_id,
