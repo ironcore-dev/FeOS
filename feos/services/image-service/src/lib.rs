@@ -47,6 +47,12 @@ pub enum Command {
 }
 
 #[derive(Debug)]
+pub struct PulledImageData {
+    pub config: Vec<u8>,
+    pub layers: Vec<Vec<u8>>,
+}
+
+#[derive(Debug)]
 pub enum OrchestratorCommand {
     PullImage {
         image_ref: String,
@@ -55,7 +61,7 @@ pub enum OrchestratorCommand {
     FinalizePull {
         image_uuid: String,
         image_ref: String,
-        image_data: Vec<u8>,
+        image_data: PulledImageData,
     },
     FailPull {
         image_uuid: String,
@@ -79,7 +85,7 @@ pub enum FileCommand {
     StoreImage {
         image_uuid: String,
         image_ref: String,
-        image_data: Vec<u8>,
+        image_data: PulledImageData,
         responder: oneshot::Sender<Result<(), std::io::Error>>,
     },
     DeleteImage {

@@ -17,3 +17,5 @@ serde_json = { workspace = true }
 prost = { workspace = true }
 prost-types = { workspace = true }
 thiserror = { workspace = true }
+tar = "0.4"
+flate2 = "1.0"

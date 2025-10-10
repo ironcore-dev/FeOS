@@ -21,7 +21,7 @@ pub struct ImageArgs {
         long,
         global = true,
         env = "FEOS_IMAGE_SOCKET",
-        default_value = "/tmp/image_service.sock"
+        default_value = "/tmp/feos/image_service.sock"
     )]
     pub socket: PathBuf,
 

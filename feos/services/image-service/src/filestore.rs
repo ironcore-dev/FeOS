@@ -1,13 +1,16 @@
 // SPDX-FileCopyrightText: 2023 SAP SE or an SAP affiliate company and IronCore contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::{FileCommand, IMAGE_DIR};
+use crate::{FileCommand, PulledImageData, IMAGE_DIR};
 use feos_proto::image_service::{ImageInfo, ImageState};
+use flate2::read::GzDecoder;
 use log::{error, info, warn};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::io::Cursor;
 use std::path::Path;
-use tokio::{fs, io::AsyncWriteExt, sync::mpsc};
+use tar::Archive;
+use tokio::{fs, sync::mpsc};
 
 #[derive(Serialize, Deserialize)]
 struct ImageMetadata {
@@ -56,7 +59,7 @@ impl FileStore {
             } => {
                 info!("FileStore: Storing image {image_uuid}");
                 let final_dir = Path::new(IMAGE_DIR).join(&image_uuid);
-                let result = Self::store_image_impl(&final_dir, &image_data, &image_ref).await;
+                let result = Self::store_image_impl(&final_dir, image_data, &image_ref).await;
                 let _ = responder.send(result);
             }
             FileCommand::DeleteImage {
@@ -78,14 +81,34 @@ impl FileStore {
 
     async fn store_image_impl(
         final_dir: &Path,
-        image_data: &[u8],
+        image_data: PulledImageData,
         image_ref: &str,
     ) -> Result<(), std::io::Error> {
         fs::create_dir_all(final_dir).await?;
-        let final_disk_path = final_dir.join("disk.image");
-        let mut file = fs::File::create(final_disk_path).await?;
-        file.write_all(image_data).await?;
 
+        // Handle both single-blob rootfs (for VMs) and layered rootfs (for containers)
+        if image_data.layers.len() == 1
+            && image_ref.contains("cloud-hypervisor")
+        {
+            // Assuming this is a single rootfs blob for a VM
+            let final_disk_path = final_dir.join("disk.image");
+            fs::write(final_disk_path, &image_data.layers[0]).await?;
+        } else {
+            // Unpack layers for a container
+            let rootfs_path = final_dir.join("rootfs");
+            fs::create_dir_all(&rootfs_path).await?;
+            for layer_data in image_data.layers {
+                let cursor = Cursor::new(layer_data);
+                let decoder = GzDecoder::new(cursor);
+                let mut archive = Archive::new(decoder);
+                archive.unpack(&rootfs_path)?;
+            }
+        }
+
+        // Save OCI config.json
+        fs::write(final_dir.join("config.json"), image_data.config).await?;
+
+        // Save internal metadata
         let metadata = ImageMetadata {
             image_ref: image_ref.to_string(),
         };
@@ -114,8 +137,9 @@ impl FileStore {
             if let Some(uuid) = path.file_name().and_then(|s| s.to_str()) {
                 let metadata_path = path.join("metadata.json");
                 let disk_image_path = path.join("disk.image");
+                let rootfs_path = path.join("rootfs");
 
-                if metadata_path.exists() && disk_image_path.exists() {
+                if metadata_path.exists() && (disk_image_path.exists() || rootfs_path.exists()) {
                     if let Ok(content) = fs::read_to_string(&metadata_path).await {
                         if let Ok(metadata) = serde_json::from_str::<ImageMetadata>(&content) {
                             let image_info = ImageInfo {

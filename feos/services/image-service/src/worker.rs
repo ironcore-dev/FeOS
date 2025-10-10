@@ -1,13 +1,17 @@
 // SPDX-FileCopyrightText: 2023 SAP SE or an SAP affiliate company and IronCore contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::{error::ImageServiceError, FileCommand, ImageStateEvent, OrchestratorCommand};
+use crate::{
+    error::ImageServiceError, FileCommand, ImageStateEvent, OrchestratorCommand, PulledImageData,
+};
 use feos_proto::image_service::{
     DeleteImageResponse, ImageInfo, ImageState, ImageStatusResponse, ListImagesResponse,
     PullImageResponse,
 };
 use log::{error, info, warn};
-use oci_distribution::{client::ClientConfig, secrets, Client, Reference};
+use oci_distribution::{
+    client::ClientConfig, manifest, secrets::RegistryAuth, Client, Reference,
+};
 use std::collections::HashMap;
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tonic::Status;
@@ -231,38 +235,77 @@ impl Orchestrator {
     }
 }
 
-async fn download_layer_data(image_ref: &str) -> Result<Vec<u8>, ImageServiceError> {
+async fn pull_oci_data(image_ref: &str) -> Result<PulledImageData, ImageServiceError> {
     info!("ImagePuller: fetching image: {image_ref}");
     let reference = Reference::try_from(image_ref.to_string())?;
+
     let accepted_media_types = vec![
+        // VM-specific types
         ROOTFS_MEDIA_TYPE,
         SQUASHFS_MEDIA_TYPE,
         INITRAMFS_MEDIA_TYPE,
         VMLINUZ_MEDIA_TYPE,
+        // Standard container layer types
+        manifest::IMAGE_LAYER_GZIP_MEDIA_TYPE,
+        manifest::IMAGE_DOCKER_LAYER_GZIP_MEDIA_TYPE,
     ];
 
     let config = ClientConfig {
         ..Default::default()
     };
-
     let client = Client::new(config);
+    let auth = &RegistryAuth::Anonymous;
 
-    let image_data = client
-        .pull(
-            &reference,
-            &secrets::RegistryAuth::Anonymous,
-            accepted_media_types,
-        )
+    info!("ImagePuller: pulling manifest and config for {image_ref}");
+    let (manifest, _, _) = client
+        .pull_manifest_and_config(&reference, auth)
         .await?;
-    info!("ImagePuller: image data pulled for {image_ref}");
 
-    let rootfs_layer = image_data
-        .layers
-        .into_iter()
-        .find(|l| l.media_type == ROOTFS_MEDIA_TYPE)
-        .ok_or_else(|| ImageServiceError::MissingLayer(ROOTFS_MEDIA_TYPE.to_string()))?;
+    let mut config_data = Vec::new();
+    client
+        .pull_blob(&reference, &manifest.config, &mut config_data)
+        .await?;
+    info!(
+        "ImagePuller: pulled config blob {} bytes",
+        config_data.len()
+    );
 
-    Ok(rootfs_layer.data)
+    let mut layers = Vec::new();
+    for layer in manifest.layers {
+        if !accepted_media_types.contains(&layer.media_type.as_str()) {
+            warn!(
+                "ImagePuller: skipping layer with unsupported media type: {}",
+                layer.media_type
+            );
+            continue;
+        }
+
+        info!(
+            "ImagePuller: pulling layer {} ({})",
+            layer.digest, layer.media_type
+        );
+
+        let mut layer_data = Vec::new();
+        client
+            .pull_blob(&reference, &layer, &mut layer_data)
+            .await?;
+        info!(
+            "ImagePuller: pulled layer blob {} bytes",
+            layer_data.len()
+        );
+        layers.push(layer_data);
+    }
+
+    if layers.is_empty() {
+        return Err(ImageServiceError::MissingLayer(
+            "No compatible layers found".to_string(),
+        ));
+    }
+
+    Ok(PulledImageData {
+        config: config_data,
+        layers,
+    })
 }
 
 pub async fn pull_oci_image(
@@ -270,7 +313,7 @@ pub async fn pull_oci_image(
     image_uuid: String,
     image_ref: String,
 ) {
-    match download_layer_data(&image_ref).await {
+    match pull_oci_data(&image_ref).await {
         Ok(image_data) => {
             let cmd = OrchestratorCommand::FinalizePull {
                 image_uuid,
