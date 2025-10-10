@@ -1,0 +1,73 @@
+syntax = "proto3";
+
+package feos.task.v1;
+
+// TaskService is an internal-only API implemented by the `feos --shim` process.
+// It provides a low-level interface for the container-service to manage the
+// lifecycle of a single container using an OCI runtime like `youki`.
+service TaskService {
+  // Creates the container's environment based on an OCI bundle but does not
+  // start the user-specified process.
+  rpc Create(CreateRequest) returns (CreateResponse);
+
+  // Starts the user-specified process within the created container.
+  rpc Start(StartRequest) returns (StartResponse);
+
+  // Sends a signal to the container's process.
+  rpc Kill(KillRequest) returns (KillResponse);
+
+  // Deletes the container and cleans up its resources. The container must be
+  // stopped.
+  rpc Delete(DeleteRequest) returns (DeleteResponse);
+
+  // Waits for the container's process to exit and returns its exit status.
+  // This is a long-polling RPC that will only return once the process has
+  // terminated.
+  rpc Wait(WaitRequest) returns (WaitResponse);
+}
+
+message CreateRequest {
+  string container_id = 1;
+  // Absolute path to the OCI bundle directory, which contains the 'config.json'
+  // and the 'rootfs' subdirectory.
+  string bundle_path = 2;
+  // Path to a socket or file for the container's stdin.
+  string stdin_path = 3;
+  // Path to a socket or file for the container's stdout.
+  string stdout_path = 4;
+  // Path to a socket or file for the container's stderr.
+  string stderr_path = 5;
+}
+
+message CreateResponse {
+  // The process ID of the created container's init process.
+  int64 pid = 1;
+}
+
+message StartRequest {
+  string container_id = 1;
+}
+
+message StartResponse {}
+
+message KillRequest {
+  string container_id = 1;
+  // The signal number to send to the process.
+  uint32 signal = 2;
+}
+
+message KillResponse {}
+
+message DeleteRequest {
+  string container_id = 1;
+}
+
+message DeleteResponse {}
+
+message WaitRequest {
+  string container_id = 1;
+}
+
+message WaitResponse {
+  int32 exit_code = 1;
+}

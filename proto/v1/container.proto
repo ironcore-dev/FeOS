@@ -1,0 +1,164 @@
+syntax = "proto3";
+
+package feos.container.v1;
+
+import "google/protobuf/any.proto";
+
+// ContainerService manages the lifecycle of containers. It provides an
+// external-facing API for clients to create, run, and manage containers,
+// abstracting the underlying details of shims and runtimes like youki.
+service ContainerService {
+  // Creates a new container from an OCI image but does not start it.
+  // This call is asynchronous. It will first trigger an image pull if the
+  // image is not available locally. The service returns a container_id immediately.
+  // Clients can then use StreamContainerEvents to track the progress from
+  // "PULLING_IMAGE" to "CREATED".
+  rpc CreateContainer(CreateContainerRequest) returns (CreateContainerResponse);
+
+  // Starts a previously created container.
+  rpc StartContainer(StartContainerRequest) returns (StartContainerResponse);
+
+  // Stops a running container by sending it a configurable signal.
+  rpc StopContainer(StopContainerRequest) returns (StopContainerResponse);
+
+  // Retrieves detailed information about a specific container.
+  rpc GetContainer(GetContainerRequest) returns (ContainerInfo);
+
+  // Lists all containers currently managed by the service.
+  rpc ListContainers(ListContainersRequest) returns (ListContainersResponse);
+
+  // Deletes a container, cleaning up all associated resources including its
+  // root filesystem. The container must be in a stopped state.
+  rpc DeleteContainer(DeleteContainerRequest) returns (DeleteContainerResponse);
+
+  // Streams logs (stdout and stderr) from a running or stopped container.
+  rpc StreamContainerLogs(StreamContainerLogsRequest) returns (stream LogEntry);
+
+  // Streams lifecycle events for one or all containers. This is useful for
+  // tracking the status of asynchronous operations like CreateContainer.
+  rpc StreamContainerEvents(StreamContainerEventsRequest) returns (stream ContainerEvent);
+}
+
+// Configuration for creating a new container.
+message ContainerConfig {
+  // Reference to the OCI image to use for the container's root filesystem
+  // (e.g., "docker.io/library/alpine:latest").
+  string image_ref = 1;
+  // Optional command to execute inside the container. If not provided, the
+  // image's default command (from its config) is used.
+  repeated string command = 2;
+  // Optional environment variables to set inside the container.
+  map<string, string> env = 3;
+}
+
+message CreateContainerRequest {
+  // The configuration for the container.
+  ContainerConfig config = 1;
+  // An optional client-provided ID for the container. If not provided, a
+  // UUID will be generated.
+  optional string container_id = 2;
+}
+
+message CreateContainerResponse {
+  // The unique ID of the newly created container.
+  string container_id = 1;
+}
+
+message StartContainerRequest {
+  string container_id = 1;
+}
+
+message StartContainerResponse {}
+
+message StopContainerRequest {
+  string container_id = 1;
+  // Optional signal to send for stopping the container. Defaults to SIGTERM.
+  optional uint32 signal = 2;
+  // Optional timeout in seconds to wait before sending SIGKILL if the container
+  // has not stopped.
+  optional uint32 timeout_seconds = 3;
+}
+
+message StopContainerResponse {}
+
+message GetContainerRequest {
+  string container_id = 1;
+}
+
+message ListContainersRequest {}
+
+message ListContainersResponse {
+  repeated ContainerInfo containers = 1;
+}
+
+message DeleteContainerRequest {
+  string container_id = 1;
+}
+
+message DeleteContainerResponse {}
+
+message StreamContainerLogsRequest {
+  string container_id = 1;
+  // If true, the stream will not close when the end of the log is reached,
+  // but will wait for new log entries.
+  bool follow = 2;
+  // If true, sends all previous logs before streaming new ones.
+  bool tail = 3;
+}
+
+message LogEntry {
+  // The raw log line from either stdout or stderr.
+  bytes line = 1;
+  // Specifies the source stream of the log line.
+  enum Source {
+    SOURCE_UNSPECIFIED = 0;
+    STDOUT = 1;
+    STDERR = 2;
+  }
+  Source source = 2;
+}
+
+enum ContainerState {
+  CONTAINER_STATE_UNSPECIFIED = 0;
+  // The service is pulling the OCI image for the container.
+  PULLING_IMAGE = 1;
+  // The container's resources have been prepared, and it is ready to be started.
+  CREATED = 2;
+  // The container is currently running.
+  RUNNING = 3;
+  // The container process has exited.
+  STOPPED = 4;
+}
+
+// Represents information about a single container.
+message ContainerInfo {
+  string container_id = 1;
+  ContainerState state = 2;
+  ContainerConfig config = 3;
+  // The process ID of the container, if it is running.
+  optional int64 pid = 4;
+  // The exit code of the container process, if it has stopped.
+  optional int32 exit_code = 5;
+}
+
+// --- Event Streaming Messages ---
+
+message StreamContainerEventsRequest {
+  // The ID of the container for which to retrieve events.
+  // If not provided, the stream will send events for all containers.
+  optional string container_id = 1;
+}
+
+message ContainerEvent {
+  string container_id = 1;
+  // A unique identifier for the event.
+  string id = 2;
+  // The specific event payload.
+  google.protobuf.Any data = 3;
+}
+
+message ContainerStateChangedEvent {
+  ContainerState new_state = 1;
+  // A human-readable reason for the state change.
+  string reason = 2;
+}

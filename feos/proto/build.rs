@@ -11,6 +11,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 format!("{proto_dir}/vm.proto"),
                 format!("{proto_dir}/host.proto"),
                 format!("{proto_dir}/image.proto"),
+                format!("{proto_dir}/container.proto"),
+                format!("{proto_dir}/task.proto"),
             ],
             &[proto_dir],
         )?;
