@@ -9,6 +9,7 @@ use image_service::IMAGE_SERVICE_SOCKET;
 use log::{error, info, warn};
 use nix::unistd::Uid;
 use setup::*;
+use task_service::TASK_SERVICE_SOCKET;
 use tokio::{fs, net::UnixListener, sync::mpsc};
 use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::Server;
@@ -54,6 +55,7 @@ pub async fn run_server(restarted_after_upgrade: bool) -> Result<()> {
     let host_service = initialize_host_service(restart_tx.clone(), log_handle);
 
     let image_service = initialize_image_service().await?;
+    let task_service = initialize_task_service().await?;
 
     let tcp_addr = "[::]:1337".parse().unwrap();
     let tcp_server = Server::builder()
@@ -62,14 +64,22 @@ pub async fn run_server(restarted_after_upgrade: bool) -> Result<()> {
         .serve(tcp_addr);
 
     fs::remove_file(IMAGE_SERVICE_SOCKET).await.ok();
-    let uds = UnixListener::bind(IMAGE_SERVICE_SOCKET)?;
-    let uds_stream = UnixListenerStream::new(uds);
-    let unix_socket_server = Server::builder()
+    let image_uds = UnixListener::bind(IMAGE_SERVICE_SOCKET)?;
+    let image_uds_stream = UnixListenerStream::new(image_uds);
+    let image_unix_socket_server = Server::builder()
         .add_service(image_service)
-        .serve_with_incoming(uds_stream);
+        .serve_with_incoming(image_uds_stream);
+
+    fs::remove_file(TASK_SERVICE_SOCKET).await.ok();
+    let task_uds = UnixListener::bind(TASK_SERVICE_SOCKET)?;
+    let task_uds_stream = UnixListenerStream::new(task_uds);
+    let task_unix_socket_server = Server::builder()
+        .add_service(task_service)
+        .serve_with_incoming(task_uds_stream);
 
     info!("Main: Public gRPC Server listening on {tcp_addr}");
     info!("Main: Internal ImageService listening on Unix socket {IMAGE_SERVICE_SOCKET}");
+    info!("Main: Internal TaskService listening on Unix socket {TASK_SERVICE_SOCKET}");
 
     tokio::select! {
         res = tcp_server => {
@@ -77,9 +87,14 @@ pub async fn run_server(restarted_after_upgrade: bool) -> Result<()> {
                 error!("TCP server failed: {e}");
             }
         },
-        res = unix_socket_server => {
+        res = image_unix_socket_server => {
              if let Err(e) = res {
-                error!("Unix socket server failed: {e}");
+                error!("Image unix socket server failed: {e}");
+            }
+        },
+        res = task_unix_socket_server => {
+             if let Err(e) = res {
+                error!("Task unix socket server failed: {e}");
             }
         },
         Some(RestartSignal(new_binary_path)) = restart_rx.recv() => {

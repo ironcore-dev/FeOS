@@ -5,6 +5,7 @@ use anyhow::Result;
 use feos_proto::{
     host_service::host_service_server::HostServiceServer,
     image_service::image_service_server::ImageServiceServer,
+    task_service::task_service_server::TaskServiceServer,
     vm_service::vm_service_server::VmServiceServer,
 };
 use feos_utils::filesystem::mount_virtual_filesystems;
@@ -25,6 +26,7 @@ use std::ffi::CString;
 use std::os::unix::ffi::OsStringExt;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
+use task_service::{api::TaskApiHandler, dispatcher::Dispatcher, Command as TaskCommand};
 use tokio::fs::{self, File};
 use tokio::sync::mpsc;
 use vm_service::{
@@ -103,6 +105,23 @@ pub(crate) async fn initialize_image_service() -> Result<ImageServiceServer<Imag
     info!("Main: Image Service is configured.");
 
     Ok(image_service)
+}
+
+pub(crate) async fn initialize_task_service() -> Result<TaskServiceServer<TaskApiHandler>> {
+    info!("Main: Starting Task Service...");
+
+    let (dispatcher_tx, dispatcher_rx) = mpsc::channel::<TaskCommand>(32);
+    let dispatcher = Dispatcher::new(dispatcher_rx);
+    tokio::spawn(async move {
+        dispatcher.run().await;
+    });
+    info!("Main: Task Service Dispatcher started.");
+
+    let task_api_handler = TaskApiHandler::new(dispatcher_tx);
+    let task_service = TaskServiceServer::new(task_api_handler);
+    info!("Main: Task Service is configured.");
+
+    Ok(task_service)
 }
 
 pub(crate) async fn perform_first_boot_initialization() -> Result<()> {

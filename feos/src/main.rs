@@ -5,6 +5,7 @@ use anyhow::Result;
 use clap::Parser;
 use feos_utils::filesystem::{get_root_fstype, move_root};
 use main_server::run_server;
+use nix::sys::prctl;
 use nix::unistd::execv;
 use std::env;
 use std::ffi::CString;
@@ -37,6 +38,12 @@ async fn main() -> Result<()> {
 
             return Err(anyhow::anyhow!("execv failed to replace process"));
         }
+    } else {
+        prctl::set_child_subreaper(true).map_err(|e| {
+            anyhow::anyhow!(
+                "[feos] Failed to set as child subreaper when running as not PID 1: {e}"
+            )
+        })?;
     }
 
     run_server(args.restarted_after_upgrade).await

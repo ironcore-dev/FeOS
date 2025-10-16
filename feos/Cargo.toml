@@ -16,6 +16,7 @@ feos-utils = { path = "utils" }
 vm-service = { path = "services/vm-service" }
 host-service = { path = "services/host-service" }
 image-service = { path = "services/image-service" }
+task-service = { path = "services/task-service" }
 feos-proto = { workspace = true }
 
 # Workspace dependencies

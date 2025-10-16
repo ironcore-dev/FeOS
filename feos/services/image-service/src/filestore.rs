@@ -87,9 +87,7 @@ impl FileStore {
         fs::create_dir_all(final_dir).await?;
 
         // Handle both single-blob rootfs (for VMs) and layered rootfs (for containers)
-        if image_data.layers.len() == 1
-            && image_ref.contains("cloud-hypervisor")
-        {
+        if image_data.layers.len() == 1 && image_ref.contains("cloud-hypervisor") {
             // Assuming this is a single rootfs blob for a VM
             let final_disk_path = final_dir.join("disk.image");
             fs::write(final_disk_path, &image_data.layers[0]).await?;

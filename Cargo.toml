@@ -4,6 +4,7 @@ members = [
     "feos/services/vm-service",
     "feos/services/host-service",
     "feos/services/image-service",
+    "feos/services/task-service",
     "cli",
     "feos/proto",
     "feos/utils",

@@ -9,9 +9,7 @@ use feos_proto::image_service::{
     PullImageResponse,
 };
 use log::{error, info, warn};
-use oci_distribution::{
-    client::ClientConfig, manifest, secrets::RegistryAuth, Client, Reference,
-};
+use oci_distribution::{client::ClientConfig, manifest, secrets::RegistryAuth, Client, Reference};
 use std::collections::HashMap;
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tonic::Status;
@@ -257,9 +255,7 @@ async fn pull_oci_data(image_ref: &str) -> Result<PulledImageData, ImageServiceE
     let auth = &RegistryAuth::Anonymous;
 
     info!("ImagePuller: pulling manifest and config for {image_ref}");
-    let (manifest, _, _) = client
-        .pull_manifest_and_config(&reference, auth)
-        .await?;
+    let (manifest, _, _) = client.pull_manifest_and_config(&reference, auth).await?;
 
     let mut config_data = Vec::new();
     client
@@ -289,10 +285,7 @@ async fn pull_oci_data(image_ref: &str) -> Result<PulledImageData, ImageServiceE
         client
             .pull_blob(&reference, &layer, &mut layer_data)
             .await?;
-        info!(
-            "ImagePuller: pulled layer blob {} bytes",
-            layer_data.len()
-        );
+        info!("ImagePuller: pulled layer blob {} bytes", layer_data.len());
         layers.push(layer_data);
     }
 

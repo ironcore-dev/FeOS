@@ -792,6 +792,7 @@ dependencies = [
  "prost-types",
  "rtnetlink",
  "socket2 0.6.0",
+ "task-service",
  "tempfile",
  "termcolor",
  "tokio",
@@ -3288,6 +3289,21 @@ dependencies = [
  "filetime",
  "libc",
  "xattr",
+]
+
+[[package]]
+name = "task-service"
+version = "0.5.0"
+dependencies = [
+ "anyhow",
+ "feos-proto",
+ "log",
+ "nix 0.30.1",
+ "prost",
+ "thiserror 2.0.16",
+ "tokio",
+ "tokio-stream",
+ "tonic",
 ]
 
 [[package]]
