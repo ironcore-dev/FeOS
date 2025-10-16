@@ -16,8 +16,8 @@ pub mod error;
 pub mod filestore;
 pub mod worker;
 
-pub const IMAGE_DIR: &str = "/tmp/feos/images";
-pub const IMAGE_SERVICE_SOCKET: &str = "/tmp/feos/image_service.sock";
+pub const IMAGE_DIR: &str = "/var/lib/feos/images";
+pub const IMAGE_SERVICE_SOCKET: &str = "/var/lib/feos/image_service.sock";
 
 #[derive(Debug, Clone)]
 pub struct ImageStateEvent {

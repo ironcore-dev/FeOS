@@ -237,7 +237,7 @@ async fn pull_oci_data(image_ref: &str) -> Result<PulledImageData, ImageServiceE
     info!("ImagePuller: fetching image: {image_ref}");
     let reference = Reference::try_from(image_ref.to_string())?;
 
-    let accepted_media_types = vec![
+    let accepted_media_types = [
         // VM-specific types
         ROOTFS_MEDIA_TYPE,
         SQUASHFS_MEDIA_TYPE,

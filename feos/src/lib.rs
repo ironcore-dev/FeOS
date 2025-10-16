@@ -46,11 +46,14 @@ pub async fn run_server(restarted_after_upgrade: bool) -> Result<()> {
         info!("Main: Skipping one-time initialization on restart after upgrade.");
     }
 
-    let db_url = setup_database().await?;
+    // This now only sets up the database for the VM service.
+    let vm_db_url = setup_database().await?;
 
     let (restart_tx, mut restart_rx) = mpsc::channel::<RestartSignal>(1);
 
-    let vm_service = initialize_vm_service(&db_url).await?;
+    // Initialize each service. container_service will now set up its own database.
+    let vm_service = initialize_vm_service(&vm_db_url).await?;
+    let container_service = initialize_container_service().await?;
 
     let host_service = initialize_host_service(restart_tx.clone(), log_handle);
 
@@ -60,6 +63,7 @@ pub async fn run_server(restarted_after_upgrade: bool) -> Result<()> {
     let tcp_addr = "[::]:1337".parse().unwrap();
     let tcp_server = Server::builder()
         .add_service(vm_service)
+        .add_service(container_service)
         .add_service(host_service)
         .serve(tcp_addr);
 

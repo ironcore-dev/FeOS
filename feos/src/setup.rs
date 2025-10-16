@@ -2,7 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use anyhow::Result;
+use container_service::{
+    api::ContainerApiHandler, dispatcher::Dispatcher as ContainerDispatcher,
+    Command as ContainerCommand, DEFAULT_CONTAINER_DB_URL,
+};
 use feos_proto::{
+    container_service::container_service_server::ContainerServiceServer,
     host_service::host_service_server::HostServiceServer,
     image_service::image_service_server::ImageServiceServer,
     task_service::task_service_server::TaskServiceServer,
@@ -56,6 +61,36 @@ pub(crate) async fn initialize_vm_service(db_url: &str) -> Result<VmServiceServe
     info!("Main: VM Service is configured.");
 
     Ok(vm_service)
+}
+
+pub(crate) async fn initialize_container_service(
+) -> Result<ContainerServiceServer<ContainerApiHandler>> {
+    info!("Main: Initializing Container Service...");
+
+    let db_url = env::var("CONTAINER_DATABASE_URL").unwrap_or_else(|_| {
+        info!("Main: CONTAINER_DATABASE_URL not set, using default '{DEFAULT_CONTAINER_DB_URL}'");
+        DEFAULT_CONTAINER_DB_URL.to_string()
+    });
+    if let Some(db_path_str) = db_url.strip_prefix("sqlite:") {
+        let db_path = Path::new(db_path_str);
+        if let Some(db_dir) = db_path.parent() {
+            fs::create_dir_all(db_dir).await?;
+        }
+        if !db_path.exists() {
+            File::create(db_path).await?;
+        }
+    }
+
+    let (container_tx, container_rx) = mpsc::channel::<ContainerCommand>(32);
+    let container_dispatcher = ContainerDispatcher::new(container_rx, &db_url).await?;
+    tokio::spawn(async move {
+        container_dispatcher.run().await;
+    });
+    let container_api_handler = ContainerApiHandler::new(container_tx);
+    let container_service = ContainerServiceServer::new(container_api_handler);
+    info!("Main: Container Service is configured.");
+
+    Ok(container_service)
 }
 
 pub(crate) fn initialize_host_service(

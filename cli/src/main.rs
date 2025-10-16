@@ -4,6 +4,7 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 
+mod container_commands;
 mod host_commands;
 mod image_commands;
 mod vm_commands;
@@ -20,6 +21,7 @@ enum Service {
     Vm(vm_commands::VmArgs),
     Host(host_commands::HostArgs),
     Image(image_commands::ImageArgs),
+    Container(container_commands::ContainerArgs),
 }
 
 #[tokio::main]
@@ -35,6 +37,7 @@ async fn main() -> Result<()> {
         Service::Vm(args) => vm_commands::handle_vm_command(args).await?,
         Service::Host(args) => host_commands::handle_host_command(args).await?,
         Service::Image(args) => image_commands::handle_image_command(args).await?,
+        Service::Container(args) => container_commands::handle_container_command(args).await?,
     }
 
     Ok(())

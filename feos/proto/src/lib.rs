@@ -13,3 +13,6 @@ pub mod image_service {
 pub mod task_service {
     tonic::include_proto!("feos.task.v1");
 }
+pub mod container_service {
+    tonic::include_proto!("feos.container.v1");
+}

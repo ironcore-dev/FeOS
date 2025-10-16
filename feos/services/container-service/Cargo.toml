@@ -1,0 +1,30 @@
+[package]
+name = "container-service"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+feos-proto = { workspace = true }
+image-service = { path = "../image-service" }
+task-service = { path = "../task-service" }
+sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "sqlite", "macros", "uuid"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+hyper-util = { workspace = true }
+tower = { workspace = true }
+
+# Workspace dependencies
+tokio = { workspace = true }
+tokio-stream = { workspace = true }
+tonic = { workspace = true }
+anyhow = { workspace = true }
+prost = { workspace = true }
+prost-types = { workspace = true }
+nix = { workspace = true }
+uuid = { workspace = true }
+log = { workspace = true }
+thiserror = { workspace = true }
+hyper = { workspace = true }
+
+[build-dependencies]
+sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "sqlite", "macros", "uuid"] }
