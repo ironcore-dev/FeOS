@@ -1,16 +1,21 @@
 // SPDX-FileCopyrightText: 2023 SAP SE or an SAP affiliate company and IronCore contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::{FileCommand, PulledImageData, IMAGE_DIR};
-use feos_proto::image_service::{ImageInfo, ImageState};
+use crate::{FileCommand, ImageInfo, PulledImageData, IMAGE_DIR};
+use feos_proto::image_service::ImageState;
 use flate2::read::GzDecoder;
 use log::{error, info, warn};
+use oci_distribution::manifest;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::Cursor;
 use std::path::Path;
 use tar::Archive;
 use tokio::{fs, sync::mpsc};
+
+const INITRAMFS_MEDIA_TYPE: &str = "application/vnd.ironcore.image.initramfs.v1alpha1.initramfs";
+const VMLINUZ_MEDIA_TYPE: &str = "application/vnd.ironcore.image.vmlinuz.v1alpha1.vmlinuz";
+const ROOTFS_MEDIA_TYPE: &str = "application/vnd.ironcore.image.rootfs.v1alpha1.rootfs";
 
 #[derive(Serialize, Deserialize)]
 struct ImageMetadata {
@@ -86,27 +91,42 @@ impl FileStore {
     ) -> Result<(), std::io::Error> {
         fs::create_dir_all(final_dir).await?;
 
-        // Handle both single-blob rootfs (for VMs) and layered rootfs (for containers)
-        if image_data.layers.len() == 1 && image_ref.contains("cloud-hypervisor") {
-            // Assuming this is a single rootfs blob for a VM
-            let final_disk_path = final_dir.join("disk.image");
-            fs::write(final_disk_path, &image_data.layers[0]).await?;
-        } else {
-            // Unpack layers for a container
-            let rootfs_path = final_dir.join("rootfs");
-            fs::create_dir_all(&rootfs_path).await?;
-            for layer_data in image_data.layers {
-                let cursor = Cursor::new(layer_data);
-                let decoder = GzDecoder::new(cursor);
-                let mut archive = Archive::new(decoder);
-                archive.unpack(&rootfs_path)?;
+        for layer in image_data.layers {
+            match layer.media_type.as_str() {
+                manifest::IMAGE_LAYER_GZIP_MEDIA_TYPE
+                | manifest::IMAGE_DOCKER_LAYER_GZIP_MEDIA_TYPE => {
+                    let rootfs_path = final_dir.join("rootfs");
+                    if !rootfs_path.exists() {
+                        fs::create_dir_all(&rootfs_path).await?;
+                    }
+                    let cursor = Cursor::new(layer.data);
+                    let decoder = GzDecoder::new(cursor);
+                    let mut archive = Archive::new(decoder);
+                    tokio::task::block_in_place(move || archive.unpack(&rootfs_path))?;
+                }
+                ROOTFS_MEDIA_TYPE => {
+                    let path = final_dir.join("disk.image");
+                    fs::write(path, layer.data).await?;
+                }
+                INITRAMFS_MEDIA_TYPE => {
+                    let path = final_dir.join("initramfs");
+                    fs::write(path, layer.data).await?;
+                }
+                VMLINUZ_MEDIA_TYPE => {
+                    let path = final_dir.join("vmlinuz");
+                    fs::write(path, layer.data).await?;
+                }
+                _ => {
+                    warn!(
+                        "FileStore: Skipping layer with unsupported media type: {}",
+                        layer.media_type
+                    );
+                }
             }
         }
 
-        // Save OCI config.json
         fs::write(final_dir.join("config.json"), image_data.config).await?;
 
-        // Save internal metadata
         let metadata = ImageMetadata {
             image_ref: image_ref.to_string(),
         };

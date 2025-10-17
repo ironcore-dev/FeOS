@@ -47,9 +47,15 @@ pub enum Command {
 }
 
 #[derive(Debug)]
+pub struct PulledLayer {
+    pub media_type: String,
+    pub data: Vec<u8>,
+}
+
+#[derive(Debug)]
 pub struct PulledImageData {
     pub config: Vec<u8>,
-    pub layers: Vec<Vec<u8>>,
+    pub layers: Vec<PulledLayer>,
 }
 
 #[derive(Debug)]

@@ -94,7 +94,7 @@ async fn test_container_image_lifecycle() -> Result<()> {
     ensure_server().await;
     let mut image_client = get_image_service_client().await?;
 
-    let image_ref = "ghcr.io:5000/ironcore-dev/dpservice".to_string();
+    let image_ref = "ghcr.io:5000/appvia/hello-world/hello-world".to_string();
     info!("Pulling container image: {}", image_ref);
     let pull_req = PullImageRequest {
         image_ref: image_ref.clone(),

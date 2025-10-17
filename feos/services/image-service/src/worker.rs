@@ -3,6 +3,7 @@
 
 use crate::{
     error::ImageServiceError, FileCommand, ImageStateEvent, OrchestratorCommand, PulledImageData,
+    PulledLayer,
 };
 use feos_proto::image_service::{
     DeleteImageResponse, ImageInfo, ImageState, ImageStatusResponse, ListImagesResponse,
@@ -238,12 +239,10 @@ async fn pull_oci_data(image_ref: &str) -> Result<PulledImageData, ImageServiceE
     let reference = Reference::try_from(image_ref.to_string())?;
 
     let accepted_media_types = [
-        // VM-specific types
         ROOTFS_MEDIA_TYPE,
         SQUASHFS_MEDIA_TYPE,
         INITRAMFS_MEDIA_TYPE,
         VMLINUZ_MEDIA_TYPE,
-        // Standard container layer types
         manifest::IMAGE_LAYER_GZIP_MEDIA_TYPE,
         manifest::IMAGE_DOCKER_LAYER_GZIP_MEDIA_TYPE,
     ];
@@ -286,7 +285,10 @@ async fn pull_oci_data(image_ref: &str) -> Result<PulledImageData, ImageServiceE
             .pull_blob(&reference, &layer, &mut layer_data)
             .await?;
         info!("ImagePuller: pulled layer blob {} bytes", layer_data.len());
-        layers.push(layer_data);
+        layers.push(PulledLayer {
+            media_type: layer.media_type.clone(),
+            data: layer_data,
+        });
     }
 
     if layers.is_empty() {

@@ -13,18 +13,15 @@ pub use feos_proto::task_service::{
 
 pub const TASK_SERVICE_SOCKET: &str = "/tmp/feos/task_service.sock";
 
-/// Represents the state of a single container managed by the shim.
 #[derive(Debug)]
 pub struct Container {
     pub status: Status,
     pub pid: Option<i32>,
     pub bundle_path: String,
     pub exit_code: Option<i32>,
-    // Holds the responder for a pending `Wait` call.
     pub wait_responder: Option<oneshot::Sender<Result<WaitResponse, TaskError>>>,
 }
 
-/// Represents the lifecycle status of a container.
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Status {
     Creating,
@@ -33,7 +30,6 @@ pub enum Status {
     Stopped,
 }
 
-/// Defines the commands that can be sent from the API layer to the Dispatcher.
 #[derive(Debug)]
 pub enum Command {
     Create {
@@ -58,7 +54,6 @@ pub enum Command {
     },
 }
 
-/// Internal events sent from workers back to the dispatcher to trigger state changes.
 #[derive(Debug)]
 pub enum Event {
     ContainerCreated { id: String, pid: i32 },

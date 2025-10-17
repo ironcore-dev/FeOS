@@ -13,8 +13,6 @@ use tokio::sync::{mpsc, oneshot};
 
 const YOUKI_BIN: &str = "youki";
 
-/// Executes a short-lived youki command (like start, kill, delete) and waits for it to complete.
-/// This version is safe as these commands are guaranteed to be short-lived.
 async fn run_youki_command(args: &[&str]) -> Result<(), TaskError> {
     info!(
         "Worker: Executing short-lived command: {} {}",
@@ -45,8 +43,6 @@ async fn run_youki_command(args: &[&str]) -> Result<(), TaskError> {
     Ok(())
 }
 
-/// Creates a container using the spawn method to avoid hangs, waits for the launcher to exit,
-/// and then gets the true container PID from the pid-file.
 pub async fn handle_create(
     req: CreateRequest,
     event_tx: mpsc::Sender<Event>,
@@ -70,10 +66,8 @@ pub async fn handle_create(
         args.join(" ")
     );
 
-    // Use spawn() to avoid potential I/O deadlocks that hang the command.
     let child_result = Command::new(YOUKI_BIN)
         .args(args)
-        // Redirect stdio to null to ensure the youki process does not block on I/O.
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn();
@@ -93,8 +87,6 @@ pub async fn handle_create(
         }
     };
 
-    // Now, wait for the short-lived `youki create` process to exit.
-    // This is non-blocking and safe because we are not tied to its I/O pipes.
     let status = match child.wait().await {
         Ok(status) => status,
         Err(e) => {
@@ -112,7 +104,6 @@ pub async fn handle_create(
     };
 
     if !status.success() {
-        // Since we redirected output, we can't show it here, but we can report the failure.
         let err = TaskError::YoukiCommand(format!(
             "youki create exited with non-zero status: {status}"
         ));
@@ -126,7 +117,6 @@ pub async fn handle_create(
         return;
     }
 
-    // Now that `youki create` has exited, read the PID of the real container process.
     let result: Result<i32, TaskError> = async {
         let pid_str = tokio::fs::read_to_string(&pid_file)
             .await
@@ -160,7 +150,6 @@ pub async fn handle_create(
     }
 }
 
-/// Starts a previously created container.
 pub async fn handle_start(
     req: StartRequest,
     pid: i32,
@@ -190,7 +179,6 @@ pub async fn handle_start(
     }
 }
 
-/// Sends a signal to the container's init process.
 pub async fn handle_kill(
     req: KillRequest,
     responder: oneshot::Sender<Result<KillResponse, TaskError>>,
@@ -200,7 +188,6 @@ pub async fn handle_kill(
     let _ = responder.send(result.map(|_| KillResponse {}));
 }
 
-/// Deletes the container's resources.
 pub async fn handle_delete(
     req: DeleteRequest,
     event_tx: mpsc::Sender<Event>,
@@ -218,7 +205,6 @@ pub async fn handle_delete(
     let _ = responder.send(Ok(DeleteResponse {}));
 }
 
-/// Waits in the background for a container process to exit and sends an event.
 pub async fn wait_for_process_exit(id: String, pid: i32, event_tx: mpsc::Sender<Event>) {
     info!("Worker: Background task started, waiting for PID {pid} ({id}) to exit");
     let pid_obj = Pid::from_raw(pid);
