@@ -3,6 +3,9 @@ name = "feos"
 version.workspace = true
 edition.workspace = true
 
+[lints]
+workspace = true
+
 [[bin]]
 name = "feos"
 path = "src/main.rs"

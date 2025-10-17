@@ -137,7 +137,7 @@ pub async fn handle_create_container(
             }
         }
         Err(e) => {
-            let error_msg = format!("Adapter failed to create container: {}", e);
+            let error_msg = format!("Adapter failed to create container: {e}");
             error!("ContainerWorker ({container_id}): {error_msg}");
             if let Err(e) = repository.delete_container(container_id).await {
                 warn!("Failed to cleanup DB record for failed creation of {container_id}: {e}");
@@ -157,14 +157,14 @@ pub async fn handle_start_container(
 
     match result {
         Ok(_) => {
-            info!("Worker: Start command sent for container {}", id_str);
+            info!("Worker: Start command sent for container {id_str}");
             let container_id = Uuid::parse_str(&id_str).unwrap();
             if let Err(e) = repository
                 .update_container_state(container_id, ContainerState::Running)
                 .await
             {
                 let err = ContainerServiceError::Persistence(e);
-                error!("Worker: {}", err);
+                error!("Worker: {err}");
                 let _ = responder.send(Err(err));
                 return;
             }
@@ -172,7 +172,7 @@ pub async fn handle_start_container(
         }
         Err(e) => {
             let err = ContainerServiceError::Adapter(e.to_string());
-            error!("Worker: {}", err);
+            error!("Worker: {err}");
             let _ = responder.send(Err(err));
         }
     }
@@ -190,14 +190,14 @@ pub async fn handle_stop_container(
 
     match result {
         Ok(_) => {
-            info!("Worker: Stop command sent for container {}", id_str);
+            info!("Worker: Stop command sent for container {id_str}");
             let container_id = Uuid::parse_str(&id_str).unwrap();
             if let Err(e) = repository
                 .update_container_state(container_id, ContainerState::Stopped)
                 .await
             {
                 let err = ContainerServiceError::Persistence(e);
-                error!("Worker: {}", err);
+                error!("Worker: {err}");
                 let _ = responder.send(Err(err));
                 return;
             }
@@ -205,7 +205,7 @@ pub async fn handle_stop_container(
         }
         Err(e) => {
             let err = ContainerServiceError::Adapter(e.to_string());
-            error!("Worker: {}", err);
+            error!("Worker: {err}");
             let _ = responder.send(Err(err));
         }
     }
@@ -222,11 +222,11 @@ pub async fn handle_delete_container(
 
     match result {
         Ok(_) => {
-            info!("Worker: Delete command sent for container {}", id_str);
+            info!("Worker: Delete command sent for container {id_str}");
             let container_id = Uuid::parse_str(&id_str).unwrap();
             if let Err(e) = repository.delete_container(container_id).await {
                 let err = ContainerServiceError::Persistence(e);
-                error!("Worker: {}", err);
+                error!("Worker: {err}");
                 let _ = responder.send(Err(err));
                 return;
             }
@@ -234,7 +234,7 @@ pub async fn handle_delete_container(
         }
         Err(e) => {
             let err = ContainerServiceError::Adapter(e.to_string());
-            error!("Worker: {}", err);
+            error!("Worker: {err}");
             let _ = responder.send(Err(err));
         }
     }

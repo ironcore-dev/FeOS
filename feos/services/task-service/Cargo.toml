@@ -3,6 +3,9 @@ name = "task-service"
 version.workspace = true
 edition.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
 feos-proto = { workspace = true }
 tokio = { workspace = true }

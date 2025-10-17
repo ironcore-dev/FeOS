@@ -130,7 +130,7 @@ impl Dispatcher {
                     Some(container) if container.status == Status::Stopped => {
                         // Container has already stopped, respond immediately.
                         let exit_code = container.exit_code.unwrap_or(255);
-                        info!("Dispatcher: Responding to Wait for already stopped container {} with code {}", id, exit_code);
+                        info!("Dispatcher: Responding to Wait for already stopped container {id} with code {exit_code}");
                         let _ = responder.send(Ok(WaitResponse { exit_code }));
                     }
                     Some(container) if container.status == Status::Running => {
@@ -141,10 +141,7 @@ impl Dispatcher {
                                 "Another client is already waiting on this container".to_string(),
                             )));
                         } else {
-                            info!(
-                                "Dispatcher: Client is now waiting for container {} to stop",
-                                id
-                            );
+                            info!("Dispatcher: Client is now waiting for container {id} to stop");
                             container.wait_responder = Some(responder);
                         }
                     }
@@ -164,7 +161,7 @@ impl Dispatcher {
     }
 
     async fn handle_event(&mut self, event: Event) {
-        info!("Dispatcher: Handling event: {:?}", event);
+        info!("Dispatcher: Handling event: {event:?}");
         match event {
             Event::ContainerCreated { id, pid } => {
                 if let Some(container) = self.containers.get_mut(&id) {
@@ -192,14 +189,10 @@ impl Dispatcher {
                     container.exit_code = Some(exit_code);
                     if let Some(responder) = container.wait_responder.take() {
                         info!(
-                            "Dispatcher: Fulfilling pending Wait request for {} with exit code {}",
-                            id, exit_code
+                            "Dispatcher: Fulfilling pending Wait request for {id} with exit code {exit_code}"
                         );
                         if responder.send(Ok(WaitResponse { exit_code })).is_err() {
-                            warn!(
-                                "Dispatcher: Client waiting on container {} disconnected",
-                                id
-                            );
+                            warn!("Dispatcher: Client waiting on container {id} disconnected");
                         }
                     }
                 }

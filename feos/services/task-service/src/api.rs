@@ -32,7 +32,7 @@ where
     dispatcher
         .send(cmd)
         .await
-        .map_err(|e| Status::internal(format!("Failed to send command to dispatcher: {}", e)))?;
+        .map_err(|e| Status::internal(format!("Failed to send command to dispatcher: {e}")))?;
 
     match resp_rx.await {
         Ok(Ok(result)) => Ok(Response::new(result)),

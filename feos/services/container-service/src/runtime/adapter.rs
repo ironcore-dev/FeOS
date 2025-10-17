@@ -203,9 +203,9 @@ impl ContainerAdapter {
                     OciLinuxNamespace {
                         typ: "mount".to_string(),
                     },
-                   // OciLinuxNamespace {
-                   //     typ: "network".to_string(),
-                   // },
+                    // OciLinuxNamespace {
+                    //     typ: "network".to_string(),
+                    // },
                 ],
             },
         };
@@ -223,13 +223,10 @@ impl ContainerAdapter {
         container_id: &str,
         bundle_path: &Path,
     ) -> Result<i64, AdapterError> {
-        info!("Adapter: Rewriting OCI spec for container {}", container_id);
+        info!("Adapter: Rewriting OCI spec for container {container_id}");
         Self::generate_runtime_spec(bundle_path).await?;
 
-        info!(
-            "Adapter: Connecting to TaskService for container {}",
-            container_id
-        );
+        info!("Adapter: Connecting to TaskService for container {container_id}");
         let mut task_client = Self::get_task_service_client().await?;
 
         let bundle_path_str = bundle_path
@@ -237,10 +234,7 @@ impl ContainerAdapter {
             .ok_or_else(|| AdapterError::Internal("Bundle path is not valid UTF-8".to_string()))?
             .to_string();
 
-        info!(
-            "Adapter: Calling Create RPC on TaskService for container {}",
-            container_id
-        );
+        info!("Adapter: Calling Create RPC on TaskService for container {container_id}");
         let request = CreateRequest {
             container_id: container_id.to_string(),
             bundle_path: bundle_path_str,
@@ -252,10 +246,7 @@ impl ContainerAdapter {
         let response = task_client.create(request).await?;
 
         let pid = response.into_inner().pid;
-        info!(
-            "Adapter: TaskService created container {} with PID {}",
-            container_id, pid
-        );
+        info!("Adapter: TaskService created container {container_id} with PID {pid}");
 
         Ok(pid)
     }

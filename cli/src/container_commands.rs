@@ -81,7 +81,7 @@ pub enum ContainerCommand {
 fn parse_key_val(s: &str) -> Result<(String, String), String> {
     s.split_once('=')
         .map(|(key, value)| (key.to_string(), value.to_string()))
-        .ok_or_else(|| format!("invalid KEY=value format: {}", s))
+        .ok_or_else(|| format!("invalid KEY=value format: {s}"))
 }
 
 pub async fn handle_container_command(args: ContainerArgs) -> Result<()> {
@@ -113,7 +113,7 @@ async fn create_container(
     cmd: Vec<String>,
     env: Vec<(String, String)>,
 ) -> Result<()> {
-    println!("Requesting container creation with image: {}...", image_ref);
+    println!("Requesting container creation with image: {image_ref}...");
 
     let config = ContainerConfig {
         image_ref,
@@ -140,23 +140,23 @@ async fn create_container(
 }
 
 async fn start_container(client: &mut ContainerServiceClient<Channel>, id: String) -> Result<()> {
-    println!("Requesting to start container: {}...", id);
+    println!("Requesting to start container: {id}...");
     let request = StartContainerRequest {
         container_id: id.clone(),
     };
     client.start_container(request).await?;
-    println!("Start request sent for container: {}", id);
+    println!("Start request sent for container: {id}");
     Ok(())
 }
 
 async fn stop_container(client: &mut ContainerServiceClient<Channel>, id: String) -> Result<()> {
-    println!("Requesting to stop container: {}...", id);
+    println!("Requesting to stop container: {id}...");
     let request = StopContainerRequest {
         container_id: id.clone(),
         ..Default::default()
     };
     client.stop_container(request).await?;
-    println!("Stop request sent for container: {}", id);
+    println!("Stop request sent for container: {id}");
     Ok(())
 }
 
@@ -169,16 +169,16 @@ async fn get_container_info(
     };
     let response = client.get_container(request).await?.into_inner();
 
-    println!("Container Info for: {}", id);
+    println!("Container Info for: {id}");
     println!(
         "  State: {:?}",
         ContainerState::try_from(response.state).unwrap_or(ContainerState::Unspecified)
     );
     if let Some(pid) = response.pid {
-        println!("  PID: {}", pid);
+        println!("  PID: {pid}");
     }
     if let Some(exit_code) = response.exit_code {
-        println!("  Exit Code: {}", exit_code);
+        println!("  Exit Code: {exit_code}");
     }
     if let Some(config) = response.config {
         println!("  Config:");
@@ -223,11 +223,11 @@ async fn list_containers(client: &mut ContainerServiceClient<Channel>) -> Result
 }
 
 async fn delete_container(client: &mut ContainerServiceClient<Channel>, id: String) -> Result<()> {
-    println!("Requesting to delete container: {}...", id);
+    println!("Requesting to delete container: {id}...");
     let request = DeleteContainerRequest {
         container_id: id.clone(),
     };
     client.delete_container(request).await?;
-    println!("Successfully deleted container: {}", id);
+    println!("Successfully deleted container: {id}");
     Ok(())
 }

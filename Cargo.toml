@@ -12,6 +12,9 @@ members = [
 ]
 resolver = "2"
 
+[workspace.lints.clippy]
+uninlined_format_args = "warn"
+
 [workspace.package]
 version = "0.5.0"
 edition = "2021"

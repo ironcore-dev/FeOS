@@ -28,7 +28,7 @@ async fn run_youki_command(args: &[&str]) -> Result<(), TaskError> {
         .stderr(Stdio::piped())
         .output()
         .await
-        .map_err(|e| TaskError::YoukiCommand(format!("Failed to execute youki process: {}", e)))?;
+        .map_err(|e| TaskError::YoukiCommand(format!("Failed to execute youki process: {e}")))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -37,7 +37,7 @@ async fn run_youki_command(args: &[&str]) -> Result<(), TaskError> {
             "youki exited with code {}: stderr='{}', stdout='{}'",
             output.status, stderr, stdout
         );
-        error!("Worker: {}", err_msg);
+        error!("Worker: {err_msg}");
         return Err(TaskError::YoukiCommand(err_msg));
     }
 
@@ -81,7 +81,7 @@ pub async fn handle_create(
     let mut child = match child_result {
         Ok(child) => child,
         Err(e) => {
-            let err = TaskError::YoukiCommand(format!("Failed to spawn youki create: {}", e));
+            let err = TaskError::YoukiCommand(format!("Failed to spawn youki create: {e}"));
             let _ = event_tx
                 .send(Event::ContainerCreateFailed {
                     id,
@@ -99,7 +99,7 @@ pub async fn handle_create(
         Ok(status) => status,
         Err(e) => {
             let err =
-                TaskError::YoukiCommand(format!("Failed to wait for youki create process: {}", e));
+                TaskError::YoukiCommand(format!("Failed to wait for youki create process: {e}"));
             let _ = event_tx
                 .send(Event::ContainerCreateFailed {
                     id,
@@ -114,8 +114,7 @@ pub async fn handle_create(
     if !status.success() {
         // Since we redirected output, we can't show it here, but we can report the failure.
         let err = TaskError::YoukiCommand(format!(
-            "youki create exited with non-zero status: {}",
-            status
+            "youki create exited with non-zero status: {status}"
         ));
         let _ = event_tx
             .send(Event::ContainerCreateFailed {
@@ -131,24 +130,21 @@ pub async fn handle_create(
     let result: Result<i32, TaskError> = async {
         let pid_str = tokio::fs::read_to_string(&pid_file)
             .await
-            .map_err(|e| TaskError::Internal(format!("Could not read pid file: {}", e)))?;
+            .map_err(|e| TaskError::Internal(format!("Could not read pid file: {e}")))?;
         let pid = pid_str
             .trim()
             .parse::<i32>()
-            .map_err(|e| TaskError::Internal(format!("Failed to parse PID from file: {}", e)))?;
+            .map_err(|e| TaskError::Internal(format!("Failed to parse PID from file: {e}")))?;
         tokio::fs::remove_file(&pid_file)
             .await
-            .map_err(|e| TaskError::Internal(format!("Could not remove pid file: {}", e)))?;
+            .map_err(|e| TaskError::Internal(format!("Could not remove pid file: {e}")))?;
         Ok(pid)
     }
     .await;
 
     match result {
         Ok(pid) => {
-            info!(
-                "Worker: Got actual container PID {} for '{}' from pid-file",
-                pid, id
-            );
+            info!("Worker: Got actual container PID {pid} for '{id}' from pid-file");
             let _ = event_tx.send(Event::ContainerCreated { id, pid }).await;
             let _ = responder.send(Ok(CreateResponse { pid: pid as i64 }));
         }
@@ -224,10 +220,7 @@ pub async fn handle_delete(
 
 /// Waits in the background for a container process to exit and sends an event.
 pub async fn wait_for_process_exit(id: String, pid: i32, event_tx: mpsc::Sender<Event>) {
-    info!(
-        "Worker: Background task started, waiting for PID {} ({}) to exit",
-        pid, id
-    );
+    info!("Worker: Background task started, waiting for PID {pid} ({id}) to exit");
     let pid_obj = Pid::from_raw(pid);
 
     let wait_result = waitpid(pid_obj, None);
@@ -235,28 +228,22 @@ pub async fn wait_for_process_exit(id: String, pid: i32, event_tx: mpsc::Sender<
     let status = match wait_result {
         Ok(status) => status,
         Err(e) => {
-            error!("Worker: waitpid failed for PID {}: {}", pid, e);
+            error!("Worker: waitpid failed for PID {pid}: {e}");
             return;
         }
     };
 
     let exit_code = match status {
         WaitStatus::Exited(_, code) => {
-            info!("Worker: Process {} ({}) exited with code {}", pid, id, code);
+            info!("Worker: Process {pid} ({id}) exited with code {code}");
             code
         }
         WaitStatus::Signaled(_, signal, _) => {
-            info!(
-                "Worker: Process {} ({}) was terminated by signal {}",
-                pid, id, signal
-            );
+            info!("Worker: Process {pid} ({id}) was terminated by signal {signal}");
             128 + (signal as i32)
         }
         _ => {
-            warn!(
-                "Worker: Process {} ({}) ended with unexpected status: {:?}",
-                pid, id, status
-            );
+            warn!("Worker: Process {pid} ({id}) ended with unexpected status: {status:?}");
             255
         }
     };

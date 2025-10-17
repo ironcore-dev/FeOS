@@ -3,6 +3,9 @@ name = "host-service"
 version.workspace = true
 edition.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
 feos-utils = { path = "../../utils" }
 feos-proto = { workspace = true }

@@ -4,6 +4,9 @@ version.workspace = true
 edition.workspace = true
 description = "A gRPC CLI for the FeOS control plane"
 
+[lints]
+workspace = true
+
 [dependencies]
 # Workspace dependencies
 feos-proto = { workspace = true }

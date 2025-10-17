@@ -86,7 +86,7 @@ impl Dispatcher {
             let adapter = self.adapter.clone();
             tokio::spawn(async move {
                 if let Err(e) = Self::handle_command(cmd, repo, adapter).await {
-                    warn!("Dispatcher: Error handling command: {}", e);
+                    warn!("Dispatcher: Error handling command: {e}");
                 }
             });
         }
@@ -102,7 +102,7 @@ impl Dispatcher {
         })?;
 
         repo.get_container(container_id).await?.ok_or_else(|| {
-            ContainerServiceError::InvalidArgument(format!("Container '{}' not found", id_str))
+            ContainerServiceError::InvalidArgument(format!("Container '{id_str}' not found"))
         })
     }
 
@@ -140,7 +140,7 @@ impl Dispatcher {
 
                 let image_uuid_str = initiate_image_pull(&image_ref).await?;
                 let image_uuid = Uuid::parse_str(&image_uuid_str).map_err(|e| {
-                    ContainerServiceError::ImageService(format!("Invalid image UUID: {}", e))
+                    ContainerServiceError::ImageService(format!("Invalid image UUID: {e}"))
                 })?;
 
                 let record = crate::persistence::ContainerRecord {
