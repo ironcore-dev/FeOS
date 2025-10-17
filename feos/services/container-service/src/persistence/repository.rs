@@ -33,6 +33,16 @@ fn string_to_container_state(s: &str) -> Result<ContainerState, PersistenceError
     }
 }
 
+fn container_state_to_string(state: ContainerState) -> &'static str {
+    match state {
+        ContainerState::PullingImage => "PULLING_IMAGE",
+        ContainerState::Created => "CREATED",
+        ContainerState::Running => "RUNNING",
+        ContainerState::Stopped => "STOPPED",
+        ContainerState::Unspecified => "CONTAINER_STATE_UNSPECIFIED",
+    }
+}
+
 impl ContainerRepository {
     pub async fn connect(db_url: &str) -> Result<Self, PersistenceError> {
         let pool = SqlitePoolOptions::new()
@@ -111,7 +121,7 @@ impl ContainerRepository {
         let mut config_blob = Vec::new();
         container.config.encode(&mut config_blob)?;
 
-        let state_str = format!("{:?}", container.status.state).to_uppercase();
+        let state_str = container_state_to_string(container.status.state);
 
         sqlx::query(
             r#"
@@ -135,7 +145,7 @@ impl ContainerRepository {
         container_id: Uuid,
         new_state: ContainerState,
     ) -> Result<bool, PersistenceError> {
-        let state_str = format!("{new_state:?}").to_uppercase();
+        let state_str = container_state_to_string(new_state);
 
         let result = sqlx::query(
             r#"

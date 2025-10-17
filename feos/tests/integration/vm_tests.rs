@@ -24,7 +24,7 @@ async fn test_create_and_start_vm() -> Result<()> {
     }
 
     ensure_server().await;
-    let (mut vm_client, _) = get_public_clients().await?;
+    let (mut vm_client, _, _) = get_public_clients().await?;
 
     let image_ref = TEST_IMAGE_REF.clone();
     let vm_config = VmConfig {
@@ -305,7 +305,7 @@ async fn test_vm_healthcheck_and_crash_recovery() -> Result<()> {
     }
 
     ensure_server().await;
-    let (mut vm_client, _) = get_public_clients().await?;
+    let (mut vm_client, _, _) = get_public_clients().await?;
 
     let image_ref = TEST_IMAGE_REF.clone();
     let vm_config = VmConfig {

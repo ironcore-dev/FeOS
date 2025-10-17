@@ -3,6 +3,7 @@
 
 use anyhow::Result;
 use feos_proto::{
+    container_service::container_service_client::ContainerServiceClient,
     host_service::host_service_client::HostServiceClient,
     image_service::image_service_client::ImageServiceClient,
     vm_service::vm_service_client::VmServiceClient,
@@ -10,6 +11,7 @@ use feos_proto::{
 use hyper_util::rt::TokioIo;
 use image_service::IMAGE_SERVICE_SOCKET;
 use log::{error, info};
+use nix::sys::prctl;
 use once_cell::sync::{Lazy, OnceCell as SyncOnceCell};
 use std::env;
 use std::process::Command;
@@ -19,8 +21,9 @@ use tokio::net::UnixStream;
 use tokio::sync::OnceCell as TokioOnceCell;
 use tonic::transport::{Channel, Endpoint, Uri};
 use tower::service_fn;
-use vm_service::VM_CH_BIN;
+use vm_service::{CONT_YOUKI_BIN, VM_CH_BIN};
 
+pub mod container_tests;
 pub mod fixtures;
 pub mod host_tests;
 pub mod image_tests;
@@ -28,9 +31,14 @@ pub mod vm_tests;
 
 pub const PUBLIC_SERVER_ADDRESS: &str = "http://[::1]:1337";
 pub const DEFAULT_TEST_IMAGE_REF: &str = "ghcr.io/ironcore-dev/os-images/gardenlinux-ch-dev";
+pub const DEFAULT_TEST_CONTAINER_IMAGE_REF: &str = "ghcr.io/appvia/hello-world/hello-world";
 
 pub static TEST_IMAGE_REF: Lazy<String> =
     Lazy::new(|| env::var("TEST_IMAGE_REF").unwrap_or_else(|_| DEFAULT_TEST_IMAGE_REF.to_string()));
+pub static TEST_CONTAINER_IMAGE_REF: Lazy<String> = Lazy::new(|| {
+    env::var("TEST_CONTAINER_IMAGE_REF")
+        .unwrap_or_else(|_| DEFAULT_TEST_CONTAINER_IMAGE_REF.to_string())
+});
 
 static SERVER_RUNTIME: TokioOnceCell<Arc<tokio::runtime::Runtime>> = TokioOnceCell::const_new();
 static TEMP_DIR_GUARD: SyncOnceCell<tempfile::TempDir> = SyncOnceCell::new();
@@ -51,9 +59,23 @@ async fn setup_server() -> Arc<tokio::runtime::Runtime> {
 
     let db_path = temp_dir.path().join("vms.db");
     let db_url = format!("sqlite:{}", db_path.to_str().unwrap());
+    let container_db_path = temp_dir.path().join("containers.db");
+    let container_db_url = format!("sqlite:{}", container_db_path.to_str().unwrap());
 
     env::set_var("DATABASE_URL", &db_url);
+    env::set_var("CONTAINER_DATABASE_URL", &container_db_url);
     info!("Using temporary database for tests: {}", db_url);
+    info!(
+        "Using temporary container database for tests: {}",
+        container_db_url
+    );
+
+    if let Err(e) = prctl::set_child_subreaper(true) {
+        log::error!(
+            "Failed to set as child subreaper, container tests will fail: {}",
+            e
+        );
+    }
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -82,11 +104,15 @@ async fn setup_server() -> Arc<tokio::runtime::Runtime> {
     panic!("Server did not start in time.");
 }
 
-pub async fn get_public_clients() -> Result<(VmServiceClient<Channel>, HostServiceClient<Channel>)>
-{
+pub async fn get_public_clients() -> Result<(
+    VmServiceClient<Channel>,
+    HostServiceClient<Channel>,
+    ContainerServiceClient<Channel>,
+)> {
     let vm_client = VmServiceClient::connect(PUBLIC_SERVER_ADDRESS).await?;
     let host_client = HostServiceClient::connect(PUBLIC_SERVER_ADDRESS).await?;
-    Ok((vm_client, host_client))
+    let container_client = ContainerServiceClient::connect(PUBLIC_SERVER_ADDRESS).await?;
+    Ok((vm_client, host_client, container_client))
 }
 
 pub async fn get_image_service_client() -> Result<ImageServiceClient<Channel>> {
@@ -111,6 +137,25 @@ pub fn check_ch_binary() -> bool {
 
 pub fn skip_if_ch_binary_missing() -> bool {
     if !check_ch_binary() {
+        log::warn!(
+            "Skipping test because '{}' binary was not found in PATH.",
+            VM_CH_BIN
+        );
+        return true;
+    }
+    false
+}
+
+pub fn check_youki_binary() -> bool {
+    Command::new("which")
+        .arg(CONT_YOUKI_BIN)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+pub fn skip_if_youki_binary_missing() -> bool {
+    if !check_youki_binary() {
         log::warn!(
             "Skipping test because '{}' binary was not found in PATH.",
             VM_CH_BIN

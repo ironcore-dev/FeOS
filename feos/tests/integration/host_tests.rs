@@ -14,7 +14,7 @@ use std::io::{BufRead, BufReader};
 #[tokio::test]
 async fn test_hostname_retrieval() -> Result<()> {
     ensure_server().await;
-    let (_, mut host_client) = get_public_clients().await?;
+    let (_, mut host_client, _) = get_public_clients().await?;
 
     let response = host_client.hostname(HostnameRequest {}).await?;
     let remote_hostname = response.into_inner().hostname;
@@ -37,7 +37,7 @@ async fn test_hostname_retrieval() -> Result<()> {
 #[tokio::test]
 async fn test_get_memory_info() -> Result<()> {
     ensure_server().await;
-    let (_, mut host_client) = get_public_clients().await?;
+    let (_, mut host_client, _) = get_public_clients().await?;
 
     let file = File::open("/proc/meminfo")?;
     let reader = BufReader::new(file);
@@ -85,7 +85,7 @@ async fn test_get_memory_info() -> Result<()> {
 #[tokio::test]
 async fn test_get_cpu_info() -> Result<()> {
     ensure_server().await;
-    let (_, mut host_client) = get_public_clients().await?;
+    let (_, mut host_client, _) = get_public_clients().await?;
 
     let file = File::open("/proc/cpuinfo")?;
     let reader = BufReader::new(file);
@@ -155,7 +155,7 @@ async fn test_get_cpu_info() -> Result<()> {
 #[tokio::test]
 async fn test_get_network_info() -> Result<()> {
     ensure_server().await;
-    let (_, mut host_client) = get_public_clients().await?;
+    let (_, mut host_client, _) = get_public_clients().await?;
 
     info!("Sending GetNetworkInfo request");
     let response = host_client
