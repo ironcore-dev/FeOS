@@ -10,8 +10,11 @@ jobs:
     - name: Checkout Code
       uses: actions/checkout@v4
 
-    - name: Install Protobuf Compiler
-      run: sudo apt-get update && sudo apt-get install protobuf-compiler -y
+    - name: Install Protobuf Compiler and Musl
+      run: sudo apt-get update && sudo apt-get install musl-tools musl-dev protobuf-compiler -y
+
+    - name: Install Rust Toolchain
+      run: rustup component add clippy && rustup component add rustfmt && rustup target add x86_64-unknown-linux-musl
 
     - name: Set up cargo cache
       uses: actions/cache@v4
