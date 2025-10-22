@@ -27,4 +27,12 @@ jobs:
         restore-keys: ${{ runner.os }}-cargo-
 
     - name: Run Tests
-      run: make test
+      env:
+        RUST_BACKTRACE: 1
+        SUDO_ENV_VARS: "PATH=$PATH:$HOME/.cargo/bin CARGO_HOME=$HOME/.cargo"
+      run: |
+        sudo -E bash -c ' \
+          export PATH="$HOME/.cargo/bin:$PATH"; \
+          export CARGO_HOME="$HOME/.cargo"; \
+          make test \
+        '
