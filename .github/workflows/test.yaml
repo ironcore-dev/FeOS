@@ -11,7 +11,7 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Install Protobuf Compiler
-      run: sudo apt-get update && sudo apt-get install protobuf-compiler -y
+      run: sudo apt-get update && sudo apt-get install protobuf-compiler curl -y
 
     - name: Set up cargo cache
       uses: actions/cache@v4
@@ -25,6 +25,30 @@ jobs:
           target/
         key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
         restore-keys: ${{ runner.os }}-cargo-
+
+    - name: Download and Install Youki
+      run: |
+        YOUKI_VERSION=$(cat hack/youki/version)
+        YOUKI_FILENAME=youki
+        YOUKI_ARCHIVE="${YOUKI_FILENAME}-${YOUKI_VERSION}-x86_64-musl.tar.gz"
+        YOUKI_URL="https://github.com/youki-dev/youki/releases/download/v${YOUKI_VERSION}/${YOUKI_ARCHIVE}"
+        DOWNLOAD_DIR=$(mktemp -d)
+
+        echo "Downloading Youki v${YOUKI_VERSION} from ${YOUKI_URL}"
+        curl -L "${YOUKI_URL}" -o "${DOWNLOAD_DIR}/${YOUKI_ARCHIVE}"
+
+        echo "Extracting Youki..."
+        tar -xzf "${DOWNLOAD_DIR}/${YOUKI_ARCHIVE}" -C "${DOWNLOAD_DIR}"
+
+        echo "Installing Youki binary to /usr/local/bin..."
+        sudo install -Dm755 "${DOWNLOAD_DIR}/${YOUKI_FILENAME}" "/usr/local/bin/${YOUKI_FILENAME}"
+
+        echo "Cleaning up..."
+        rm -rf "${DOWNLOAD_DIR}"
+
+        echo "Verifying youki installation:"
+        which youki
+        youki --version
 
     - name: Run Tests
       env:
