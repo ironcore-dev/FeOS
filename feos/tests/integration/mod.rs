@@ -89,7 +89,7 @@ async fn setup_server() -> Arc<tokio::runtime::Runtime> {
     });
 
     info!("Waiting for the server to start...");
-    for _ in 0..30 {
+    for _ in 0..60 {
         if Channel::from_static(PUBLIC_SERVER_ADDRESS)
             .connect()
             .await
