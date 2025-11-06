@@ -14,7 +14,7 @@ use feos_proto::{
         AttachDiskRequest, AttachDiskResponse, AttachNicRequest, AttachNicResponse,
         CreateVmRequest, CreateVmResponse, DeleteVmRequest, DeleteVmResponse, GetVmRequest,
         ListVmsRequest, ListVmsResponse, PauseVmRequest, PauseVmResponse, RemoveDiskRequest,
-        RemoveDiskResponse, RemoveNicRequest, RemoveNicResponse, ResumeVmRequest, ResumeVmResponse,
+        RemoveDiskResponse, DetachNicRequest, DetachNicResponse, ResumeVmRequest, ResumeVmResponse,
         ShutdownVmRequest, ShutdownVmResponse, StartVmRequest, StartVmResponse,
         StreamVmConsoleRequest, StreamVmConsoleResponse, StreamVmEventsRequest, VmEvent, VmInfo,
         VmState, VmStateChangedEvent,
@@ -749,10 +749,10 @@ pub(crate) async fn handle_attach_nic_command(
     tokio::spawn(worker::handle_attach_nic(req, responder, hypervisor));
 }
 
-pub(crate) async fn handle_remove_nic_command(
+pub(crate) async fn handle_detach_nic_command(
     repository: &VmRepository,
-    req: RemoveNicRequest,
-    responder: oneshot::Sender<Result<RemoveNicResponse, VmServiceError>>,
+    req: DetachNicRequest,
+    responder: oneshot::Sender<Result<DetachNicResponse, VmServiceError>>,
     hypervisor: Arc<dyn Hypervisor>,
 ) {
     let (_vm_id, mut record) = match parse_vm_id_and_get_record(&req.vm_id, repository).await {
@@ -766,7 +766,7 @@ pub(crate) async fn handle_remove_nic_command(
     let current_state = record.status.state;
     if matches!(current_state, VmState::Creating | VmState::Crashed) {
         let _ = responder.send(Err(VmServiceError::InvalidState(format!(
-            "Cannot remove NIC from VM in {current_state:?} state."
+            "Cannot detach NIC from VM in {current_state:?} state."
         ))));
         return;
     }
@@ -790,7 +790,7 @@ pub(crate) async fn handle_remove_nic_command(
         return;
     }
 
-    tokio::spawn(worker::handle_remove_nic(req, responder, hypervisor));
+    tokio::spawn(worker::handle_detach_nic(req, responder, hypervisor));
 }
 
 pub(crate) async fn check_and_cleanup_vms(

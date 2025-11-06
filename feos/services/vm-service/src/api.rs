@@ -6,7 +6,7 @@ use feos_proto::vm_service::{
     vm_service_server::VmService, AttachDiskRequest, AttachDiskResponse, AttachNicRequest,
     AttachNicResponse, CreateVmRequest, CreateVmResponse, DeleteVmRequest, DeleteVmResponse,
     GetVmRequest, ListVmsRequest, ListVmsResponse, PauseVmRequest, PauseVmResponse, PingVmRequest,
-    PingVmResponse, RemoveDiskRequest, RemoveDiskResponse, RemoveNicRequest, RemoveNicResponse,
+    PingVmResponse, RemoveDiskRequest, RemoveDiskResponse, DetachNicRequest, DetachNicResponse,
     ResumeVmRequest, ResumeVmResponse, ShutdownVmRequest, ShutdownVmResponse, StartVmRequest,
     StartVmResponse, StreamVmConsoleRequest, StreamVmConsoleResponse, StreamVmEventsRequest,
     VmEvent, VmInfo,
@@ -217,13 +217,13 @@ impl VmService for VmApiHandler {
         .await
     }
 
-    async fn remove_nic(
+    async fn detach_nic(
         &self,
-        request: Request<RemoveNicRequest>,
-    ) -> Result<Response<RemoveNicResponse>, Status> {
-        info!("VmApi: Received RemoveNic request.");
+        request: Request<DetachNicRequest>,
+    ) -> Result<Response<DetachNicResponse>, Status> {
+        info!("VmApi: Received DetachNic request.");
         dispatch_and_wait(&self.dispatcher_tx, |resp_tx| {
-            Command::RemoveNic(request.into_inner(), resp_tx)
+            Command::DetachNic(request.into_inner(), resp_tx)
         })
         .await
     }
