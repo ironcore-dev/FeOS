@@ -9,7 +9,7 @@ use feos_proto::vm_service::{
     net_config, stream_vm_console_request as console_input, vm_service_client::VmServiceClient,
     AttachConsoleMessage, AttachDiskRequest, AttachNicRequest, ConsoleData, CpuConfig,
     CreateVmRequest, DeleteVmRequest, DiskConfig, GetVmRequest, ListVmsRequest, MemoryConfig,
-    NetConfig, PauseVmRequest, PingVmRequest, RemoveDiskRequest, DetachNicRequest, ResumeVmRequest,
+    NetConfig, PauseVmRequest, PingVmRequest, DetachDiskRequest, DetachNicRequest, ResumeVmRequest,
     ShutdownVmRequest, StartVmRequest, StreamVmConsoleRequest, StreamVmEventsRequest, TapConfig,
     VfioPciConfig, VmConfig, VmState, VmStateChangedEvent,
 };
@@ -153,14 +153,14 @@ pub enum VmCommand {
         #[arg(long, required = true, help = "Path to the disk image file")]
         path: String,
     },
-    /// Remove a disk from a virtual machine
-    RemoveDisk {
+    /// Detach a disk from a virtual machine
+    DetachDisk {
         #[arg(long, required = true, help = "VM identifier")]
         vm_id: String,
         #[arg(
             long,
             required = true,
-            help = "Device identifier of the disk to remove"
+            help = "Device identifier of the disk to detach"
         )]
         device_id: String,
     },
@@ -262,8 +262,8 @@ pub async fn handle_vm_command(args: VmArgs) -> Result<()> {
         VmCommand::Events { vm_id } => watch_events(&mut client, vm_id).await?,
         VmCommand::Console { vm_id } => console_vm(&mut client, vm_id).await?,
         VmCommand::AttachDisk { vm_id, path } => attach_disk(&mut client, vm_id, path).await?,
-        VmCommand::RemoveDisk { vm_id, device_id } => {
-            remove_disk(&mut client, vm_id, device_id).await?
+        VmCommand::DetachDisk { vm_id, device_id } => {
+            detach_disk(&mut client, vm_id, device_id).await?
         }
         VmCommand::AttachNic {
             vm_id,
@@ -783,17 +783,17 @@ async fn attach_disk(
     Ok(())
 }
 
-async fn remove_disk(
+async fn detach_disk(
     client: &mut VmServiceClient<Channel>,
     vm_id: String,
     device_id: String,
 ) -> Result<()> {
-    let request = RemoveDiskRequest {
+    let request = DetachDiskRequest {
         vm_id: vm_id.clone(),
         device_id: device_id.clone(),
     };
-    client.remove_disk(request).await?;
-    println!("Disk remove request sent for device {device_id} on VM {vm_id}");
+    client.detach_disk(request).await?;
+    println!("Disk detach request sent for device {device_id} on VM {vm_id}");
     Ok(())
 }
 

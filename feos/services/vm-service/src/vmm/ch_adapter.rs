@@ -13,7 +13,7 @@ use cloud_hypervisor_client::{
 use feos_proto::vm_service::{
     net_config, AttachDiskRequest, AttachDiskResponse, AttachNicRequest, AttachNicResponse,
     CreateVmRequest, DeleteVmRequest, DeleteVmResponse, GetVmRequest, PauseVmRequest,
-    PauseVmResponse, PingVmRequest, PingVmResponse, RemoveDiskRequest, RemoveDiskResponse,
+    PauseVmResponse, PingVmRequest, PingVmResponse, DetachDiskRequest, DetachDiskResponse,
     DetachNicRequest, DetachNicResponse, ResumeVmRequest, ResumeVmResponse, ShutdownVmRequest,
     ShutdownVmResponse, StartVmRequest, StartVmResponse, VmConfig, VmInfo, VmState,
 };
@@ -499,9 +499,9 @@ impl Hypervisor for CloudHypervisorAdapter {
         ))
     }
 
-    async fn remove_disk(&self, _req: RemoveDiskRequest) -> Result<RemoveDiskResponse, VmmError> {
+    async fn detach_disk(&self, _req: DetachDiskRequest) -> Result<DetachDiskResponse, VmmError> {
         Err(VmmError::Internal(
-            "RemoveDisk not implemented for CloudHypervisorAdapter".to_string(),
+            "DetachDisk not implemented for CloudHypervisorAdapter".to_string(),
         ))
     }
 

@@ -11,7 +11,7 @@ use feos_proto::{
         stream_vm_console_request as console_input, AttachDiskRequest, AttachDiskResponse,
         AttachNicRequest, AttachNicResponse, ConsoleData, CreateVmRequest, CreateVmResponse,
         DeleteVmRequest, DeleteVmResponse, GetVmRequest, PauseVmRequest, PauseVmResponse,
-        PingVmRequest, PingVmResponse, RemoveDiskRequest, RemoveDiskResponse, DetachNicRequest,
+        PingVmRequest, PingVmResponse, DetachDiskRequest, DetachDiskResponse, DetachNicRequest,
         DetachNicResponse, ResumeVmRequest, ResumeVmResponse, ShutdownVmRequest,
         ShutdownVmResponse, StartVmRequest, StartVmResponse, StreamVmConsoleRequest,
         StreamVmConsoleResponse, StreamVmEventsRequest, VmEvent, VmInfo, VmState,
@@ -421,14 +421,14 @@ pub async fn handle_attach_disk(
     }
 }
 
-pub async fn handle_remove_disk(
-    req: RemoveDiskRequest,
-    responder: oneshot::Sender<Result<RemoveDiskResponse, VmServiceError>>,
+pub async fn handle_detach_disk(
+    req: DetachDiskRequest,
+    responder: oneshot::Sender<Result<DetachDiskResponse, VmServiceError>>,
     hypervisor: Arc<dyn Hypervisor>,
 ) {
-    let result = hypervisor.remove_disk(req).await;
+    let result = hypervisor.detach_disk(req).await;
     if responder.send(result.map_err(Into::into)).is_err() {
-        error!("VmWorker: Failed to send response for RemoveDisk.");
+        error!("VmWorker: Failed to send response for DetachDisk.");
     }
 }
 

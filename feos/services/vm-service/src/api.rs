@@ -6,7 +6,7 @@ use feos_proto::vm_service::{
     vm_service_server::VmService, AttachDiskRequest, AttachDiskResponse, AttachNicRequest,
     AttachNicResponse, CreateVmRequest, CreateVmResponse, DeleteVmRequest, DeleteVmResponse,
     GetVmRequest, ListVmsRequest, ListVmsResponse, PauseVmRequest, PauseVmResponse, PingVmRequest,
-    PingVmResponse, RemoveDiskRequest, RemoveDiskResponse, DetachNicRequest, DetachNicResponse,
+    PingVmResponse, DetachDiskRequest, DetachDiskResponse, DetachNicRequest, DetachNicResponse,
     ResumeVmRequest, ResumeVmResponse, ShutdownVmRequest, ShutdownVmResponse, StartVmRequest,
     StartVmResponse, StreamVmConsoleRequest, StreamVmConsoleResponse, StreamVmEventsRequest,
     VmEvent, VmInfo,
@@ -195,13 +195,13 @@ impl VmService for VmApiHandler {
         .await
     }
 
-    async fn remove_disk(
+    async fn detach_disk(
         &self,
-        request: Request<RemoveDiskRequest>,
-    ) -> Result<Response<RemoveDiskResponse>, Status> {
-        info!("VmApi: Received RemoveDisk request.");
+        request: Request<DetachDiskRequest>,
+    ) -> Result<Response<DetachDiskResponse>, Status> {
+        info!("VmApi: Received DetachDisk request.");
         dispatch_and_wait(&self.dispatcher_tx, |resp_tx| {
-            Command::RemoveDisk(request.into_inner(), resp_tx)
+            Command::DetachDisk(request.into_inner(), resp_tx)
         })
         .await
     }
