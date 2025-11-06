@@ -12,9 +12,9 @@ use cloud_hypervisor_client::{
 };
 use feos_proto::vm_service::{
     net_config, AttachDiskRequest, AttachDiskResponse, AttachNicRequest, AttachNicResponse,
-    CreateVmRequest, DeleteVmRequest, DeleteVmResponse, GetVmRequest, PauseVmRequest,
-    PauseVmResponse, PingVmRequest, PingVmResponse, DetachDiskRequest, DetachDiskResponse,
-    DetachNicRequest, DetachNicResponse, ResumeVmRequest, ResumeVmResponse, ShutdownVmRequest,
+    CreateVmRequest, DeleteVmRequest, DeleteVmResponse, DetachDiskRequest, DetachDiskResponse,
+    DetachNicRequest, DetachNicResponse, GetVmRequest, PauseVmRequest, PauseVmResponse,
+    PingVmRequest, PingVmResponse, ResumeVmRequest, ResumeVmResponse, ShutdownVmRequest,
     ShutdownVmResponse, StartVmRequest, StartVmResponse, VmConfig, VmInfo, VmState,
 };
 use hyper_util::client::legacy::Client;

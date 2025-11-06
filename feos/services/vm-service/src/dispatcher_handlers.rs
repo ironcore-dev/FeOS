@@ -12,9 +12,9 @@ use feos_proto::{
     vm_service::{
         net_config, stream_vm_console_request as console_input, AttachConsoleMessage,
         AttachDiskRequest, AttachDiskResponse, AttachNicRequest, AttachNicResponse,
-        CreateVmRequest, CreateVmResponse, DeleteVmRequest, DeleteVmResponse, GetVmRequest,
-        ListVmsRequest, ListVmsResponse, PauseVmRequest, PauseVmResponse, DetachDiskRequest,
-        DetachDiskResponse, DetachNicRequest, DetachNicResponse, ResumeVmRequest, ResumeVmResponse,
+        CreateVmRequest, CreateVmResponse, DeleteVmRequest, DeleteVmResponse, DetachDiskRequest,
+        DetachDiskResponse, DetachNicRequest, DetachNicResponse, GetVmRequest, ListVmsRequest,
+        ListVmsResponse, PauseVmRequest, PauseVmResponse, ResumeVmRequest, ResumeVmResponse,
         ShutdownVmRequest, ShutdownVmResponse, StartVmRequest, StartVmResponse,
         StreamVmConsoleRequest, StreamVmConsoleResponse, StreamVmEventsRequest, VmEvent, VmInfo,
         VmState, VmStateChangedEvent,

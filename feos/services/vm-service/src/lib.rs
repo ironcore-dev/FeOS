@@ -4,9 +4,9 @@
 use crate::error::VmServiceError;
 use feos_proto::vm_service::{
     AttachDiskRequest, AttachDiskResponse, AttachNicRequest, AttachNicResponse, CreateVmRequest,
-    CreateVmResponse, DeleteVmRequest, DeleteVmResponse, GetVmRequest, ListVmsRequest,
-    ListVmsResponse, PauseVmRequest, PauseVmResponse, PingVmRequest, PingVmResponse,
-    DetachDiskRequest, DetachDiskResponse, DetachNicRequest, DetachNicResponse, ResumeVmRequest,
+    CreateVmResponse, DeleteVmRequest, DeleteVmResponse, DetachDiskRequest, DetachDiskResponse,
+    DetachNicRequest, DetachNicResponse, GetVmRequest, ListVmsRequest, ListVmsResponse,
+    PauseVmRequest, PauseVmResponse, PingVmRequest, PingVmResponse, ResumeVmRequest,
     ResumeVmResponse, ShutdownVmRequest, ShutdownVmResponse, StartVmRequest, StartVmResponse,
     StreamVmConsoleRequest, StreamVmConsoleResponse, StreamVmEventsRequest, VmEvent, VmInfo,
 };

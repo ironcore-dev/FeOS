@@ -10,12 +10,11 @@ use feos_proto::{
     vm_service::{
         stream_vm_console_request as console_input, AttachDiskRequest, AttachDiskResponse,
         AttachNicRequest, AttachNicResponse, ConsoleData, CreateVmRequest, CreateVmResponse,
-        DeleteVmRequest, DeleteVmResponse, GetVmRequest, PauseVmRequest, PauseVmResponse,
-        PingVmRequest, PingVmResponse, DetachDiskRequest, DetachDiskResponse, DetachNicRequest,
-        DetachNicResponse, ResumeVmRequest, ResumeVmResponse, ShutdownVmRequest,
-        ShutdownVmResponse, StartVmRequest, StartVmResponse, StreamVmConsoleRequest,
-        StreamVmConsoleResponse, StreamVmEventsRequest, VmEvent, VmInfo, VmState,
-        VmStateChangedEvent,
+        DeleteVmRequest, DeleteVmResponse, DetachDiskRequest, DetachDiskResponse, DetachNicRequest,
+        DetachNicResponse, GetVmRequest, PauseVmRequest, PauseVmResponse, PingVmRequest,
+        PingVmResponse, ResumeVmRequest, ResumeVmResponse, ShutdownVmRequest, ShutdownVmResponse,
+        StartVmRequest, StartVmResponse, StreamVmConsoleRequest, StreamVmConsoleResponse,
+        StreamVmEventsRequest, VmEvent, VmInfo, VmState, VmStateChangedEvent,
     },
 };
 use log::{error, info, warn};

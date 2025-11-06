@@ -4,9 +4,9 @@
 use crate::VmEventWrapper;
 use feos_proto::vm_service::{
     AttachDiskRequest, AttachDiskResponse, AttachNicRequest, AttachNicResponse, CreateVmRequest,
-    DeleteVmRequest, DeleteVmResponse, GetVmRequest, PauseVmRequest, PauseVmResponse,
-    PingVmRequest, PingVmResponse, DetachDiskRequest, DetachDiskResponse, DetachNicRequest,
-    DetachNicResponse, ResumeVmRequest, ResumeVmResponse, ShutdownVmRequest, ShutdownVmResponse,
+    DeleteVmRequest, DeleteVmResponse, DetachDiskRequest, DetachDiskResponse, DetachNicRequest,
+    DetachNicResponse, GetVmRequest, PauseVmRequest, PauseVmResponse, PingVmRequest,
+    PingVmResponse, ResumeVmRequest, ResumeVmResponse, ShutdownVmRequest, ShutdownVmResponse,
     StartVmRequest, StartVmResponse, VmEvent, VmInfo, VmStateChangedEvent,
 };
 use prost::Message;

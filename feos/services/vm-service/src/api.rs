@@ -5,11 +5,11 @@ use crate::Command;
 use feos_proto::vm_service::{
     vm_service_server::VmService, AttachDiskRequest, AttachDiskResponse, AttachNicRequest,
     AttachNicResponse, CreateVmRequest, CreateVmResponse, DeleteVmRequest, DeleteVmResponse,
-    GetVmRequest, ListVmsRequest, ListVmsResponse, PauseVmRequest, PauseVmResponse, PingVmRequest,
-    PingVmResponse, DetachDiskRequest, DetachDiskResponse, DetachNicRequest, DetachNicResponse,
-    ResumeVmRequest, ResumeVmResponse, ShutdownVmRequest, ShutdownVmResponse, StartVmRequest,
-    StartVmResponse, StreamVmConsoleRequest, StreamVmConsoleResponse, StreamVmEventsRequest,
-    VmEvent, VmInfo,
+    DetachDiskRequest, DetachDiskResponse, DetachNicRequest, DetachNicResponse, GetVmRequest,
+    ListVmsRequest, ListVmsResponse, PauseVmRequest, PauseVmResponse, PingVmRequest,
+    PingVmResponse, ResumeVmRequest, ResumeVmResponse, ShutdownVmRequest, ShutdownVmResponse,
+    StartVmRequest, StartVmResponse, StreamVmConsoleRequest, StreamVmConsoleResponse,
+    StreamVmEventsRequest, VmEvent, VmInfo,
 };
 use log::info;
 use std::pin::Pin;

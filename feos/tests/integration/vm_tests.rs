@@ -6,9 +6,9 @@ use super::{ensure_server, get_public_clients, skip_if_ch_binary_missing, TEST_I
 use anyhow::{Context, Result};
 use feos_proto::vm_service::{
     net_config, stream_vm_console_request as console_input, AttachConsoleMessage, AttachNicRequest,
-    CpuConfig, CreateVmRequest, DeleteVmRequest, GetVmRequest, MemoryConfig, NetConfig,
-    PauseVmRequest, PingVmRequest, DetachNicRequest, ResumeVmRequest, ShutdownVmRequest,
-    StartVmRequest, StreamVmConsoleRequest, StreamVmEventsRequest, TapConfig, VmConfig, VmState,
+    CpuConfig, CreateVmRequest, DeleteVmRequest, DetachNicRequest, GetVmRequest, MemoryConfig,
+    NetConfig, PauseVmRequest, PingVmRequest, ResumeVmRequest, ShutdownVmRequest, StartVmRequest,
+    StreamVmConsoleRequest, StreamVmEventsRequest, TapConfig, VmConfig, VmState,
 };
 use log::info;
 use nix::sys::signal::{kill, Signal};

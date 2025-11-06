@@ -8,10 +8,10 @@ use crossterm::tty::IsTty;
 use feos_proto::vm_service::{
     net_config, stream_vm_console_request as console_input, vm_service_client::VmServiceClient,
     AttachConsoleMessage, AttachDiskRequest, AttachNicRequest, ConsoleData, CpuConfig,
-    CreateVmRequest, DeleteVmRequest, DiskConfig, GetVmRequest, ListVmsRequest, MemoryConfig,
-    NetConfig, PauseVmRequest, PingVmRequest, DetachDiskRequest, DetachNicRequest, ResumeVmRequest,
-    ShutdownVmRequest, StartVmRequest, StreamVmConsoleRequest, StreamVmEventsRequest, TapConfig,
-    VfioPciConfig, VmConfig, VmState, VmStateChangedEvent,
+    CreateVmRequest, DeleteVmRequest, DetachDiskRequest, DetachNicRequest, DiskConfig,
+    GetVmRequest, ListVmsRequest, MemoryConfig, NetConfig, PauseVmRequest, PingVmRequest,
+    ResumeVmRequest, ShutdownVmRequest, StartVmRequest, StreamVmConsoleRequest,
+    StreamVmEventsRequest, TapConfig, VfioPciConfig, VmConfig, VmState, VmStateChangedEvent,
 };
 use prost::Message;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
