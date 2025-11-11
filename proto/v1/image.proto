@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package feos.image.vmm.api.v1;
 
+option go_package = "github.com/FeOS/go/feos-go/gen/feos/image/vmm/api/v1";
+
 // Image Service
 
 // ImageService handles the lifecycle of OCI images used for booting VMs.

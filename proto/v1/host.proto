@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package feos.host.v1;
 
+option go_package = "github.com/FeOS/go/feos-go/gen/feos/host/v1";
+
 import "google/protobuf/timestamp.proto";
 
 // HostService provides information about the host system.

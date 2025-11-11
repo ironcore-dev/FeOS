@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package feos.task.v1;
 
+option go_package = "github.com/FeOS/go/feos-go/gen/feos/task/v1";
+
 // TaskService is an internal-only API implemented by the `feos --shim` process.
 // It provides a low-level interface for the container-service to manage the
 // lifecycle of a single container using an OCI runtime like `youki`.

@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package feos.container.v1;
 
+option go_package = "github.com/FeOS/go/feos-go/gen/feos/container/v1";
+
 import "google/protobuf/any.proto";
 
 // ContainerService manages the lifecycle of containers. It provides an
