@@ -54,7 +54,8 @@ lint: golangci-lint ## Run golangci-lint on the code.
 
 .PHONY: clean
 clean: ## Clean any artifacts that can be regenerated.
-	rm -rf proto/*.pb.go
+	rm -rf gen/*
+	rm -rf bin
 
 .PHONY: add-license
 add-license: addlicense ## Add license headers to all go files.

@@ -18,7 +18,7 @@ PROTO_PATH_ROOT="$FEOS_ROOT/proto"
 
 PROTO_FILES_V1="$FEOS_ROOT/proto/v1/*.proto"
 
-GO_MODULE_NAME="github.com/FeOS/go/feos-go"
+GO_MODULE_NAME="github.com/ironcore-dev/feos/go/feos-go"
 
 OUTPUT_DIR="$GO_PROJECT_ROOT"
 
