@@ -24,13 +24,13 @@ async fn test_image_lifecycle() -> Result<()> {
     let mut image_client = get_image_service_client().await?;
 
     let image_ref = TEST_IMAGE_REF.clone();
-    info!("Pulling image: {}", image_ref);
+    info!("Pulling image: {image_ref}");
     let pull_req = PullImageRequest {
         image_ref: image_ref.clone(),
     };
     let pull_res = image_client.pull_image(pull_req).await?.into_inner();
     let image_uuid = pull_res.image_uuid;
-    info!("Image pull initiated with UUID: {}", image_uuid);
+    info!("Image pull initiated with UUID: {image_uuid}");
 
     let watch_req = WatchImageStatusRequest {
         image_uuid: image_uuid.clone(),
@@ -44,7 +44,7 @@ async fn test_image_lifecycle() -> Result<()> {
         .await
         .expect("Timed out waiting for image to become ready")?;
 
-    info!("Verifying image {} is in the list...", image_uuid);
+    info!("Verifying image {image_uuid} is in the list...");
     let list_req = ListImagesRequest {};
     let list_res = image_client.list_images(list_req).await?.into_inner();
     let found_image = list_res
@@ -60,13 +60,13 @@ async fn test_image_lifecycle() -> Result<()> {
     assert!(image_path.join("disk.image").exists());
     assert!(image_path.join("metadata.json").exists());
 
-    info!("Deleting image: {}", image_uuid);
+    info!("Deleting image: {image_uuid}");
     let delete_req = DeleteImageRequest {
         image_uuid: image_uuid.clone(),
     };
     image_client.delete_image(delete_req).await?;
 
-    info!("Verifying image {} is NOT in the list...", image_uuid);
+    info!("Verifying image {image_uuid} is NOT in the list...");
     let list_req_after_delete = ListImagesRequest {};
     let list_res_after_delete = image_client
         .list_images(list_req_after_delete)
@@ -95,13 +95,13 @@ async fn test_container_image_lifecycle() -> Result<()> {
     let mut image_client = get_image_service_client().await?;
 
     let image_ref = "ghcr.io:5000/appvia/hello-world/hello-world".to_string();
-    info!("Pulling container image: {}", image_ref);
+    info!("Pulling container image: {image_ref}");
     let pull_req = PullImageRequest {
         image_ref: image_ref.clone(),
     };
     let pull_res = image_client.pull_image(pull_req).await?.into_inner();
     let image_uuid = pull_res.image_uuid;
-    info!("Container image pull initiated with UUID: {}", image_uuid);
+    info!("Container image pull initiated with UUID: {image_uuid}");
 
     let watch_req = WatchImageStatusRequest {
         image_uuid: image_uuid.clone(),
@@ -115,7 +115,7 @@ async fn test_container_image_lifecycle() -> Result<()> {
         .await
         .expect("Timed out waiting for container image to become ready")?;
 
-    info!("Verifying container image {} is in the list...", image_uuid);
+    info!("Verifying container image {image_uuid} is in the list...");
     let list_req = ListImagesRequest {};
     let list_res = image_client.list_images(list_req).await?.into_inner();
     let found_image = list_res
@@ -141,16 +141,13 @@ async fn test_container_image_lifecycle() -> Result<()> {
     );
     assert!(image_path.join("metadata.json").exists());
 
-    info!("Deleting container image: {}", image_uuid);
+    info!("Deleting container image: {image_uuid}");
     let delete_req = DeleteImageRequest {
         image_uuid: image_uuid.clone(),
     };
     image_client.delete_image(delete_req).await?;
 
-    info!(
-        "Verifying container image {} is NOT in the list...",
-        image_uuid
-    );
+    info!("Verifying container image {image_uuid} is NOT in the list...");
     let list_req_after_delete = ListImagesRequest {};
     let list_res_after_delete = image_client
         .list_images(list_req_after_delete)
@@ -178,7 +175,7 @@ where
     while let Some(status_res) = stream.next().await {
         let status = status_res?;
         let state = ImageState::try_from(status.state).unwrap();
-        info!("Received image status update: {:?}", state);
+        info!("Received image status update: {state:?}");
         if state == ImageState::Downloading {
             saw_downloading = true;
         }

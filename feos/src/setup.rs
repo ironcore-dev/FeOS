@@ -18,7 +18,8 @@ use feos_utils::host::info::is_running_on_vm;
 use feos_utils::host::memory::configure_hugepages;
 use feos_utils::network::{configure_network_devices, configure_sriov};
 use host_service::{
-    api::HostApiHandler, dispatcher::HostServiceDispatcher, Command as HostCommand, RestartSignal,
+    api::HostApiHandler, dispatcher::HostServiceDispatcher, worker::TimeSyncWorker,
+    Command as HostCommand, RestartSignal,
 };
 use image_service::{
     api::ImageApiHandler, dispatcher::ImageServiceDispatcher, filestore::FileStore,
@@ -28,6 +29,7 @@ use log::{error, info, warn};
 use nix::libc;
 use std::env;
 use std::ffi::CString;
+use std::net::Ipv6Addr;
 use std::os::unix::ffi::OsStringExt;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
@@ -96,12 +98,19 @@ pub(crate) async fn initialize_container_service(
 pub(crate) fn initialize_host_service(
     restart_tx: mpsc::Sender<RestartSignal>,
     log_handle: feos_utils::feos_logger::LogHandle,
+    ntp_servers: Vec<Ipv6Addr>,
 ) -> HostServiceServer<HostApiHandler> {
     let (host_tx, host_rx) = mpsc::channel::<HostCommand>(32);
     let host_dispatcher = HostServiceDispatcher::new(host_rx, restart_tx, log_handle);
     tokio::spawn(async move {
         host_dispatcher.run().await;
     });
+
+    let time_worker = TimeSyncWorker::new(ntp_servers);
+    tokio::spawn(async move {
+        time_worker.run().await;
+    });
+
     let host_api_handler = HostApiHandler::new(host_tx);
     let host_service = HostServiceServer::new(host_api_handler);
     info!("Main: Host Service is configured.");
@@ -159,7 +168,7 @@ pub(crate) async fn initialize_task_service() -> Result<TaskServiceServer<TaskAp
     Ok(task_service)
 }
 
-pub(crate) async fn perform_first_boot_initialization() -> Result<()> {
+pub(crate) async fn perform_first_boot_initialization() -> Result<Vec<Ipv6Addr>> {
     info!("Main: Performing first-boot initialization...");
     info!("Main: Mounting virtual filesystems...");
     mount_virtual_filesystems();
@@ -175,11 +184,13 @@ pub(crate) async fn perform_first_boot_initialization() -> Result<()> {
     });
 
     info!("Main: Configuring network devices...");
-    if let Some((delegated_prefix, delegated_prefix_length)) = configure_network_devices()
+    let mut ntp_servers = Vec::new();
+    if let Some((delegated_prefix, delegated_prefix_length, servers)) = configure_network_devices()
         .await
         .expect("could not configure network devices")
     {
         info!("Main: Delegated prefix: {delegated_prefix}/{delegated_prefix_length}");
+        ntp_servers = servers;
     }
 
     if !is_on_vm {
@@ -189,7 +200,7 @@ pub(crate) async fn perform_first_boot_initialization() -> Result<()> {
         }
     }
 
-    Ok(())
+    Ok(ntp_servers)
 }
 
 pub(crate) async fn setup_database() -> Result<String> {

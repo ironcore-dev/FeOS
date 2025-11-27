@@ -1225,6 +1225,7 @@ name = "host-service"
 version = "0.5.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "digest",
  "feos-proto",
  "feos-utils",
@@ -1233,12 +1234,14 @@ dependencies = [
  "hyper",
  "hyper-rustls",
  "hyper-util",
+ "libc",
  "log",
  "nix 0.30.1",
  "prost",
  "prost-types",
  "rustls-pki-types",
  "sha2",
+ "sntpc",
  "tempfile",
  "thiserror 2.0.16",
  "tokio",
@@ -1723,7 +1726,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "07033963ba89ebaf1584d767badaa2e8fcec21aedea6b8c0346d487d49c28667"
 dependencies = [
  "cfg-if",
- "windows-targets 0.52.6",
+ "windows-targets 0.53.4",
 ]
 
 [[package]]
@@ -2965,6 +2968,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03"
 
 [[package]]
+name = "sntpc"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1b4225ed8af9afa45007222d268dac20437c9783be704fcbdc3399bffe7e81dc"
+dependencies = [
+ "cfg-if",
+ "chrono",
+ "tokio",
+]
+
+[[package]]
 name = "socket2"
 version = "0.5.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3342,7 +3356,7 @@ dependencies = [
  "getrandom 0.3.3",
  "once_cell",
  "rustix",
- "windows-sys 0.59.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -3924,7 +3938,7 @@ version = "0.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0978bf7171b3d90bac376700cb56d606feb40f251a475a5d6634613564460b22"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]

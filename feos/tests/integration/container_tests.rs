@@ -20,10 +20,7 @@ async fn wait_for_container_state(
     container_id: &str,
     target_state: ContainerState,
 ) -> Result<()> {
-    info!(
-        "Waiting for container {} to reach state {:?}",
-        container_id, target_state
-    );
+    info!("Waiting for container {container_id} to reach state {target_state:?}");
     for _ in 0..180 {
         let response = client
             .get_container(GetContainerRequest {
@@ -33,7 +30,7 @@ async fn wait_for_container_state(
             .into_inner();
 
         let current_state = ContainerState::try_from(response.state).unwrap_or_default();
-        info!("Container {} is in state {:?}", container_id, current_state);
+        info!("Container {container_id} is in state {current_state:?}");
 
         if current_state == target_state {
             return Ok(());
@@ -41,11 +38,7 @@ async fn wait_for_container_state(
 
         tokio::time::sleep(Duration::from_secs(1)).await;
     }
-    anyhow::bail!(
-        "Timeout waiting for container {} to reach state {:?}",
-        container_id,
-        target_state
-    );
+    anyhow::bail!("Timeout waiting for container {container_id} to reach state {target_state:?}");
 }
 
 #[tokio::test]
@@ -74,7 +67,7 @@ async fn test_create_and_start_container() -> Result<()> {
         .await?
         .into_inner();
     let container_id = create_res.container_id;
-    info!("Container creation initiated with ID: {}", container_id);
+    info!("Container creation initiated with ID: {container_id}");
 
     timeout(
         Duration::from_secs(180),
@@ -91,7 +84,7 @@ async fn test_create_and_start_container() -> Result<()> {
     let start_req = StartContainerRequest {
         container_id: container_id.clone(),
     };
-    info!("Sending StartContainer request for ID: {}", container_id);
+    info!("Sending StartContainer request for ID: {container_id}");
     container_client.start_container(start_req).await?;
 
     timeout(
@@ -111,7 +104,7 @@ async fn test_create_and_start_container() -> Result<()> {
         signal: None,
         timeout_seconds: None,
     };
-    info!("Sending StopContainer request for ID: {}", container_id);
+    info!("Sending StopContainer request for ID: {container_id}");
     container_client.stop_container(stop_req).await?;
 
     timeout(
@@ -129,7 +122,7 @@ async fn test_create_and_start_container() -> Result<()> {
     let delete_req = DeleteContainerRequest {
         container_id: container_id.clone(),
     };
-    info!("Sending DeleteContainer request for ID: {}", container_id);
+    info!("Sending DeleteContainer request for ID: {container_id}");
     container_client.delete_container(delete_req).await?;
     info!("DeleteContainer call successful");
 
@@ -138,10 +131,7 @@ async fn test_create_and_start_container() -> Result<()> {
     };
     let result = container_client.get_container(get_req).await;
     assert!(result.is_err(), "GetContainer should fail after deletion");
-    info!(
-        "Verified that container {} is no longer found.",
-        container_id
-    );
+    info!("Verified that container {container_id} is no longer found.");
 
     Ok(())
 }

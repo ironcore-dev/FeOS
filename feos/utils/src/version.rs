@@ -10,5 +10,5 @@ pub fn full_version_string() -> String {
 pub fn full_version_string() -> String {
     let version = env!("CARGO_PKG_VERSION");
     let commit_hash = option_env!("GIT_COMMIT_HASH").unwrap_or("???????");
-    format!("{} ({})", version, commit_hash)
+    format!("{version} ({commit_hash})")
 }

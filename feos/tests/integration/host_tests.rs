@@ -22,10 +22,7 @@ async fn test_hostname_retrieval() -> Result<()> {
         .into_string()
         .expect("Hostname is not valid UTF-8");
 
-    info!(
-        "Hostname from API: '{}', Hostname from local call: '{}'",
-        remote_hostname, local_hostname
-    );
+    info!("Hostname from API: '{remote_hostname}', Hostname from local call: '{local_hostname}'");
     assert_eq!(
         remote_hostname, local_hostname,
         "The hostname from the API should match the local system's hostname"
@@ -57,7 +54,7 @@ async fn test_get_memory_info() -> Result<()> {
         local_memtotal > 0,
         "Failed to parse MemTotal from local /proc/meminfo"
     );
-    info!("Local MemTotal from /proc/meminfo: {} kB", local_memtotal);
+    info!("Local MemTotal from /proc/meminfo: {local_memtotal} kB");
 
     info!("Sending GetMemory request");
     let response = host_client.get_memory(MemoryRequest {}).await?.into_inner();
@@ -113,8 +110,7 @@ async fn test_get_cpu_info() -> Result<()> {
         "Failed to parse vendor_id from /proc/cpuinfo"
     );
     info!(
-        "Local data from /proc/cpuinfo: {} processors, vendor_id: {}",
-        local_processor_count, local_vendor_id
+        "Local data from /proc/cpuinfo: {local_processor_count} processors, vendor_id: {local_vendor_id}"
     );
 
     info!("Sending GetCPUInfo request");

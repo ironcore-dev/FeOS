@@ -24,7 +24,9 @@ prost-types = { workspace = true }
 thiserror = { workspace = true }
 hyper = {workspace = true}
 hyper-util = { workspace = true }
-
+sntpc = { version = "0.7", features = ["tokio-socket", "utils"] }
+chrono = { workspace = true }
+libc = { workspace = true }
 
 hyper-rustls = "0.27.2"
 http-body-util = "0.1.2"

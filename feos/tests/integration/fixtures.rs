@@ -42,16 +42,16 @@ impl Drop for VmGuard {
         }
         info!("Cleaning up VM '{}'...", self.vm_id);
         if let Some(pid) = self.pid {
-            info!("Killing process with PID: {}", pid);
+            info!("Killing process with PID: {pid}");
             let _ = kill(pid, Signal::SIGKILL);
         }
         let socket_path = format!("{}/{}", VM_API_SOCKET_DIR, self.vm_id);
         if let Err(e) = std::fs::remove_file(&socket_path) {
             if e.kind() != std::io::ErrorKind::NotFound {
-                warn!("Could not remove socket file '{}': {}", socket_path, e);
+                warn!("Could not remove socket file '{socket_path}': {e}");
             }
         } else {
-            info!("Removed socket file '{}'", socket_path);
+            info!("Removed socket file '{socket_path}'");
         }
     }
 }
@@ -85,17 +85,15 @@ pub async fn wait_for_target_state(
         }
     }
     Err(anyhow::anyhow!(
-        "Event stream ended before VM reached {:?} state.",
-        target_state
+        "Event stream ended before VM reached {target_state:?} state."
     ))
 }
 
 pub fn verify_vm_socket_cleanup(vm_id: &str) {
-    let socket_path = format!("{}/{}", VM_API_SOCKET_DIR, vm_id);
+    let socket_path = format!("{VM_API_SOCKET_DIR}/{vm_id}");
     assert!(
         !Path::new(&socket_path).exists(),
-        "Socket file '{}' should not exist after DeleteVm",
-        socket_path
+        "Socket file '{socket_path}' should not exist after DeleteVm"
     );
-    info!("Verified VM API socket is deleted: {}", socket_path);
+    info!("Verified VM API socket is deleted: {socket_path}");
 }

@@ -142,11 +142,11 @@ async fn get_device_information(pci: &str, field: &str) -> Result<String, io::Er
     Ok(dst.trim().to_string())
 }
 
-pub async fn configure_network_devices() -> Result<Option<(Ipv6Addr, u8)>, String> {
+pub async fn configure_network_devices() -> Result<Option<(Ipv6Addr, u8, Vec<Ipv6Addr>)>, String> {
     let ignore_ra_flag = true; // Till the RA has the correct flags (O or M), ignore the flag
     let interface_name = String::from(INTERFACE_NAME);
     let (connection, handle, _) = new_connection().unwrap();
-    let mut delegated_prefix_option: Option<(Ipv6Addr, u8)> = None;
+    let mut result_option: Option<(Ipv6Addr, u8, Vec<Ipv6Addr>)> = None;
     tokio::spawn(connection);
 
     enable_ipv6_forwarding().map_err(|e| format!("Failed to enable ipv6 forwarding: {e}"))?;
@@ -202,7 +202,7 @@ pub async fn configure_network_devices() -> Result<Option<(Ipv6Addr, u8)>, Strin
                     info!(
                         "Received delegated prefix {delegated_prefix} with length {prefix_length}"
                     );
-                    delegated_prefix_option = Some((delegated_prefix, prefix_length));
+                    result_option = Some((delegated_prefix, prefix_length, result.ntp_servers));
                     if let Err(e) = add_ipv6_route(
                         &handle,
                         INTERFACE_NAME,
@@ -228,7 +228,7 @@ pub async fn configure_network_devices() -> Result<Option<(Ipv6Addr, u8)>, Strin
         }
     }
 
-    Ok(delegated_prefix_option)
+    Ok(result_option)
 }
 
 pub fn enable_ipv6_forwarding() -> Result<(), std::io::Error> {

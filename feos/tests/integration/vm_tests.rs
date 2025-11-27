@@ -49,7 +49,7 @@ async fn test_create_and_start_vm() -> Result<()> {
     info!("Sending CreateVm request");
     let create_res = vm_client.create_vm(create_req).await?.into_inner();
     let vm_id = create_res.vm_id;
-    info!("VM created with ID: {}", vm_id);
+    info!("VM created with ID: {vm_id}");
 
     let mut guard = VmGuard::new(vm_id.clone());
 
@@ -330,7 +330,7 @@ async fn test_vm_healthcheck_and_crash_recovery() -> Result<()> {
     info!("Sending CreateVm request for healthcheck test");
     let create_res = vm_client.create_vm(create_req).await?.into_inner();
     let vm_id = create_res.vm_id;
-    info!("VM created with ID: {}", vm_id);
+    info!("VM created with ID: {vm_id}");
 
     let mut guard = VmGuard::new(vm_id.clone());
 
@@ -372,12 +372,9 @@ async fn test_vm_healthcheck_and_crash_recovery() -> Result<()> {
     let pid_to_kill = Pid::from_raw(ping_res.pid as i32);
     guard.set_pid(ping_res.pid as i32);
 
-    info!(
-        "Forcefully killing hypervisor process with PID: {}",
-        pid_to_kill
-    );
+    info!("Forcefully killing hypervisor process with PID: {pid_to_kill}");
     kill(pid_to_kill, Signal::SIGKILL).context("Failed to kill hypervisor process")?;
-    info!("Successfully sent SIGKILL to process {}", pid_to_kill);
+    info!("Successfully sent SIGKILL to process {pid_to_kill}");
 
     timeout(
         Duration::from_secs(30),

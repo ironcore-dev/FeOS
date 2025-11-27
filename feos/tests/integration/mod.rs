@@ -64,17 +64,11 @@ async fn setup_server() -> Arc<tokio::runtime::Runtime> {
 
     env::set_var("DATABASE_URL", &db_url);
     env::set_var("CONTAINER_DATABASE_URL", &container_db_url);
-    info!("Using temporary database for tests: {}", db_url);
-    info!(
-        "Using temporary container database for tests: {}",
-        container_db_url
-    );
+    info!("Using temporary database for tests: {db_url}");
+    info!("Using temporary container database for tests: {container_db_url}");
 
     if let Err(e) = prctl::set_child_subreaper(true) {
-        log::error!(
-            "Failed to set as child subreaper, container tests will fail: {}",
-            e
-        );
+        log::error!("Failed to set as child subreaper, container tests will fail: {e}");
     }
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -84,7 +78,7 @@ async fn setup_server() -> Arc<tokio::runtime::Runtime> {
 
     runtime.spawn(async move {
         if let Err(e) = main_server::run_server(false).await {
-            panic!("Test server failed to run: {}", e);
+            panic!("Test server failed to run: {e}");
         }
     });
 
@@ -95,7 +89,7 @@ async fn setup_server() -> Arc<tokio::runtime::Runtime> {
             .await
             .is_ok()
         {
-            info!("Server is up and running at {}", PUBLIC_SERVER_ADDRESS);
+            info!("Server is up and running at {PUBLIC_SERVER_ADDRESS}");
             return Arc::new(runtime);
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -137,10 +131,7 @@ pub fn check_ch_binary() -> bool {
 
 pub fn skip_if_ch_binary_missing() -> bool {
     if !check_ch_binary() {
-        log::warn!(
-            "Skipping test because '{}' binary was not found in PATH.",
-            VM_CH_BIN
-        );
+        log::warn!("Skipping test because '{VM_CH_BIN}' binary was not found in PATH.");
         return true;
     }
     false
@@ -156,10 +147,7 @@ pub fn check_youki_binary() -> bool {
 
 pub fn skip_if_youki_binary_missing() -> bool {
     if !check_youki_binary() {
-        log::warn!(
-            "Skipping test because '{}' binary was not found in PATH.",
-            VM_CH_BIN
-        );
+        log::warn!("Skipping test because '{VM_CH_BIN}' binary was not found in PATH.");
         return true;
     }
     false

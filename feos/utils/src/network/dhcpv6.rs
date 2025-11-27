@@ -209,6 +209,7 @@ pub struct PrefixInfo {
 pub struct Dhcpv6Result {
     pub address: Ipv6Addr,
     pub prefix: Option<PrefixInfo>,
+    pub ntp_servers: Vec<Ipv6Addr>,
 }
 
 pub async fn run_dhcpv6_client(
@@ -221,6 +222,7 @@ pub async fn run_dhcpv6_client(
     let multicast_address = "[FF02::1:2]:547".parse::<SocketAddr>().unwrap();
     let mut ia_addr_confirm: Option<DhcpOption> = None;
     let mut ia_pd_confirm: Option<IAPrefix> = None;
+    let mut ntp_servers: Vec<Ipv6Addr> = Vec::new();
 
     let interface_index = get_interface_index(interface_name.clone()).await?;
     let socket = create_multicast_socket(&interface_name, interface_index, 546)?;
@@ -236,7 +238,7 @@ pub async fn run_dhcpv6_client(
     oro.opts.push(OptionCode::DomainNameServers);
     oro.opts.push(OptionCode::DomainSearchList);
     oro.opts.push(OptionCode::ClientFqdn);
-    oro.opts.push(OptionCode::SntpServers);
+    oro.opts.push(OptionCode::NtpServer); // Option 56 (RFC 5908 NTP)
     oro.opts.push(OptionCode::RapidCommit);
     oro.opts.push(OptionCode::IAPD);
     oro.opts.push(OptionCode::IAPrefix);
@@ -366,6 +368,11 @@ pub async fn run_dhcpv6_client(
                         .insert(DhcpOption::IAPD(iapd_instance));
                 }
 
+                // Pass through ORO again to ensure we get NTP in Reply
+                let mut oro = ORO { opts: Vec::new() };
+                oro.opts.push(OptionCode::NtpServer); // Option 56 (RFC 5908 NTP)
+                request_msg.opts_mut().insert(DhcpOption::ORO(oro));
+
                 buf.clear();
                 request_msg.encode(&mut Encoder::new(&mut buf))?;
                 socket.send_to(&buf, multicast_address).await?;
@@ -382,6 +389,23 @@ pub async fn run_dhcpv6_client(
                     {
                         ia_pd_confirm = Some((*iaprefix).clone());
                     }
+                }
+
+                // Check for Option 56 (RFC 5908 NTP Server)
+                if let Some(DhcpOption::NtpServer(ntp_subopts)) =
+                    response.opts().get(OptionCode::NtpServer)
+                {
+                    for suboption in ntp_subopts {
+                        if let NtpSuboption::ServerAddress(addr) = suboption {
+                            ntp_servers.push(*addr);
+                        }
+                    }
+                }
+
+                if !ntp_servers.is_empty() {
+                    info!("Received NTP servers from DHCP: {ntp_servers:?}");
+                } else {
+                    warn!("No NTP servers received in DHCP Reply");
                 }
 
                 let mut confirm_msg = Message::new(MessageType::Confirm);
@@ -426,6 +450,7 @@ pub async fn run_dhcpv6_client(
         return Ok(Dhcpv6Result {
             address: ia_a.addr,
             prefix: prefix_info,
+            ntp_servers,
         });
     }
 

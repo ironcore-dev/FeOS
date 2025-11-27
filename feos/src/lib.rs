@@ -38,9 +38,11 @@ pub async fn run_server(restarted_after_upgrade: bool) -> Result<()> {
         warn!("Not running as root! (uid: {})", Uid::current());
     }
 
+    let mut ntp_servers = Vec::new();
+
     if !restarted_after_upgrade {
         if std::process::id() == 1 {
-            perform_first_boot_initialization().await?;
+            ntp_servers = perform_first_boot_initialization().await?;
         }
     } else {
         info!("Main: Skipping one-time initialization on restart after upgrade.");
@@ -53,7 +55,7 @@ pub async fn run_server(restarted_after_upgrade: bool) -> Result<()> {
     let vm_service = initialize_vm_service(&vm_db_url).await?;
     let container_service = initialize_container_service().await?;
 
-    let host_service = initialize_host_service(restart_tx.clone(), log_handle);
+    let host_service = initialize_host_service(restart_tx.clone(), log_handle, ntp_servers);
 
     let image_service = initialize_image_service().await?;
     let task_service = initialize_task_service().await?;
