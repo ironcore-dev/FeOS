@@ -10,7 +10,7 @@ workspace = true
 feos-proto = { workspace = true }
 image-service = { path = "../image-service" }
 task-service = { path = "../task-service" }
-sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "sqlite", "macros", "uuid"] }
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "macros", "uuid"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 hyper-util = { workspace = true }
@@ -30,4 +30,4 @@ thiserror = { workspace = true }
 hyper = { workspace = true }
 
 [build-dependencies]
-sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "sqlite", "macros", "uuid"] }
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "macros", "uuid"] }
