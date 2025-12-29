@@ -11,9 +11,6 @@ feos-proto = { workspace = true }
 image-service = { path = "../image-service" }
 cloud-hypervisor-client = { version = "0.3.3"}
 hyperlocal = "0.9.1"
-sqlx.workspace = true
-
-# Workspace dependencies
 openssl = { workspace = true, features = ["vendored"] }
 tokio = { workspace = true }
 tokio-stream = { workspace = true }
@@ -30,3 +27,4 @@ tower = { workspace = true }
 thiserror = { workspace = true }
 hyper = {workspace = true}
 hyper-util = { workspace = true }
+sqlx = { workspace = true }

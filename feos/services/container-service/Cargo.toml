@@ -10,13 +10,11 @@ workspace = true
 feos-proto = { workspace = true }
 image-service = { path = "../image-service" }
 task-service = { path = "../task-service" }
-sqlx.workspace = true
+sqlx = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 hyper-util = { workspace = true }
 tower = { workspace = true }
-
-# Workspace dependencies
 tokio = { workspace = true }
 tokio-stream = { workspace = true }
 tonic = { workspace = true }
