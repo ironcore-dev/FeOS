@@ -12,6 +12,7 @@ service HostService {
   rpc Hostname(HostnameRequest) returns (HostnameResponse);
   rpc GetMemory(MemoryRequest) returns (MemoryResponse);
   rpc GetCPUInfo(GetCPUInfoRequest) returns (GetCPUInfoResponse);
+  rpc GetKernelStats(GetKernelStatsRequest) returns (GetKernelStatsResponse);
   // Retrieves statistics for all network interfaces.
   rpc GetNetworkInfo(GetNetworkInfoRequest) returns (GetNetworkInfoResponse);
   rpc Shutdown(ShutdownRequest) returns (ShutdownResponse);
@@ -150,6 +151,43 @@ message CPUInfo {
   uint32 cache_alignment = 24;
   string address_sizes = 25;
   string power_management = 26;
+}
+
+message GetKernelStatsRequest {}
+
+message GetKernelStatsResponse {
+  KernelStats stats = 1;
+}
+
+message KernelStats {
+  // Total CPU (the "cpu" line from /proc/stat)
+  CpuTime total = 1;
+  // Per-CPU stats (cpu0, cpu1, etc.)
+  repeated CpuTime per_cpu = 2;
+  // Additional kernel statistics from /proc/stat
+  uint64 context_switches = 3;
+  uint64 boot_time = 4;
+  uint64 processes_created = 5;
+  uint32 processes_running = 6;
+  uint32 processes_blocked = 7;
+}
+
+message CpuTime {
+  // CPU identifier: "cpu" for total, "cpu0", "cpu1", etc. for individual cores
+  string name = 1;
+
+  // All values are in USER_HZ units (typically 1/100th of a second)
+  // These are monotonic counters that only increase
+  uint64 user = 2;        // Time in user mode
+  uint64 nice = 3;        // Time in user mode with low priority (nice)
+  uint64 system = 4;      // Time in system mode
+  uint64 idle = 5;        // Time in idle task
+  uint64 iowait = 6;      // Time waiting for I/O to complete
+  uint64 irq = 7;         // Time servicing interrupts
+  uint64 softirq = 8;     // Time servicing softirqs
+  uint64 steal = 9;       // Stolen time (time spent in other OS in virtualized environment)
+  uint64 guest = 10;      // Time spent running a virtual CPU for guest OS
+  uint64 guest_nice = 11; // Time spent running a niced guest
 }
 
 message GetNetworkInfoRequest {}

@@ -180,3 +180,42 @@ async fn test_get_network_info() -> Result<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_get_kernel_stats() -> Result<()> {
+    ensure_server().await;
+    let (_, mut host_client, _) = get_public_clients().await?;
+
+    info!("Sending GetKernelStats request");
+    let response = host_client
+        .get_kernel_stats(feos_proto::host_service::GetKernelStatsRequest {})
+        .await?
+        .into_inner();
+
+    let stats = response
+        .stats
+        .context("KernelStats was not present in the response")?;
+
+    info!(
+        "Received kernel stats: processes_running={}, processes_blocked={}, context_switches={}",
+        stats.processes_running, stats.processes_blocked, stats.context_switches
+    );
+
+    assert!(
+        stats.processes_running > 0,
+        "There should be at least one running process"
+    );
+    assert!(
+        stats.context_switches > 0,
+        "Context switches should be greater than zero"
+    );
+
+    let cpu_totals = stats.total.context("CPU totals not present")?;
+
+    info!(
+        "Received CPU totals: user={}, system={}, idle={}",
+        cpu_totals.user, cpu_totals.system, cpu_totals.idle
+    );
+
+    Ok(())
+}
