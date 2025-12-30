@@ -1,5 +1,6 @@
 // SPDX-FileCopyrightText: 2023 SAP SE or an SAP affiliate company and IronCore contributors
 // SPDX-License-Identifier: Apache-2.0
+mod kernel_stats;
 
 use anyhow::{Context, Result};
 use clap::{Args, Subcommand};
@@ -10,6 +11,8 @@ use feos_proto::host_service::{
 };
 use tokio_stream::StreamExt;
 use tonic::transport::Channel;
+
+use crate::host_commands::kernel_stats::get_kernel_stats;
 
 #[derive(Args, Debug)]
 pub struct HostArgs {
@@ -34,6 +37,8 @@ pub enum HostCommand {
     Memory,
     /// Display CPU information from /proc/cpuinfo
     CpuInfo,
+    /// Display CPU usage statistics from /proc/stat
+    KernelStats,
     /// Display network interface statistics
     NetworkInfo,
     /// Upgrade the FeOS binary from a remote URL
@@ -68,6 +73,7 @@ pub async fn handle_host_command(args: HostArgs) -> Result<()> {
         HostCommand::Hostname => get_hostname(&mut client).await?,
         HostCommand::Memory => get_memory(&mut client).await?,
         HostCommand::CpuInfo => get_cpu_info(&mut client).await?,
+        HostCommand::KernelStats => get_kernel_stats(&mut client).await?,
         HostCommand::NetworkInfo => get_network_info(&mut client).await?,
         HostCommand::Upgrade { url, sha256_sum } => {
             upgrade_feos(&mut client, url, sha256_sum).await?

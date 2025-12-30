@@ -4,10 +4,11 @@
 use crate::Command;
 use feos_proto::host_service::{
     host_service_server::HostService, FeosLogEntry, GetCpuInfoRequest, GetCpuInfoResponse,
-    GetNetworkInfoRequest, GetNetworkInfoResponse, GetVersionInfoRequest, GetVersionInfoResponse,
-    HostnameRequest, HostnameResponse, KernelLogEntry, MemoryRequest, MemoryResponse,
-    RebootRequest, RebootResponse, ShutdownRequest, ShutdownResponse, StreamFeosLogsRequest,
-    StreamKernelLogsRequest, UpgradeFeosBinaryRequest, UpgradeFeosBinaryResponse,
+    GetKernelStatsRequest, GetKernelStatsResponse, GetNetworkInfoRequest, GetNetworkInfoResponse,
+    GetVersionInfoRequest, GetVersionInfoResponse, HostnameRequest, HostnameResponse,
+    KernelLogEntry, MemoryRequest, MemoryResponse, RebootRequest, RebootResponse, ShutdownRequest,
+    ShutdownResponse, StreamFeosLogsRequest, StreamKernelLogsRequest, UpgradeFeosBinaryRequest,
+    UpgradeFeosBinaryResponse,
 };
 use log::info;
 use std::pin::Pin;
@@ -77,6 +78,14 @@ impl HostService for HostApiHandler {
     ) -> Result<Response<GetCpuInfoResponse>, Status> {
         info!("HostApi: Received GetCPUInfo request.");
         dispatch_and_wait(&self.dispatcher_tx, Command::GetCPUInfo).await
+    }
+
+    async fn get_kernel_stats(
+        &self,
+        _request: Request<GetKernelStatsRequest>,
+    ) -> Result<Response<GetKernelStatsResponse>, Status> {
+        info!("HostApi: Received GetKernelStats request.");
+        dispatch_and_wait(&self.dispatcher_tx, Command::GetKernelStats).await
     }
 
     async fn get_network_info(

@@ -3,9 +3,10 @@
 
 use crate::error::HostError;
 use feos_proto::host_service::{
-    FeosLogEntry, GetCpuInfoResponse, GetNetworkInfoResponse, GetVersionInfoResponse,
-    HostnameResponse, KernelLogEntry, MemoryResponse, RebootRequest, RebootResponse,
-    ShutdownRequest, ShutdownResponse, UpgradeFeosBinaryRequest, UpgradeFeosBinaryResponse,
+    FeosLogEntry, GetCpuInfoResponse, GetKernelStatsResponse, GetNetworkInfoResponse,
+    GetVersionInfoResponse, HostnameResponse, KernelLogEntry, MemoryResponse, RebootRequest,
+    RebootResponse, ShutdownRequest, ShutdownResponse, UpgradeFeosBinaryRequest,
+    UpgradeFeosBinaryResponse,
 };
 use std::path::PathBuf;
 use tokio::sync::{mpsc, oneshot};
@@ -21,6 +22,7 @@ pub enum Command {
     GetHostname(oneshot::Sender<Result<HostnameResponse, HostError>>),
     GetMemory(oneshot::Sender<Result<MemoryResponse, HostError>>),
     GetCPUInfo(oneshot::Sender<Result<GetCpuInfoResponse, HostError>>),
+    GetKernelStats(oneshot::Sender<Result<GetKernelStatsResponse, HostError>>),
     GetNetworkInfo(oneshot::Sender<Result<GetNetworkInfoResponse, HostError>>),
     GetVersionInfo(oneshot::Sender<Result<GetVersionInfoResponse, HostError>>),
     UpgradeFeosBinary(

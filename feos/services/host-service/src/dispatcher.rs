@@ -38,6 +38,9 @@ impl HostServiceDispatcher {
                 Command::GetCPUInfo(responder) => {
                     tokio::spawn(worker::handle_get_cpu_info(responder));
                 }
+                Command::GetKernelStats(responder) => {
+                    tokio::spawn(worker::handle_get_kernel_stats(responder));
+                }
                 Command::GetNetworkInfo(responder) => {
                     tokio::spawn(worker::handle_get_network_info(responder));
                 }
