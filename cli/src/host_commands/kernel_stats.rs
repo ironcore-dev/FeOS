@@ -157,14 +157,14 @@ mod tests {
 
     #[test]
     fn test_calculate_cpu_usage_percent_basic() {
-        // Sample 1: total = 1000 ticks, idle = 800
+        // Sample 1: total = 1000 ticks, idle = 800, iowait = 50
         let before = create_cpu_time("cpu0", 100, 0, 50, 800, 50);
-        // Sample 2: total = 1500 ticks, idle = 1000 (delta: 500 total, 200 idle)
-        let after = create_cpu_time("cpu0", 200, 0, 100, 1000, 200);
+        // Sample 2: total = 1500 ticks, idle = 900, iowait = 150 (delta: 500 total, 200 idle+iowait)
+        let after = create_cpu_time("cpu0", 200, 150, 100, 900, 150);
 
         let usage = calculate_cpu_usage_percent(&before, &after);
 
-        // Total delta = 500, idle delta = 200 (includes iowait)
+        // Total delta = 500, idle+iowait delta = (900+150) - (800+50) = 200
         // Busy = 500 - 200 = 300
         // Usage = 300/500 * 100 = 60%
         assert_eq!(usage.total, 60.0);
