@@ -3,9 +3,10 @@
 
 use crate::error::HostError;
 use feos_proto::host_service::{
-    FeosLogEntry, GetCpuInfoResponse, GetKernelStatsResponse, GetNetworkInfoResponse, GetVersionInfoResponse,
-    HostnameResponse, KernelLogEntry, MemoryResponse, RebootRequest, RebootResponse,
-    ShutdownRequest, ShutdownResponse, UpgradeFeosBinaryRequest, UpgradeFeosBinaryResponse,
+    FeosLogEntry, GetCpuInfoResponse, GetKernelStatsResponse, GetNetworkInfoResponse,
+    GetVersionInfoResponse, HostnameResponse, KernelLogEntry, MemoryResponse, RebootRequest,
+    RebootResponse, ShutdownRequest, ShutdownResponse, UpgradeFeosBinaryRequest,
+    UpgradeFeosBinaryResponse,
 };
 use std::path::PathBuf;
 use tokio::sync::{mpsc, oneshot};
