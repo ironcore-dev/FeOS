@@ -5,3 +5,6 @@ kernel:
 
 menuconfig:
 	docker run -it --rm -u $${UID} -v "`pwd`:/feos" feos-builder bash -c "cd hack/kernel && ./mk-menuconfig"
+
+oldconfig:
+	docker run -it --rm -u $${UID} -v "`pwd`:/feos" feos-builder bash -c "cd hack/kernel && ./mk-oldconfig"
