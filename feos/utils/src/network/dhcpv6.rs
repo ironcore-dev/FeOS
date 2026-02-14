@@ -162,7 +162,37 @@ fn send_router_solicitation(interface: &NetworkInterface, tx: &mut dyn datalink:
     }
 }
 
+/// Default timeout for waiting for a Router Advertisement (in seconds).
+/// This covers the 5s pre-RS sleep + time waiting for the RA response.
+const RA_WAIT_TIMEOUT_SECS: u64 = 20;
+
 pub fn is_dhcpv6_needed(interface_name: String, ignore_ra_flag: bool) -> Option<Ipv6Addr> {
+    // Run the blocking RA listener in a separate thread with a channel-based
+    // timeout. The rx.next() call on pnet's AF_PACKET socket blocks indefinitely
+    // even with read_timeout set, so we use a bounded channel recv_timeout to
+    // enforce the deadline regardless of the socket behavior.
+    let (tx, rx) = std::sync::mpsc::channel();
+    let iface_name = interface_name.clone();
+
+    std::thread::spawn(move || {
+        let result = is_dhcpv6_needed_inner(iface_name, ignore_ra_flag);
+        let _ = tx.send(result);
+    });
+
+    let timeout = Duration::from_secs(RA_WAIT_TIMEOUT_SECS);
+    match rx.recv_timeout(timeout) {
+        Ok(result) => result,
+        Err(_) => {
+            warn!(
+                "No Router Advertisement received within {RA_WAIT_TIMEOUT_SECS}s. \
+                 Skipping DHCPv6 network configuration."
+            );
+            None
+        }
+    }
+}
+
+fn is_dhcpv6_needed_inner(interface_name: String, ignore_ra_flag: bool) -> Option<Ipv6Addr> {
     let mut sender_ipv6_address: Option<Ipv6Addr> = None;
     let interfaces = datalink::interfaces();
     let interface = interfaces
@@ -187,6 +217,9 @@ pub fn is_dhcpv6_needed(interface_name: String, ignore_ra_flag: bool) -> Option<
                             if let Some(ra_packet) = RouterAdvertPacket::new(ipv6_packet.payload())
                             {
                                 if (ra_packet.get_flags() & 0xC0) == 0xC0 || ignore_ra_flag {
+                                    info!(
+                                        "Received Router Advertisement from {sender_ipv6_address:?}"
+                                    );
                                     break;
                                 }
                             }

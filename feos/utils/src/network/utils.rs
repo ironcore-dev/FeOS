@@ -193,8 +193,18 @@ pub async fn configure_network_devices() -> Result<Option<(Ipv6Addr, u8, Vec<Ipv
 
     if let Some(ipv6_gateway) = is_dhcpv6_needed(interface_name.clone(), ignore_ra_flag) {
         sleep(Duration::from_secs(4)).await;
-        match run_dhcpv6_client(interface_name.clone()).await {
-            Ok(result) => {
+        let dhcpv6_timeout = Duration::from_secs(30);
+        let dhcpv6_result =
+            tokio::time::timeout(dhcpv6_timeout, run_dhcpv6_client(interface_name.clone())).await;
+        match dhcpv6_result {
+            Err(_elapsed) => {
+                warn!(
+                    "DHCPv6 client timed out after {}s. Continuing without IPv6 address.",
+                    dhcpv6_timeout.as_secs()
+                );
+            }
+            Ok(Err(e)) => warn!("Error running DHCPv6 client: {e}"),
+            Ok(Ok(result)) => {
                 send_neigh_solicitation(interface_name.clone(), &ipv6_gateway, &result.address);
                 if let Some(prefix_info) = result.prefix {
                     let delegated_prefix = prefix_info.prefix;
@@ -224,7 +234,6 @@ pub async fn configure_network_devices() -> Result<Option<(Ipv6Addr, u8, Vec<Ipv
                     warn!("Failed to set IPv6 gateway: {e}");
                 }
             }
-            Err(e) => warn!("Error running DHCPv6 client: {e}"),
         }
     }
 
