@@ -22,7 +22,6 @@ use hyperlocal::{UnixClientExt, UnixConnector, Uri as HyperlocalUri};
 use log::{error, info, warn};
 use nix::sys::signal::{kill, Signal};
 use nix::unistd::{self, Pid};
-use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::process::Command as TokioCommand;
@@ -269,7 +268,10 @@ impl Hypervisor for CloudHypervisorAdapter {
             TokioCommand::new(&self.ch_binary_path)
                 .arg("--api-socket")
                 .arg(&api_socket_path)
-                .pre_exec(|| unistd::setsid().map(|_pid| ()).map_err(io::Error::other))
+                .pre_exec(|| {
+                    unistd::setsid()?;
+                    Ok(())
+                })
                 .spawn()
         }
         .map_err(|e| VmmError::ProcessSpawnFailed(e.to_string()))?;
