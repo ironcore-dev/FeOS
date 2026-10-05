@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2023 SAP SE or an SAP affiliate company and IronCore contributors
+// SPDX-FileCopyrightText: SAP SE or an SAP affiliate company and IronCore contributors
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::{worker, Command, RestartSignal};
@@ -37,6 +37,9 @@ impl HostServiceDispatcher {
                 }
                 Command::GetCPUInfo(responder) => {
                     tokio::spawn(worker::handle_get_cpu_info(responder));
+                }
+                Command::GetKernelStats(responder) => {
+                    tokio::spawn(worker::handle_get_kernel_stats(responder));
                 }
                 Command::GetNetworkInfo(responder) => {
                     tokio::spawn(worker::handle_get_network_info(responder));

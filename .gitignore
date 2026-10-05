@@ -1,5 +1,6 @@
 /target
+/bin
 /keys
 /.idea
 /.vscode
-*.txt
+/.zed

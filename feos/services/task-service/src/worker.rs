@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: SAP SE or an SAP affiliate company and IronCore contributors
+// SPDX-License-Identifier: Apache-2.0
+
 use crate::error::TaskError;
 use crate::Event;
 use feos_proto::task_service::{
